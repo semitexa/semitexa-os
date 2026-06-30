@@ -52,6 +52,10 @@ final class SkillLoopRunner
     #[InjectAsReadonly]
     protected OsSessionStore $session;
 
+    /** Registry of open dialog windows (Focus zone) for UI-skills. */
+    #[InjectAsReadonly]
+    protected OpenDialogStore $dialogs;
+
     /**
      * Built once and cached for the lifetime of this (worker-scoped) service:
      * instantiating every `#[AsCommand]` is not free, so we never rebuild per request.
@@ -280,6 +284,28 @@ final class SkillLoopRunner
                 arguments: $response->arguments,
                 reason: $response->reason,
                 error: "Planner proposed unknown skill '{$skill}' — rejected.",
+            );
+        }
+
+        // UI-skill: open a persistent dialog (Focus) instead of executing.
+        if ($entry->isUi()) {
+            $this->dialogs->open(
+                skill: $entry->name,
+                title: $entry->name,
+                icon: $entry->icon,
+                entry: $entry->entry,
+            );
+
+            return new IntentOutcome(
+                intent: $intent,
+                decision: IntentDecision::OpenDialog,
+                skill: $entry->name,
+                reason: $response->reason,
+                message: 'Opened ' . $entry->name . ' in Focus.',
+                confidence: $response->confidence,
+                providerName: $this->provider()->name(),
+                providerModel: $this->provider()->model(),
+                pipeline: [['skill' => $entry->name, 'arguments' => []]],
             );
         }
 

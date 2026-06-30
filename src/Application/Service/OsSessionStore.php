@@ -27,7 +27,7 @@ final class OsSessionStore
      */
     public function record(IntentOutcome $outcome): void
     {
-        if (!in_array($outcome->decision, [IntentDecision::Executed, IntentDecision::Answer], true)) {
+        if (!in_array($outcome->decision, [IntentDecision::Executed, IntentDecision::Answer, IntentDecision::OpenDialog], true)) {
             return;
         }
 

@@ -27,6 +27,9 @@ enum IntentDecision: string
     /** A skill was executed; see exitCode/output. */
     case Executed = 'executed';
 
+    /** A UI-skill was opened as a dialog window; the shell switches to Focus. */
+    case OpenDialog = 'open_dialog';
+
     /** The loop could not run (e.g. LLM provider unreachable, unknown skill proposed). */
     case Error = 'error';
 }

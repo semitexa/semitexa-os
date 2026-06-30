@@ -32,6 +32,9 @@ final class OsShellHandler implements TypedHandlerInterface
                 'name' => $skill->name,
                 'summary' => $skill->summary,
                 'risk' => $skill->riskLevel->value,
+                'icon' => $skill->icon,
+                'entry' => $skill->entry,
+                'is_ui' => $skill->isUi(),
             ];
         }
 
