@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Semitexa OS</title>
+    <link rel="stylesheet" href="/assets/skins/semitexa-os-shell/tokens.css">
+    <link rel="stylesheet" href="/assets/os/css/design-extras.css">
+    <link rel="stylesheet" href="/assets/os/css/shell.css">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+    <div class="os-root" id="root"></div>
+
+    <script type="application/json" id="os-boot">{{ { providerName: providerName|default('llm'), providerModel: providerModel|default('?'), providerHealthy: providerHealthy, skills: skills|default([]) }|json_encode|raw }}</script>
+    <script>
+    (function () {
+        const boot = JSON.parse(document.getElementById('os-boot').textContent || '{}');
+        const root = document.getElementById('root');
+        const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+        const ico = (n, w) => '<i data-lucide="' + n + '" style="width:' + (w||18) + 'px;height:' + (w||18) + 'px;stroke-width:1.5"></i>';
+
+        const S = {
+            screen: 'awakening', awake: 'idle',
+            mode: 'ambient', xray: false,
+            run: null,            // { intent, stage, decision, skill, policy, reason, message, surfaces:[] }
+            surfaces: [],
+            units: [],            // real skills in flight for the current/last run: {name,status,busy,exit}
+            log: [{ t: 'os:session · ready', tone: 'mute' }],
+            cue: null, chill: 'none',
+            input: '', clock: new Date(), snapshot: null,
+        };
+        let sid = 1;
+
+        function blip(f) { try { const C = window.AudioContext||window.webkitAudioContext; if(!C) return; const a = blip._a||(blip._a=new C()); const o=a.createOscillator(),g=a.createGain(); o.type='sine'; o.frequency.value=f||660; o.connect(g); g.connect(a.destination); const t=a.currentTime; g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(.05,t+.03); g.gain.exponentialRampToValueAtTime(.0001,t+.42); o.start(t); o.stop(t+.44);} catch(e){} }
+        function log(t, tone) { S.log = [{ t, tone: tone||'mute' }, ...S.log].slice(0, 9); }
+        function drawIcons() { let n=0; (function r(){ if(window.lucide&&window.lucide.createIcons) window.lucide.createIcons(); else if(n++<40) setTimeout(r,120); })(); }
+
+        // ---------- screens ----------
+        function awakeningHTML() {
+            let cap = '';
+            if (S.awake === 'idle') cap = '<div class="os-awaken__cap"><h1>"Hi, Semi"</h1><p>No boot. No lock screen. Touch to begin.</p></div>';
+            else if (S.awake === 'auth') cap = '<div class="os-awaken__auth">Recognising voice biometrics…</div>';
+            else if (S.awake === 'snapshot') cap = snapshotHTML();
+            return '<div class="os-awaken">'
+                + '<div class="os-awaken__grid"></div>'
+                + '<div class="os-awaken__brand">Semi<span class="os-brand-accent">texa</span> <span class="os-brand-os">OS</span></div>'
+                + '<div class="os-orb" data-act="awaken"><div class="os-orb__ring"></div><div class="os-orb__ring delay"></div>'
+                + '<div class="os-orb__core">' + ico('mic', 46) + '</div></div>'
+                + cap + '</div>';
+        }
+        function snapshotHTML() {
+            const s = S.snapshot || {};
+            const has = (s.count || 0) > 0;
+            const trim = (t) => (t && t.length > 48) ? t.slice(0, 46) + '…' : (t || '');
+            let rows = '<div class="os-snapshot__row"><span class="dot"></span> Local LLM deployment · <span class="sub">' + esc(boot.providerName) + ' · ' + esc(boot.providerModel) + '</span></div>';
+            if (has) {
+                if (s.last_skill) rows += '<div class="os-snapshot__row"><span class="dot"></span> Last skill · <span class="sub">' + esc(s.last_skill) + '</span></div>';
+                if (s.last_intent) rows += '<div class="os-snapshot__row"><span class="dot"></span> Last intent · <span class="sub">"' + esc(trim(s.last_intent)) + '"</span></div>';
+                rows += '<div class="os-snapshot__row"><span class="dot mute"></span> os:session · <span class="sub">' + s.count + ' actions on this device</span></div>';
+            } else {
+                rows += '<div class="os-snapshot__row"><span class="dot mute"></span> os:session · <span class="sub">no prior actions yet</span></div>';
+            }
+            return '<div class="os-snapshot">'
+                + '<div class="os-snapshot__eyebrow">' + ico('history') + ' State Snapshot · ' + (has ? 'restored from var/os/session' : 'new device') + '</div>'
+                + '<div class="os-snapshot__title">' + (has ? 'Continue where you were' : 'A clean slate') + '</div>'
+                + '<div class="os-snapshot__rows">' + rows + '</div>'
+                + '<div class="os-snapshot__actions">'
+                + '<button class="os-btn-primary grow" data-act="enter-continue">' + (has ? 'Continue session' : 'Enter') + ' ' + ico('arrow-right') + '</button>'
+                + '<button class="os-btn-ghost" data-act="enter-fresh">Fresh start</button>'
+                + '</div></div>';
+        }
+
+        function topbarHTML() {
+            const modes = ['ambient','focus','chill'];
+            const labels = { ambient: 'Ambient', focus: 'Focus', chill: 'Chill' };
+            const btns = modes.map(m => '<button class="os-modebtn' + (S.mode===m?' active':'') + '" data-act="mode" data-mode="' + m + '">' + labels[m] + '</button>').join('');
+            const dot = boot.providerHealthy ? '#37b7ff' : '#ff6b82';
+            return '<header class="os-topbar">'
+                + '<div class="os-topbar__brand">Semi<span class="os-brand-accent">texa</span> <span class="os-brand-os">OS</span></div>'
+                + '<div class="os-topbar__clock">' + S.clock.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' · ' + S.clock.toLocaleDateString([], {month:'short',day:'numeric'}) + '</div>'
+                + '<div class="os-modeswitch">' + btns + '</div>'
+                + '<button class="os-xray-toggle' + (S.xray?' active':'') + '" data-act="xray">' + ico('scan-eye',16) + ' X-Ray</button>'
+                + '<div class="os-topbar__user">' + ico('bell') + '<span><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' + dot + ';margin-right:6px"></span>' + esc(boot.providerName) + ' · <span class="uid">' + esc(boot.providerModel) + '</span></span></div>'
+                + '</header>';
+        }
+
+        // ---------- ambient + loop ----------
+        function stageCards() {
+            const order = ['intent','plan','execute','observe'];
+            const meta = {
+                intent: { label: 'Intent', sub: S.run ? '"' + S.run.intent + '"' : 'voice / text' },
+                plan:   { label: 'Plan', sub: 'Planner over the SkillManifest' },
+                execute:{ label: 'Execute', sub: 'SkillExecutor · headless' },
+                observe:{ label: 'Observe', sub: 'live state · surface on demand' },
+            };
+            const cur = S.run ? S.run.stage : null;
+            const rank = { intent:0, plan:1, ask:1, refuse:1, confirm:1, execute:2, observe:3 };
+            return order.map(k => {
+                let cls = 'os-stagecard';
+                const ck = rank[cur] != null ? rank[cur] : -1;
+                const kk = rank[k];
+                if (ck === kk) cls += ' active';
+                else if (ck > kk) cls += ' done';
+                return '<div class="' + cls + '"><div class="os-stagecard__key">' + k + '</div>'
+                    + '<div class="os-stagecard__label">' + meta[k].label + '</div>'
+                    + '<div class="os-stagecard__sub">' + esc(meta[k].sub) + '</div></div>';
+            }).join('');
+        }
+        function decisionPill() {
+            const d = S.run.decision || S.run.stage;
+            const map = { answer:'answer', ask:'ask', refuse:'refuse', needs_confirmation:'skill', confirm:'skill', executed:'execute', execute:'execute', plan:'', skill:'skill' };
+            const cls = map[d] || '';
+            const label = ({ plan:'planning…', ask:'ask (clarify)', refuse:'refuse (safety stop)', needs_confirmation:'propose_skill', confirm:'propose_skill', answer:'answer', executed:'executed', execute:'executing…' })[d] || d;
+            return '<div class="os-pill ' + cls + '"><span class="dot"></span>planner → ' + esc(label) + '</div>';
+        }
+        function gateHTML() {
+            const r = S.run; const st = r.stage;
+            if (st === 'ask') return '<div class="os-gate"><div class="os-ask"><div class="os-ask__q">' + esc(r.message || 'Could you clarify that?') + '</div><div style="margin-top:16px"><button class="os-btn-sm" data-act="dismiss">Dismiss</button></div></div></div>';
+            if (st === 'refuse') return '<div class="os-gate"><div class="os-refuse"><div class="os-refuse__eyebrow">' + ico('shield-x') + ' safety stop</div><div class="os-refuse__reason">' + esc(r.message || r.reason || 'This action was refused.') + '</div><div style="margin-top:16px"><button class="os-btn-sm" data-act="dismiss">Understood</button></div></div></div>';
+            if (st === 'confirm') {
+                const isPipe = Array.isArray(r.pipeline) && r.pipeline.length > 1;
+                const chipItems = isPipe ? r.pipeline.map(s => s.skill) : (r.skill ? [r.skill] : []);
+                const chips = chipItems.map((p, i) => '<span class="os-pipe__chip">' + (isPipe ? (i + 1) + '. ' : '') + esc(p) + '</span>').join(isPipe ? '<span style="color:#6f7d99">→</span>' : '');
+                const heading = isPipe ? ('Pipeline · ' + r.pipeline.length + ' skills') : (r.skill || 'Skill');
+                return '<div class="os-gate" style="max-width:720px"><div class="os-confirm">'
+                    + '<div class="os-confirm__head"><div class="os-confirm__skill">' + esc(heading) + '</div>'
+                    + '<div class="os-confirm__policy">' + esc('risk · ' + (r.policy || 'medium')) + '</div></div>'
+                    + '<div class="os-confirm__sum">' + esc(r.reason || r.message || 'Run this skill?') + '</div>'
+                    + (chips ? '<div class="os-pipe">' + chips + '</div>' : '')
+                    + '<div class="os-gate__actions"><button class="os-btn-go" data-act="approve">' + ico('check',17) + ' Approve &amp; run</button>'
+                    + '<button class="os-btn-sm" data-act="dismiss">Cancel</button></div></div></div>';
+            }
+            if (st === 'execute') {
+                const u = S.units.map(x => '<div class="os-unit' + (x.busy?' busy':'') + '"><div class="os-unit__head">' + ico('box',20) + '<span class="os-unit__name">' + esc(x.name) + '</span><span class="os-unit__dot"></span></div><div class="os-unit__status">' + esc(x.status) + (x.exit != null && x.status !== 'running' ? ' · exit ' + x.exit : '') + '</div></div>').join('');
+                return '<div class="os-units">' + (u || '<div class="os-unit"><div class="os-unit__status">executing…</div></div>') + '</div>';
+            }
+            return '';
+        }
+        function surfaceHTML(sf) {
+            const head = (extra) => '<div class="os-surf-head">' + extra + '<span class="title">' + esc(sf.title) + '</span><span class="os-taxo">' + esc(sf.taxo) + '</span><button class="os-surf-close" data-act="close-surface" data-id="' + sf.id + '">' + ico('x',16) + '</button></div>';
+            if (sf.kind === 'window') {
+                return '<div class="os-surface"><div class="os-surf--window"><div class="bar"><span class="dots"><i style="background:#ff6b82"></i><i style="background:#f5c451"></i><i style="background:#37b7ff"></i></span><span class="wtitle">' + esc(sf.title) + '</span><span class="os-taxo">' + esc(sf.taxo) + '</span><button class="os-surf-close" data-act="close-surface" data-id="' + sf.id + '">' + ico('x',16) + '</button></div><div class="body"><pre>' + esc(sf.body) + '</pre>' + (sf.meta?'<div style="font-family:var(--font-mono);font-size:13px;color:#6f7d99;margin-top:12px">' + esc(sf.meta) + '</div>':'') + '</div></div></div>';
+            }
+            if (sf.kind === 'readout') {
+                const rows = (sf.rows||[]).map(r => '<div class="os-readout-row"><span class="k">' + esc(r[0]) + '</span><span class="v">' + esc(r[1]) + '</span></div>').join('');
+                return '<div class="os-surface"><div class="os-surf--readout">' + head(ico('activity')) + '<div class="os-readout-rows">' + rows + '</div></div></div>';
+            }
+            return '<div class="os-surface"><div class="os-surf--inline">' + head(ico('sparkles')) + '<div class="text">' + esc(sf.body) + '</div>' + (sf.meta?'<div class="meta">' + esc(sf.meta) + '</div>':'') + '</div></div>';
+        }
+
+        function ambientHTML() {
+            let inner = '';
+            if (!S.run && S.surfaces.length === 0) {
+                inner = '<div class="os-calm"><div class="os-calm__greet">Good evening, Alina.</div>'
+                    + '<div class="os-calm__sub">Tell Semi what you want. A surface is raised only when the intent needs space.</div>'
+                    + '<div class="os-resumed">' + ico('history') + ' Resumed · <b>' + esc(boot.providerName) + ' deployment</b> · ' + ((boot.skills||[]).length) + ' skills ready</div></div>';
+            } else {
+                if (S.run) {
+                    inner += '<div class="os-loop"><div class="os-loop__eyebrow">' + ico('rotate-ccw',15) + ' the loop · over the Skill Registry</div>'
+                        + '<div class="os-loop__stages">' + stageCards() + '</div>'
+                        + '<div class="os-decision">' + decisionPill() + gateHTML() + '</div></div>';
+                }
+                if (S.surfaces.length) inner += '<div class="os-surfaces">' + S.surfaces.map(surfaceHTML).join('') + '</div>';
+            }
+            return '<div class="os-scroll">' + inner + '</div>' + intentbarHTML();
+        }
+
+        function intentbarHTML() {
+            const trim = (t) => (t && t.length > 54) ? t.slice(0, 52) + '…' : (t || '');
+            const sugg = (boot.skills || []).slice(0, 4)
+                .map(s => '<button class="os-suggest-chip" data-act="suggest" data-text="' + esc(s.summary || s.name) + '">' + esc(trim(s.summary || s.name)) + '</button>').join('');
+            return '<div class="os-intentbar">'
+                + (!S.run ? '<div class="os-suggest">' + sugg + '</div>' : '')
+                + '<div class="os-intentbar__field"><span class="dot"></span>'
+                + '<input id="intent-input" placeholder="Tell Semi what you want…" value="' + esc(S.input) + '" autocomplete="off">'
+                + '<button class="os-intentbar__send" data-act="submit">' + ico('arrow-up',20) + '</button></div></div>';
+        }
+
+        function focusHTML() {
+            const tiers = [
+                { tier:'Critical', risk:'high',   crit:true,  color:'#ff6b82', border:'rgba(255,107,130,.4)' },
+                { tier:'Standard', risk:'medium', crit:false, color:'#37b7ff', border:'rgba(55,183,255,.4)' },
+                { tier:'Low',      risk:'low',    crit:false, color:'#8d9bb8', border:'rgba(148,163,184,.3)' },
+            ];
+            const skills = boot.skills || [];
+            let cards = '';
+            for (const t of tiers) {
+                const group = skills.filter(s => (s.risk || 'low') === t.risk);
+                for (const s of group) {
+                    cards += '<div class="os-focus-item' + (t.crit?' crit':'') + '">'
+                        + '<div class="os-focus-item__head"><span class="os-focus-item__tier" style="color:' + t.color + ';border:1px solid ' + t.border + '">' + t.tier + '</span>'
+                        + '<span class="os-focus-item__title"><code style="font-family:var(--font-mono);color:' + t.color + '">' + esc(s.name) + '</code></span></div>'
+                        + '<div class="os-focus-item__detail">' + esc(s.summary || '') + '</div>'
+                        + '<button class="os-btn-go" style="margin-top:14px;height:38px" data-act="run-skill" data-text="' + esc(s.summary || s.name) + '">' + ico('arrow-right',16) + ' Run' + (t.risk!=='low'?' · confirm':'') + '</button>'
+                        + '</div>';
+                }
+            }
+            if (!cards) cards = '<div class="os-focus-item"><div class="os-focus-item__detail">No skills discovered.</div></div>';
+            return '<div class="os-scroll"><div class="os-focus"><div class="os-focus__eyebrow"><span class="tag">Command Center</span><span class="note">' + skills.length + ' skills · grouped by blast radius · you approve &amp; run</span></div>'
+                + '<div class="os-focus__title">Triage · skills by risk.</div><div class="os-focus__items">' + cards + '</div></div></div>';
+        }
+
+        function chillHTML() {
+            let cue = '';
+            if (S.chill === 'waiting') cue = '<div class="os-cue-voice" style="border-color:rgba(255,107,130,.3)"><div class="os-cue-voice__eyebrow" style="color:#ff9aab">' + ico('alert-triangle',17) + ' sync-worker crashed · waiting for a combat lull…</div></div>';
+            else if (S.chill === 'ask') cue = '<div class="os-cue-voice"><div class="os-cue-voice__eyebrow">' + ico('volume-2',17) + ' Semi · by voice, gently</div><div class="os-cue-voice__body">"A sync daemon went down. Want me to restart it? No rush."</div><div style="display:flex;gap:12px"><button class="os-btn-purple" data-act="chill-restart">Restart it</button><button class="os-btn-sm" data-act="chill-dismiss">Later</button></div></div>';
+            return '<div class="os-chill"><div class="os-chill__stage">'
+                + '<div class="os-chill__game"><span class="dot"></span> The Witcher 3 · running · fullscreen</div>'
+                + '<div class="os-chill__hud"><span style="border-color:rgba(183,148,246,.3)">GPU 98%</span><span>non-critical services · suppressed</span></div>'
+                + '<div><div class="os-chill__title">Chill mode</div><div class="os-chill__sub">The OS darkened, suppressed background services, and gave the game maximum GPU/NPU. Skills still run — silently.</div>'
+                + '<div class="os-chill__actions"><button class="os-btn-purple" data-act="chill-voice">' + ico('mic',17) + ' "Semi, status report" · runs silently</button>'
+                + '<button class="os-btn-sm" style="height:44px" data-act="chill-daemon">' + ico('alert-triangle',17) + ' Simulate daemon failure</button></div></div>'
+                + cue + '</div></div>';
+        }
+
+        function xrayHTML() {
+            const unit = (name, status, busy) => '<div class="os-unit' + (busy?' busy':'') + '"><div class="os-unit__head">' + ico('box',19) + '<span class="os-unit__name">' + esc(name) + '</span><span class="os-unit__dot"></span></div><div class="os-unit__status">' + esc(status) + '</div></div>';
+            let units;
+            if (S.units.length) {
+                units = S.units.map(u => unit(u.name, u.status + (u.exit != null && u.status !== 'running' ? ' · exit ' + u.exit : ''), u.busy)).join('');
+            } else {
+                const recent = ((S.snapshot && S.snapshot.recent) || []).slice().reverse().slice(0, 4);
+                units = recent.length
+                    ? recent.map(e => unit(e.skill || e.intent || e.decision, e.decision, false)).join('')
+                    : '<div class="os-xray__hint">No activity yet.</div>';
+            }
+            const sessionCount = (S.snapshot && S.snapshot.count) || 0;
+            const tr = S.log.map(e => '<div class="os-trace-line ' + (e.tone||'') + '">' + esc(e.t) + '</div>').join('');
+            return '<aside class="os-xray"><div class="os-xray__eyebrow">' + ico('scan-eye',16) + ' X-Ray · observability</div>'
+                + '<div class="os-xray__hint">' + (S.units.length ? 'Skills in flight, live.' : 'Recent loop activity (durable session).') + '</div>'
+                + '<div class="os-xray__units">' + units + '</div>'
+                + '<div class="os-xray__meters"><div class="os-meter"><div class="os-meter__k">PROVIDER ' + (boot.providerHealthy?'· up':'· down') + '</div><div class="os-meter__v accent" style="font-size:14px">' + esc(boot.providerModel) + '</div></div><div class="os-meter"><div class="os-meter__k">SESSION</div><div class="os-meter__v plain">' + sessionCount + ' <span style="font-size:11px;color:#6f7d99">actions</span></div></div></div>'
+                + '<div class="os-xray__trace-h">os:trace · live</div><div class="os-xray__trace">' + tr + '</div></aside>';
+        }
+
+        function cueHTML() {
+            if (!S.cue) return '';
+            return '<div class="os-cue"><div class="os-cue__head">' + ico('volume-2') + '<span class="os-cue__title">' + esc(S.cue.title) + '</span></div><div class="os-cue__body">' + esc(S.cue.body) + '</div></div>';
+        }
+
+        function render() {
+            if (S.screen === 'awakening') { root.innerHTML = awakeningHTML(); drawIcons(); return; }
+            let stage = '';
+            if (S.mode === 'ambient') stage = ambientHTML();
+            else if (S.mode === 'focus') stage = focusHTML();
+            else if (S.mode === 'chill') stage = chillHTML();
+            const railClass = S.xray ? ' with-rail' : '';
+            root.innerHTML = '<div class="os-shell">' + topbarHTML()
+                + '<div class="os-main"><div class="os-stage' + railClass + '">' + stage + '</div>'
+                + (S.xray ? xrayHTML() : '') + '</div>' + cueHTML() + '</div>';
+            drawIcons();
+            const inp = document.getElementById('intent-input');
+            if (inp && S._focusInput) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); S._focusInput = false; }
+        }
+
+        // ---------- backend wiring (Ambient) ----------
+        async function post(url, body) {
+            try {
+                const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(body) });
+                const txt = await res.text();
+                try { return JSON.parse(txt); } catch(e) { return { decision:'error', message:'Bad response (' + res.status + ')' }; }
+            } catch (e) { return { decision:'error', message:'Network error: ' + e.message }; }
+        }
+        function pushSurface(sf) { sf.id = 's' + (sid++); S.surfaces = [sf, ...S.surfaces].slice(0, 4); }
+        // Real per-skill execution units (replaces the metaphor units).
+        function unitsFor(skills, status, exit) {
+            return (skills || []).filter(Boolean).map(name => ({ name, status, busy: status === 'running', exit }));
+        }
+        function unitsFromOutcome(resp) {
+            const skills = (Array.isArray(resp.pipeline) && resp.pipeline.length) ? resp.pipeline.map(s => s.skill) : (resp.skill ? [resp.skill] : []);
+            if (resp.decision !== 'executed') return unitsFor(skills, 'idle', resp.exit_code);
+            const ok = resp.exit_code === 0 || resp.exit_code == null;
+            return unitsFor(skills, ok ? 'done' : 'failed', resp.exit_code);
+        }
+
+        function observe(resp) {
+            // Render by the surface the backend arbiter declared (minimal-sufficient).
+            const surf = resp.surface || 'window';
+            const title = resp.skill || 'Semi';
+            const body = ((resp.output && resp.output.trim()) ? resp.output : (resp.message || '')) || '';
+            const meta = (typeof resp.exit_code === 'number') ? 'exit ' + resp.exit_code : '';
+            // Chill = do-not-disturb: never raise a space-taking surface; collapse
+            // everything to a gentle cue (the smallest surface), per Scenario B.
+            if (S.mode === 'chill') {
+                const line = (body.split('\n')[0] || 'Done.').slice(0, 80);
+                S.cue = { title, body: line };
+                setTimeout(() => { S.cue = null; render(); }, 4200);
+                return;
+            }
+            if (surf === 'none') return;
+            if (surf === 'cue') { S.cue = { title, body: body || 'Done.' }; setTimeout(() => { S.cue = null; render(); }, 4200); return; }
+            if (surf === 'inline') { pushSurface({ kind: 'inline', title, taxo: 'inline card', body, meta }); return; }
+            if (surf === 'readout') { pushSurface({ kind: 'inline', title, taxo: 'readout', body, meta }); return; }
+            pushSurface({ kind: 'window', title, taxo: 'full window', body, meta });
+        }
+
+        function submit() { const inp = document.getElementById('intent-input'); runIntent((inp && inp.value) || ''); }
+        async function runIntent(text) {
+            text = (text || '').trim();
+            if (!text) return;
+            S.mode = 'ambient'; S._focusInput = true;
+            S.input = ''; S.run = { intent: text, stage: 'plan', decision: 'plan' }; S.units = [];
+            log('intent · "' + text + '"', 'accent'); render();
+            const resp = await post('/os/intent', { intent: text });
+            S.units = unitsFromOutcome(resp);
+            const d = resp.decision;
+            S.run.decision = d; S.run.message = resp.message; S.run.reason = resp.reason; S.run.skill = resp.skill; S.run.policy = resp.risk_level; S.run.arguments = resp.arguments; S.run.pipeline = resp.pipeline || [];
+            if (d === 'answer') { S.run.stage = 'observe'; log('planner · answer'); observe(resp); }
+            else if (d === 'ask') { S.run.stage = 'ask'; log('planner · ask (clarify gate)'); }
+            else if (d === 'refuse') { S.run.stage = 'refuse'; log('planner · refuse (safety stop)', 'danger'); }
+            else if (d === 'needs_confirmation') { S.run.stage = 'confirm'; log('planner · propose_skill · ' + (resp.skill||'')); }
+            else if (d === 'executed') { S.run.stage = 'observe'; log('executed · ' + (resp.skill||'')); observe(resp); }
+            else { S.run.stage = 'refuse'; S.run.message = resp.message || 'Something went wrong.'; log('error', 'danger'); }
+            render();
+        }
+        async function approve() {
+            const r = S.run; if (!r) return;
+            const isPipe = Array.isArray(r.pipeline) && r.pipeline.length > 1;
+            r.stage = 'execute';
+            S.units = unitsFor(isPipe ? r.pipeline.map(s => s.skill) : (r.skill ? [r.skill] : []), 'running');
+            log('execute · SkillExecutor · headless invoke'); render();
+            const resp = isPipe
+                ? await post('/os/pipeline', { intent: r.intent, steps: r.pipeline })
+                : await post('/os/skill', { intent: r.intent, skill: r.skill, arguments: r.arguments || {} });
+            S.units = unitsFromOutcome(resp);
+            r.stage = 'observe'; r.decision = resp.decision; log('observe · ' + (resp.skill||r.skill)); observe(resp); render();
+        }
+
+        // Chill DND: run a safe skill silently (no window, no loop HUD) → gentle cue.
+        async function chillRun(skill) {
+            log('chill · ' + skill + ' · silent', 'mute');
+            const resp = await post('/os/skill', { intent: '(chill) ' + skill, skill, arguments: {} });
+            S.units = unitsFromOutcome(resp);
+            observe(resp); // S.mode === 'chill' → forced cue
+            render();
+        }
+
+        // ---------- events ----------
+        root.addEventListener('click', (e) => {
+            const t = e.target.closest('[data-act]'); if (!t) return;
+            const act = t.dataset.act;
+            if (act === 'awaken') { if (S.awake!=='idle') return; S.awake='auth'; blip(540); render(); setTimeout(()=>{ S.awake='snapshot'; render(); }, 1500); }
+            else if (act === 'enter-continue') { S.screen='os'; S.mode='ambient'; blip(720); log('continued · local LLM deployment · fixture','accent'); render(); }
+            else if (act === 'enter-fresh') { S.screen='os'; S.mode='ambient'; blip(720); render(); }
+            else if (act === 'mode') { S.mode = t.dataset.mode; if (S.mode!=='chill') S.chill='none'; blip(620); render(); }
+            else if (act === 'xray') { S.xray = !S.xray; blip(700); render(); }
+            else if (act === 'submit') { S._focusInput = true; submit(); }
+            else if (act === 'suggest') { S.input = t.dataset.text; S._focusInput = true; render(); }
+            else if (act === 'run-skill') { runIntent(t.dataset.text); }
+            else if (act === 'approve') approve();
+            else if (act === 'dismiss') { S.run = null; render(); }
+            else if (act === 'close-surface') { S.surfaces = S.surfaces.filter(x => x.id !== t.dataset.id); render(); }
+            else if (act === 'chill-voice') { blip(680); chillRun('os:status'); }
+            else if (act === 'chill-daemon') { S.chill='waiting'; render(); setTimeout(()=>{ S.chill='ask'; render(); }, 2200); }
+            else if (act === 'chill-restart') { S.chill='none'; S.cue={ title:'Daemon restarted', body:'sync-worker · healthy' }; render(); setTimeout(()=>{ S.cue=null; render(); }, 3500); }
+            else if (act === 'chill-dismiss') { S.chill='none'; render(); }
+        });
+        root.addEventListener('keydown', (e) => {
+            if (e.target.id === 'intent-input' && e.key === 'Enter') { e.preventDefault(); S._focusInput = true; submit(); }
+        });
+        root.addEventListener('input', (e) => { if (e.target.id === 'intent-input') S.input = e.target.value; });
+
+        setInterval(() => { S.clock = new Date(); if (S.screen==='os') { const c = root.querySelector('.os-topbar__clock'); if (c) c.textContent = S.clock.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' · ' + S.clock.toLocaleDateString([], {month:'short',day:'numeric'}); } }, 1000);
+
+        // Restore the real State Snapshot (OS-owned session log) for the Awakening screen.
+        fetch('/os/snapshot', { headers: { 'Accept': 'application/json' } })
+            .then(r => r.json()).then(s => {
+                S.snapshot = s;
+                if (Array.isArray(s.recent) && s.recent.length) {
+                    S.log = s.recent.slice().reverse().map(e => ({ t: 'session · ' + (e.skill || e.intent || e.decision), tone: 'mute' }));
+                }
+                render();
+            }).catch(() => {});
+
+        render();
+    })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+/* ============================================================
+   Semitexa OS — design extras
+   Tokens the canonical --ui-* skin schema has no slot for, taken
+   verbatim from the Claude Design system (source of truth):
+   type families, the type scale, tracking/leading. Colour, radius,
+   shadow, motion all live in the skin tokens.css (--ui-*).
+   Shared by both OS surfaces (site + shell).
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+    /* ---------- Type families ---------- */
+    --font-display: "Syne", -apple-system, sans-serif;
+    --font-ui:      "IBM Plex Sans", system-ui, sans-serif;
+    --font-mono:    "IBM Plex Mono", ui-monospace, monospace;
+
+    /* ---------- Type scale (rem) ---------- */
+    --type-xs:   0.72rem;
+    --type-sm:   0.82rem;
+    --type-base: 0.92rem;
+    --type-md:   1.05rem;
+    --type-lg:   1.45rem;
+    --type-xl:   2.1rem;
+    --type-2xl:  3.4rem;
+    --type-3xl:  6.4rem;
+
+    --tracking-eyebrow: 0.16em;
+    --tracking-tight:   -0.03em;
+    --tracking-normal:  0;
+
+    --leading-tight: 0.92;
+    --leading-snug:  1.2;
+    --leading-body:  1.75;
+}

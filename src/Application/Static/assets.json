@@ -1,0 +1,7 @@
+{
+    "$schema": "semitexa://asset-manifest/v2",
+    "module": "os",
+    "include": {
+        "css": ["css/**/*.css"]
+    }
+}
