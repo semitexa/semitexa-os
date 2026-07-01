@@ -16,6 +16,7 @@ use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
 use Semitexa\Llm\Domain\Enum\PlannerResponseType;
 use Semitexa\Llm\Domain\Model\LlmRequest;
 use Semitexa\Llm\Domain\Model\PlannerResponse;
+use Semitexa\Llm\Domain\Model\SkillEntry;
 use Semitexa\Llm\Domain\Model\SkillManifest;
 use Semitexa\Os\Domain\Enum\IntentDecision;
 use Semitexa\Os\Domain\Model\IntentOutcome;
@@ -144,6 +145,7 @@ final class SkillLoopRunner
         }
 
         $needsConfirmation = false;
+        $firstUi = null;
         foreach ($steps as $step) {
             $entry = $manifest->findSkill($step['skill']);
             if ($entry === null) {
@@ -155,9 +157,21 @@ final class SkillLoopRunner
                     error: "Pipeline references unknown skill '{$step['skill']}' — rejected.",
                 );
             }
+            if ($firstUi === null && $entry->isUi()) {
+                $firstUi = $entry;
+            }
             if ($entry->confirmation !== AiConfirmationMode::Never) {
                 $needsConfirmation = true;
             }
+        }
+
+        // A pipeline can't execute UI-skills — they raise a dialog, not console
+        // output. "I want to write several notes" plans as [Notes, Notes]; we
+        // route the first UI-skill through the single dialog path, which opens
+        // one dialog (or asks, if one is already running) rather than spawning a
+        // duplicate per step.
+        if ($firstUi !== null) {
+            return $this->handleUiSkill($intent, $firstUi, $response->reason, $response->confidence);
         }
 
         if ($needsConfirmation) {
@@ -289,24 +303,7 @@ final class SkillLoopRunner
 
         // UI-skill: open a persistent dialog (Focus) instead of executing.
         if ($entry->isUi()) {
-            $this->dialogs->open(
-                skill: $entry->name,
-                title: $entry->name,
-                icon: $entry->icon,
-                entry: $entry->entry,
-            );
-
-            return new IntentOutcome(
-                intent: $intent,
-                decision: IntentDecision::OpenDialog,
-                skill: $entry->name,
-                reason: $response->reason,
-                message: 'Opened ' . $entry->name . ' in Focus.',
-                confidence: $response->confidence,
-                providerName: $this->provider()->name(),
-                providerModel: $this->provider()->model(),
-                pipeline: [['skill' => $entry->name, 'arguments' => []]],
-            );
+            return $this->handleUiSkill($intent, $entry, $response->reason, $response->confidence);
         }
 
         $needsConfirmation = $entry->confirmation !== AiConfirmationMode::Never;
@@ -331,6 +328,53 @@ final class SkillLoopRunner
             $entry->riskLevel->value,
             $response->confidence,
             $manifest,
+        );
+    }
+
+    /**
+     * Raise a UI-skill as a dialog window (Focus) — but never silently
+     * duplicate one. If a dialog for this skill is already running, the OS asks
+     * instead ({@see IntentDecision::DialogExists}): open another, or switch to
+     * the running one. Only when none is open do we open a fresh dialog.
+     */
+    private function handleUiSkill(
+        string $intent,
+        SkillEntry $entry,
+        ?string $reason,
+        ?float $confidence,
+    ): IntentOutcome {
+        foreach ($this->dialogs->list() as $dialog) {
+            if (($dialog['skill'] ?? null) === $entry->name) {
+                return new IntentOutcome(
+                    intent: $intent,
+                    decision: IntentDecision::DialogExists,
+                    skill: $entry->name,
+                    reason: $reason,
+                    message: $entry->name . ' is already open. Open another, or switch to the one in Focus?',
+                    confidence: $confidence,
+                    providerName: $this->provider()->name(),
+                    providerModel: $this->provider()->model(),
+                );
+            }
+        }
+
+        $this->dialogs->open(
+            skill: $entry->name,
+            title: $entry->name,
+            icon: $entry->icon,
+            entry: $entry->entry,
+        );
+
+        return new IntentOutcome(
+            intent: $intent,
+            decision: IntentDecision::OpenDialog,
+            skill: $entry->name,
+            reason: $reason,
+            message: 'Opened ' . $entry->name . ' in Focus.',
+            confidence: $confidence,
+            providerName: $this->provider()->name(),
+            providerModel: $this->provider()->model(),
+            pipeline: [['skill' => $entry->name, 'arguments' => []]],
         );
     }
 

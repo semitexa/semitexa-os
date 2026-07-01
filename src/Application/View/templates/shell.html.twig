@@ -109,15 +109,16 @@
         }
         function decisionPill() {
             const d = S.run.decision || S.run.stage;
-            const map = { answer:'answer', ask:'ask', refuse:'refuse', needs_confirmation:'skill', confirm:'skill', executed:'execute', execute:'execute', plan:'', skill:'skill' };
+            const map = { answer:'answer', ask:'ask', refuse:'refuse', needs_confirmation:'skill', confirm:'skill', executed:'execute', execute:'execute', plan:'', skill:'skill', dialog_exists:'ask' };
             const cls = map[d] || '';
-            const label = ({ plan:'planning…', ask:'ask (clarify)', refuse:'refuse (safety stop)', needs_confirmation:'propose_skill', confirm:'propose_skill', answer:'answer', executed:'executed', execute:'executing…' })[d] || d;
+            const label = ({ plan:'planning…', ask:'ask (clarify)', refuse:'refuse (safety stop)', needs_confirmation:'propose_skill', confirm:'propose_skill', answer:'answer', executed:'executed', execute:'executing…', dialog_exists:'already open' })[d] || d;
             return '<div class="os-pill ' + cls + '"><span class="dot"></span>planner → ' + esc(label) + '</div>';
         }
         function gateHTML() {
             const r = S.run; const st = r.stage;
             if (st === 'ask') return '<div class="os-gate"><div class="os-ask"><div class="os-ask__q">' + esc(r.message || 'Could you clarify that?') + '</div><div style="margin-top:16px"><button class="os-btn-sm" data-act="dismiss">Dismiss</button></div></div></div>';
             if (st === 'refuse') return '<div class="os-gate"><div class="os-refuse"><div class="os-refuse__eyebrow">' + ico('shield-x') + ' safety stop</div><div class="os-refuse__reason">' + esc(r.message || r.reason || 'This action was refused.') + '</div><div style="margin-top:16px"><button class="os-btn-sm" data-act="dismiss">Understood</button></div></div></div>';
+            if (st === 'dialog_exists') return '<div class="os-gate"><div class="os-ask"><div class="os-ask__q">' + esc(r.message || ((r.skill || 'That tool') + ' is already open.')) + '</div><div class="os-gate__actions" style="margin-top:16px"><button class="os-btn-go" data-act="dlg-switch" data-skill="' + esc(r.skill || '') + '">' + ico('arrow-right',16) + ' Switch to the open one</button><button class="os-btn-sm" data-act="dlg-open-another" data-skill="' + esc(r.skill || '') + '">Open another</button><button class="os-btn-sm" data-act="dismiss">Cancel</button></div></div></div>';
             if (st === 'confirm') {
                 const isPipe = Array.isArray(r.pipeline) && r.pipeline.length > 1;
                 const chipItems = isPipe ? r.pipeline.map(s => s.skill) : (r.skill ? [r.skill] : []);
@@ -334,6 +335,7 @@
                 setTimeout(function () { S.run = null; S.surfaces = []; S.mode = 'focus'; fetchDialogs().then(render); }, 2600);
                 return;
             }
+            else if (d === 'dialog_exists') { S.run.stage = 'dialog_exists'; log('already open · ' + (resp.skill||''), 'accent'); fetchDialogs(); }
             else { S.run.stage = 'refuse'; S.run.message = resp.message || 'Something went wrong.'; log('error', 'danger'); }
             render();
         }
@@ -483,6 +485,17 @@
                 if (d.state === 'minimized') { dialogState(id, 'normal').then(() => focusDialog(id)); }
                 else if (S.focusedId === id) { dialogState(id, 'minimized'); }
                 else { focusDialog(id); }
+            }
+            else if (act === 'dlg-open-another') { const sk = t.dataset.skill; S.run = null; openDialog(sk).then(() => { S.mode = 'focus'; render(); }); }
+            else if (act === 'dlg-switch') {
+                const sk = t.dataset.skill; S.run = null; S.mode = 'focus';
+                fetchDialogs().then(() => {
+                    render();
+                    const d = (S.dialogs || []).find(x => x.skill === sk);
+                    if (!d) return;
+                    if (d.state === 'minimized') { dialogState(d.id, 'normal').then(() => focusDialog(d.id)); }
+                    else { focusDialog(d.id); }
+                });
             }
             else if (act === 'approve') approve();
             else if (act === 'dismiss') { S.run = null; render(); }

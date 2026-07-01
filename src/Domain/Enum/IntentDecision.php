@@ -30,6 +30,13 @@ enum IntentDecision: string
     /** A UI-skill was opened as a dialog window; the shell switches to Focus. */
     case OpenDialog = 'open_dialog';
 
+    /**
+     * A UI-skill was proposed, but a dialog for it is already running. The OS
+     * asks rather than silently duplicating it: open another, or switch to the
+     * open one.
+     */
+    case DialogExists = 'dialog_exists';
+
     /** The loop could not run (e.g. LLM provider unreachable, unknown skill proposed). */
     case Error = 'error';
 }
