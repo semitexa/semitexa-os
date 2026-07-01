@@ -153,7 +153,9 @@
         function ambientHTML() {
             let inner = '';
             if (!S.run && S.surfaces.length === 0) {
-                inner = '<div class="os-calm"><div class="os-calm__greet">Good evening, Alina.</div>'
+                const hh = new Date().getHours();
+                const greet = hh < 5 ? 'Still up' : hh < 12 ? 'Good morning' : hh < 18 ? 'Good afternoon' : 'Good evening';
+                inner = '<div class="os-calm"><div class="os-calm__greet">' + greet + ', Alina.</div>'
                     + '<div class="os-calm__sub">Tell Semi what you want. A surface is raised only when the intent needs space.</div>'
                     + '<div class="os-resumed">' + ico('history') + ' Resumed · <b>' + esc(boot.providerName) + ' deployment</b> · ' + ((boot.skills||[]).length) + ' skills ready</div></div>';
             } else {
@@ -169,8 +171,13 @@
 
         function intentbarHTML() {
             const trim = (t) => (t && t.length > 54) ? t.slice(0, 52) + '…' : (t || '');
-            const sugg = (boot.skills || []).slice(0, 4)
-                .map(s => '<button class="os-suggest-chip" data-act="suggest" data-text="' + esc(s.summary || s.name) + '">' + esc(trim(s.summary || s.name)) + '</button>').join('');
+            // Adaptive chips from /os/suggestions (history + time-of-day). Until
+            // they load, fall back to a few skill summaries so the bar is never bare.
+            const list = (S.suggestions && S.suggestions.length)
+                ? S.suggestions.slice(0, 4)
+                : (boot.skills || []).slice(0, 4).map(s => ({ text: s.summary || s.name, hint: '', source: 'skill' }));
+            const sugg = list
+                .map(s => '<button class="os-suggest-chip" data-act="suggest" data-text="' + esc(s.text) + '"' + (s.hint ? ' title="' + esc(s.hint) + '"' : '') + '>' + esc(trim(s.text)) + '</button>').join('');
             const busy = S.busy;
             return '<div class="os-intentbar">'
                 + (!S.run ? '<div class="os-suggest">' + sugg + '</div>' : '')
@@ -338,6 +345,7 @@
             else if (d === 'dialog_exists') { S.run.stage = 'dialog_exists'; log('already open · ' + (resp.skill||''), 'accent'); fetchDialogs(); }
             else { S.run.stage = 'refuse'; S.run.message = resp.message || 'Something went wrong.'; log('error', 'danger'); }
             render();
+            refreshSuggestions(); // the system just learned something — re-adapt the chips
         }
         async function approve() {
             const r = S.run; if (!r) return;
@@ -374,6 +382,20 @@
                 S.dialogs = j.dialogs || [];
                 S.dialogs.forEach(d => { if (!S.recents.some(x => x.name === d.skill)) S.recents.unshift({ name: d.skill, icon: d.icon }); });
                 S.recents = S.recents.slice(0, 6);
+            } catch (e) {}
+        }
+        // Pull the adaptive Ambient chips. We send the client's *local* wall-clock
+        // context (hour + weekend) so suggestions match the user's real time of
+        // day regardless of the server timezone. Called on entry and after each
+        // intent, so the chips adapt as the system listens.
+        async function refreshSuggestions() {
+            try {
+                const now = new Date();
+                const weekend = (now.getDay() === 0 || now.getDay() === 6) ? 1 : 0;
+                const r = await fetch('/os/suggestions?hour=' + now.getHours() + '&weekend=' + weekend + '&limit=4', { headers: { 'Accept': 'application/json' } });
+                const d = await r.json();
+                S.suggestions = Array.isArray(d.suggestions) ? d.suggestions : [];
+                render();
             } catch (e) {}
         }
         async function openDialog(skill) { await post('/os/dialog/open', { skill }); await fetchDialogs(); render(); }
@@ -471,8 +493,8 @@
             const t = e.target.closest('[data-act]'); if (!t) return;
             const act = t.dataset.act;
             if (act === 'awaken') { if (S.awake!=='idle') return; S.awake='auth'; blip(540); render(); setTimeout(()=>{ S.awake='snapshot'; render(); }, 1500); }
-            else if (act === 'enter-continue') { S.screen='os'; S.mode='ambient'; blip(720); log('continued · local LLM deployment · fixture','accent'); render(); }
-            else if (act === 'enter-fresh') { S.screen='os'; S.mode='ambient'; blip(720); render(); }
+            else if (act === 'enter-continue') { S.screen='os'; S.mode='ambient'; blip(720); log('continued · local LLM deployment · fixture','accent'); render(); refreshSuggestions(); }
+            else if (act === 'enter-fresh') { S.screen='os'; S.mode='ambient'; blip(720); render(); refreshSuggestions(); }
             else if (act === 'mode') { S.mode = t.dataset.mode; if (S.mode!=='chill') S.chill='none'; blip(620); render(); if (S.mode === 'focus') fetchDialogs().then(render); }
             else if (act === 'xray') { S.xray = !S.xray; blip(700); render(); }
             else if (act === 'submit') { S._focusInput = true; submit(); }

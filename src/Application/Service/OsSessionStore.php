@@ -93,6 +93,18 @@ final class OsSessionStore
     }
 
     /**
+     * The full recorded event log (oldest → newest), for consumers that need
+     * more than the {@see self::snapshot()} summary — e.g. the
+     * {@see SuggestionEngine} mining the user's own past intents.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function events(): array
+    {
+        return $this->read();
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     private function read(): array
