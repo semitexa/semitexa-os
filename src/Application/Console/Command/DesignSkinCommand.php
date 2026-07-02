@@ -8,12 +8,13 @@ use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Console\BaseCommand;
 use Semitexa\Llm\Application\Service\LlmProviderResolver;
+use Semitexa\Llm\Application\Service\RemoteOllamaProvider;
 use Semitexa\Llm\Attribute\AsAiSkill;
 use Semitexa\Llm\Domain\Enum\AiArgumentPolicy;
 use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
 use Semitexa\Llm\Domain\Enum\AiRiskLevel;
+use Semitexa\Llm\Domain\Model\LlmRequest;
 use Semitexa\Os\Application\Service\SkinStore;
-use Semitexa\PlatformUi\Application\Service\SkinResolver\Llm\PromptResolverFactory;
 use Semitexa\Theme\Application\Service\Skin\KnobResolver;
 use Semitexa\Theme\Application\Service\Skin\SkinAlgorithmRegistry;
 use Semitexa\Theme\Application\Service\Skin\SkinBuilder;
@@ -49,6 +50,15 @@ use Symfony\Component\Console\Output\OutputInterface;
 )]
 final class DesignSkinCommand extends BaseCommand
 {
+    /**
+     * Bounds for the single "pick one colour" model call. The remote Ollama is
+     * slow (CPU), but a reskin turn must not hang — past the timeout we fall back
+     * to the keyword seed. The token cap keeps generation to a few seconds (one
+     * hex is ~8 tokens); thinking is disabled so the budget goes to the answer.
+     */
+    private const RESOLVER_TIMEOUT_SECONDS = 25;
+    private const RESOLVER_MAX_TOKENS = 24;
+
     #[InjectAsReadonly]
     protected LlmProviderResolver $llm;
 
@@ -61,7 +71,7 @@ final class DesignSkinCommand extends BaseCommand
             ->setDescription('Reskin the OS interface to match a described mood/style (LLM) or a seed hex.')
             ->addOption('prompt', null, InputOption::VALUE_REQUIRED, 'Natural-language description of the desired look/mood.')
             ->addOption('hex', null, InputOption::VALUE_REQUIRED, 'Seed colour #rrggbb (deterministic, skips the LLM).')
-            ->addOption('llm', null, InputOption::VALUE_NONE, 'Use the LLM resolver for a smarter seed (slow on a cold model; keyword-first otherwise).');
+            ->addOption('fast', null, InputOption::VALUE_NONE, 'Skip the LLM resolver — derive the seed from mood keywords only (instant).');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -80,22 +90,17 @@ final class DesignSkinCommand extends BaseCommand
                 return Command::SUCCESS;
             }
             $label = $prompt;
-            // Keyword-first: derive the seed from the mood INSTANTLY + reliably, so a
-            // chat turn always reskins the OS. The LLM resolver picks a smarter seed,
-            // but on the cold remote model it can block for minutes (provider timeout
-            // × retries) — far too long to hold a chat turn — so it is opt-in via
-            // --llm (use it when the model is warm); otherwise we never touch it.
+            // Let the MODEL choose the colour (the operator's ask): a tiny focused
+            // call asks it for ONE accent hex for the mood, and SkinBuilder turns
+            // that seed into the full coherent --ui-* palette. The keyword seed is
+            // pre-set as the safety net — if the model is slow/unavailable the call
+            // is bounded and we fall back to it, so a turn always reskins.
+            // --fast skips the model entirely (keyword only, instant).
             $seed = $this->seedFromPrompt($prompt);
-            if ($input->getOption('llm')) {
-                try {
-                    $resolution = (new PromptResolverFactory(provider: $this->llm->provider()))->create()->resolve($prompt);
-                    if ($this->isHex((string) $resolution->params->seed)) {
-                        $seed = (string) $resolution->params->seed;
-                        $algorithmId = $resolution->params->algorithm;
-                        $knobs = $resolution->params->knobs;
-                    }
-                } catch (\Throwable) {
-                    // Keep the keyword seed — the model was slow/unavailable.
+            if (!$input->getOption('fast')) {
+                $modelSeed = $this->seedFromModel($prompt);
+                if ($modelSeed !== null) {
+                    $seed = $modelSeed;
                 }
             }
         }
@@ -147,14 +152,45 @@ final class DesignSkinCommand extends BaseCommand
         ];
     }
 
-    private function isHex(string $v): bool
+    /**
+     * Ask the model to pick ONE accent colour for the mood — the operator wants the
+     * MODEL to choose the palette seed, not a keyword table. Kept deliberately small
+     * (compact prompt, thinking off, a ~24-token cap, one short attempt) so it returns
+     * in a few seconds on the slow CPU model; returns null on timeout / bad output so
+     * the caller keeps the keyword seed. SkinBuilder expands the seed into the palette.
+     */
+    private function seedFromModel(string $prompt): ?string
     {
-        return preg_match('/^#?[0-9a-fA-F]{6}$/', trim($v)) === 1;
+        try {
+            $provider = $this->llm->provider();
+            if ($provider instanceof RemoteOllamaProvider) {
+                $provider = $provider->withLimits(
+                    self::RESOLVER_TIMEOUT_SECONDS,
+                    0,
+                    maxTokens: self::RESOLVER_MAX_TOKENS,
+                    thinking: false,
+                );
+            }
+
+            $response = $provider->complete(new LlmRequest(
+                systemPrompt: 'You choose ONE brand accent colour for a UI theme from a described mood or scene. '
+                    . 'Reply with ONLY a single hex colour in the form #rrggbb — no words, no explanation, no code fences.',
+                userMessage: $prompt,
+            ));
+
+            if ($response->success && preg_match('/#?[0-9a-fA-F]{6}/', $response->content, $m) === 1) {
+                return $m[0][0] === '#' ? $m[0] : '#' . $m[0];
+            }
+        } catch (\Throwable) {
+            // Slow/unavailable model — the caller keeps the keyword seed.
+        }
+
+        return null;
     }
 
     /**
      * Deterministic prompt → seed colour, so a mood still reskins the OS when the
-     * LLM resolver is slow/unavailable. Scans for the first colour/mood keyword
+     * model is slow/unavailable. Scans for the first colour/mood keyword
      * (EN + UK); defaults to the Semitexa cyan.
      */
     private function seedFromPrompt(string $prompt): string
