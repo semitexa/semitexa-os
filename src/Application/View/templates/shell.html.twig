@@ -115,7 +115,6 @@
                 + '<div class="os-topbar__clock">' + S.clock.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' · ' + S.clock.toLocaleDateString([], {month:'short',day:'numeric'}) + '</div>'
                 + '<div class="os-modeswitch">' + btns + '</div>'
                 + '<button class="os-xray-toggle' + (S.xray?' active':'') + '" data-act="xray">' + ico('scan-eye',16) + ' X-Ray</button>'
-                + '<div class="os-topbar__user">' + ico('bell') + '</div>'
                 + '</header>';
         }
 
@@ -734,10 +733,17 @@
                 const items = d.items || [];
                 if (!items.length) return;
                 await refreshHistory();                 // pull the new turn(s) into the thread
-                const last = items[items.length - 1];
-                S.cue = { title: boot.assistantName, body: last.text };
-                setTimeout(() => { S.cue = null; render(); }, 5200);
-                if (S.mode !== 'ambient' && S.chatDock === 'collapsed') S.proactiveUnseen += items.length;
+                // ONE signal per context — never both (no bell, no double-notify):
+                //  • Ambient    → the conversation IS on screen; a brief toast pings it.
+                //  • other tab, chat folded → a badge on the chat-open icon (the FAB).
+                //  • other tab, chat open   → the turn just appears in the dock; nothing extra.
+                if (S.mode === 'ambient') {
+                    const last = items[items.length - 1];
+                    S.cue = { title: boot.assistantName, body: last.text };
+                    setTimeout(() => { S.cue = null; render(); }, 5200);
+                } else if (S.chatDock === 'collapsed') {
+                    S.proactiveUnseen += items.length;
+                }
                 blip(760);
                 render();
             } catch (e) {}
@@ -846,7 +852,7 @@
             if (act === 'awaken') { if (S.awake!=='idle') return; S.awake='auth'; blip(540); render(); setTimeout(()=>{ S.awake='snapshot'; render(); }, 1500); }
             else if (act === 'enter-continue') { markSession(); S.screen='os'; S.mode='ambient'; blip(720); log('continued · local LLM deployment · fixture','accent'); render(); refreshSuggestions(); refreshHistory(); }
             else if (act === 'enter-fresh') { markSession(); S.screen='os'; S.mode='ambient'; blip(720); render(); refreshSuggestions(); refreshHistory(); }
-            else if (act === 'mode') { S.mode = t.dataset.mode; blip(620); render(); if (S.mode === 'focus' || S.mode === 'chill') { fetchDialogs().then(render); if (S.mode === 'focus') fetchWebApps().then(render); if (S.mode === 'chill') refreshTasks().then(render); } if (S.mode === 'ambient') refreshHistory(); }
+            else if (act === 'mode') { S.mode = t.dataset.mode; blip(620); if (S.mode === 'ambient') S.proactiveUnseen = 0; render(); if (S.mode === 'focus' || S.mode === 'chill') { fetchDialogs().then(render); if (S.mode === 'focus') fetchWebApps().then(render); if (S.mode === 'chill') refreshTasks().then(render); } if (S.mode === 'ambient') refreshHistory(); }
             else if (act === 'xray') { S.xray = !S.xray; blip(700); render(); }
             else if (act === 'chatdock-toggle') { setChatDock(S.chatDock === 'open' ? 'collapsed' : 'open'); if (S.chatDock === 'open') { S._focusInput = true; S.proactiveUnseen = 0; } blip(600); render(); }
             else if (act === 'submit') { S._focusInput = true; submit(); }
