@@ -78,16 +78,22 @@ final class DesignSkinCommand extends BaseCommand
                 $output->writeln('Tell me the style — e.g. "a seaside evening in Sicily".');
                 return Command::SUCCESS;
             }
+            $label = $prompt;
             try {
                 $resolution = (new PromptResolverFactory(provider: $this->llm->provider()))->create()->resolve($prompt);
+                $seed = (string) $resolution->params->seed;
+                $algorithmId = $resolution->params->algorithm;
+                $knobs = $resolution->params->knobs;
             } catch (\Throwable $e) {
-                $output->writeln('I could not design that right now (the design model is unavailable). Try again in a moment.');
-                return Command::SUCCESS;
+                // The design model was slow/unavailable — do NOT give up: fall through
+                // to a deterministic keyword→seed so the interface still reskins.
             }
-            $seed = $resolution->params->seed;
-            $algorithmId = $resolution->params->algorithm;
-            $knobs = $resolution->params->knobs;
-            $label = $prompt;
+            // Whatever happened, guarantee a usable seed so a skin is always produced.
+            if (!$this->isHex($seed)) {
+                $seed = $this->seedFromPrompt($prompt);
+                $algorithmId = 'balanced';
+                $knobs = [];
+            }
         }
 
         $registry = new SkinAlgorithmRegistry();
@@ -135,6 +141,42 @@ final class DesignSkinCommand extends BaseCommand
                 $sunken,
             ),
         ];
+    }
+
+    private function isHex(string $v): bool
+    {
+        return preg_match('/^#?[0-9a-fA-F]{6}$/', trim($v)) === 1;
+    }
+
+    /**
+     * Deterministic prompt → seed colour, so a mood still reskins the OS when the
+     * LLM resolver is slow/unavailable. Scans for the first colour/mood keyword
+     * (EN + UK); defaults to the Semitexa cyan.
+     */
+    private function seedFromPrompt(string $prompt): string
+    {
+        $p = mb_strtolower($prompt);
+        $map = [
+            '#2e9e4f' => ['green', 'forest', 'ліс', 'зелен', 'emerald', 'mint', 'moss'],
+            '#1e7fb8' => ['sea', 'ocean', 'blue', 'море', 'син', 'блакит', 'water', 'sky'],
+            '#e8703a' => ['sunset', 'orange', 'warm', 'захід', 'помаранч', 'ember', 'autumn', 'осін'],
+            '#c0392b' => ['red', 'crimson', 'червон', 'fire', 'ruby'],
+            '#7b57c2' => ['purple', 'violet', 'фіолет', 'lavender', 'plum', 'бузков'],
+            '#d6547a' => ['pink', 'rose', 'рожев', 'blossom'],
+            '#d9a520' => ['yellow', 'gold', 'жовт', 'золот', 'sun', 'honey', 'сонц'],
+            '#17a89a' => ['teal', 'cyan', 'бірюз', 'turquoise'],
+            '#2c3e50' => ['dark', 'night', 'ніч', 'темн', 'midnight', 'noir'],
+            '#8d6e4a' => ['brown', 'wood', 'earth', 'коричн', 'земл', 'coffee', 'sand'],
+        ];
+        foreach ($map as $hex => $words) {
+            foreach ($words as $w) {
+                if (str_contains($p, $w)) {
+                    return $hex;
+                }
+            }
+        }
+
+        return '#37b7ff';
     }
 
     /** "#rrggbb" → "r, g, b" (falls back to the default accent on a bad value). */
