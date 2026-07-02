@@ -9,6 +9,7 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Console\Application as ConsoleApplication;
 use Semitexa\Llm\Application\Service\LlmProviderResolver;
 use Semitexa\Llm\Application\Service\PersonaRegistry;
+use Semitexa\Llm\Application\Service\RemoteOllamaProvider;
 use Semitexa\Llm\Application\Service\Planner;
 use Semitexa\Llm\Application\Service\SkillExecutor;
 use Semitexa\Llm\Application\Service\SkillRegistry;
@@ -123,7 +124,17 @@ final class SkillLoopRunner
             history: [],
         );
 
-        $plannerResponse = $planner->parseResponse($this->provider()->complete($request));
+        // Route with the reasoning trace off — we only consume the structured
+        // decision, and a thinking-capable model (gemma4) would otherwise spend its
+        // token budget on a trace, slowing routing and risking truncated JSON. The
+        // cap bounds generation; the timeout is generous because the FIRST turn pays
+        // the full manifest prefill (~cold), while later turns reuse the cached
+        // prefix and return in seconds.
+        $plannerProvider = $this->provider();
+        if ($plannerProvider instanceof RemoteOllamaProvider) {
+            $plannerProvider = $plannerProvider->withLimits(160, 0, maxTokens: 320, thinking: false);
+        }
+        $plannerResponse = $planner->parseResponse($plannerProvider->complete($request));
 
         $outcome = match ($plannerResponse->type) {
             PlannerResponseType::Answer => $this->observe($intent, IntentDecision::Answer, $plannerResponse),
@@ -250,8 +261,7 @@ final class SkillLoopRunner
             }
 
             $arguments = $step['arguments'] ?? [];
-            $channel = $entry->skillClass !== null ? 'web' : 'console';
-            $result = $this->executor()->execute($skill, $arguments, $manifest, $channel);
+            $result = $this->executor()->execute($skill, $arguments, $manifest, $this->channelFor($entry));
 
             $ran[] = ['skill' => $skill, 'arguments' => $arguments];
             $outputs[] = '» ' . $skill . "\n" . trim((string) $result->output);
@@ -429,10 +439,8 @@ final class SkillLoopRunner
         ?float $confidence,
         SkillManifest $manifest,
     ): IntentOutcome {
-        // Invocable (non-command) skills run on the 'web' channel; command skills on 'console'.
         $entry = $manifest->findSkill($skill);
-        $channel = ($entry !== null && $entry->skillClass !== null) ? 'web' : 'console';
-        $result = $this->executor()->execute($skill, $arguments, $manifest, $channel);
+        $result = $this->executor()->execute($skill, $arguments, $manifest, $this->channelFor($entry));
 
         return new IntentOutcome(
             intent: $intent,
@@ -465,9 +473,36 @@ final class SkillLoopRunner
         );
     }
 
+    /**
+     * Skills the OS chat can route to: the user-facing surfaces (`web` intents and
+     * `ui` app-openers), never `console` dev commands (cache:clear, contracts:list,
+     * skins:* …). Scoping here both keeps routing on-surface and trims the planner
+     * system prompt — a large win on the slow CPU model, where every prompt token
+     * is prefill time.
+     */
+    private const OS_CHANNELS = ['web', 'ui'];
+
     private function manifest(): SkillManifest
     {
-        return (new SkillRegistry())->buildManifest();
+        return (new SkillRegistry())->buildManifest()->forChannels(self::OS_CHANNELS);
+    }
+
+    /**
+     * The channel to execute a routed skill on. SkillExecutor gates execution by the
+     * skill's declared channels, so we must pass one the skill actually supports —
+     * `web` for OS intents, `ui` for app-openers — NOT a channel derived from whether
+     * it happens to be a command (os:design-skin is a `web` command). Command vs
+     * invocable execution is chosen inside the executor from the skill's skillClass.
+     */
+    private function channelFor(?SkillEntry $entry): string
+    {
+        foreach (self::OS_CHANNELS as $channel) {
+            if ($entry !== null && in_array($channel, $entry->channels, true)) {
+                return $channel;
+            }
+        }
+
+        return 'web';
     }
 
     private function executor(): SkillExecutor
