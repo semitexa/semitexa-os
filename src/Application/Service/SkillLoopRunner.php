@@ -117,24 +117,9 @@ final class SkillLoopRunner
         $manifest = $this->manifest();
         $planner = new Planner();
 
-        $persona = (new PersonaRegistry())->framing('os');
-        $request = new LlmRequest(
-            systemPrompt: $planner->buildSystemPrompt($manifest, $persona !== '' ? $persona : null),
-            userMessage: $intent,
-            history: [],
+        $plannerResponse = $planner->parseResponse(
+            $this->plannerProvider()->complete($this->plannerRequest($intent, $manifest)),
         );
-
-        // Route with the reasoning trace off — we only consume the structured
-        // decision, and a thinking-capable model (gemma4) would otherwise spend its
-        // token budget on a trace, slowing routing and risking truncated JSON. The
-        // cap bounds generation; the timeout is generous because the FIRST turn pays
-        // the full manifest prefill (~cold), while later turns reuse the cached
-        // prefix and return in seconds.
-        $plannerProvider = $this->provider();
-        if ($plannerProvider instanceof RemoteOllamaProvider) {
-            $plannerProvider = $plannerProvider->withLimits(160, 0, maxTokens: 320, thinking: false);
-        }
-        $plannerResponse = $planner->parseResponse($plannerProvider->complete($request));
 
         $outcome = match ($plannerResponse->type) {
             PlannerResponseType::Answer => $this->observe($intent, IntentDecision::Answer, $plannerResponse),
@@ -485,6 +470,57 @@ final class SkillLoopRunner
     private function manifest(): SkillManifest
     {
         return (new SkillRegistry())->buildManifest()->forChannels(self::OS_CHANNELS);
+    }
+
+    /**
+     * The planner LLM request for a user message. Its (large, static) system prompt
+     * is what {@see warmPlanner()} primes into the runtime's prefix cache — so both
+     * paths MUST build it here, byte-identically, or the warm-up would cache a
+     * prefix real turns never reuse.
+     */
+    private function plannerRequest(string $userMessage, SkillManifest $manifest): LlmRequest
+    {
+        $persona = (new PersonaRegistry())->framing('os');
+
+        return new LlmRequest(
+            systemPrompt: (new Planner())->buildSystemPrompt($manifest, $persona !== '' ? $persona : null),
+            userMessage: $userMessage,
+            history: [],
+        );
+    }
+
+    /**
+     * The provider used for routing: reasoning trace OFF (we only consume the
+     * structured decision, and a thinking-capable model like gemma4 would otherwise
+     * spend its token budget on a trace, slowing routing and risking truncated JSON),
+     * a capped generation, and a generous timeout — the FIRST turn pays the full
+     * manifest prefill while later turns reuse the cached prefix and return fast.
+     */
+    private function plannerProvider(): LlmProviderInterface
+    {
+        $provider = $this->provider();
+        if ($provider instanceof RemoteOllamaProvider) {
+            return $provider->withLimits(160, 0, maxTokens: 320, thinking: false);
+        }
+
+        return $provider;
+    }
+
+    /**
+     * Prime the LLM runtime's prompt-prefix cache with the planner system prompt
+     * real turns use, so the first user turn after a worker boots doesn't pay the
+     * full cold manifest prefill (~130s on the CPU model vs ~20s warm). Best-effort:
+     * fired off the boot path (see the WorkerStart warm-up listener) and swallows
+     * every failure — the model may be slow or down, which must not disturb the OS.
+     */
+    public function warmPlanner(): void
+    {
+        try {
+            $this->plannerProvider()->complete($this->plannerRequest('warm up', $this->manifest()));
+        } catch (\Throwable) {
+            // Warming is opportunistic — a cold or unreachable model just means the
+            // first real turn pays the prefill, exactly as it would without this.
+        }
     }
 
     /**
