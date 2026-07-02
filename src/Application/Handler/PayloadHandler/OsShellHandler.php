@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace Semitexa\Os\Application\Handler\PayloadHandler;
 
 use Semitexa\Core\Attribute\AsPayloadHandler;
+use Semitexa\Core\Attribute\Config;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Llm\Application\Service\SkillRegistry;
 use Semitexa\Os\Application\Payload\Request\OsShellPayload;
 use Semitexa\Os\Application\Resource\Response\OsShellResource;
+use Semitexa\Os\Application\Service\OsPreferences;
 use Semitexa\Os\Application\Service\SkillLoopRunner;
+use Semitexa\Os\Domain\Enum\WindowMode;
 
 /**
  * Renders the OS shell with boot context: the discovered skills and the LLM
@@ -21,6 +24,21 @@ final class OsShellHandler implements TypedHandlerInterface
 {
     #[InjectAsReadonly]
     protected SkillLoopRunner $runner;
+
+    #[InjectAsReadonly]
+    protected OsPreferences $prefs;
+
+    /**
+     * The window-hosting mode this install is *permitted* to use. The shell
+     * still probes at runtime before it promotes anything (see the shell's
+     * windowMode resolution), so `os` degrades to iframes for a browser client.
+     */
+    #[Config(env: 'SEMITEXA_WINDOW_MODE', default: WindowMode::Web)]
+    protected WindowMode $windowMode;
+
+    /** Where the local native-window bridge listens (OS mode only). */
+    #[Config(env: 'SEMITEXA_BRIDGE_URL', default: 'http://127.0.0.1:8777')]
+    protected string $bridgeUrl;
 
     public function handle(OsShellPayload $payload, OsShellResource $resource): OsShellResource
     {
@@ -49,6 +67,9 @@ final class OsShellHandler implements TypedHandlerInterface
 
         return $resource
             ->withSkills($skills)
-            ->withProvider($provider->name(), $provider->model(), $healthy);
+            ->withProvider($provider->name(), $provider->model(), $healthy)
+            ->withAssistantName($this->prefs->assistantName())
+            ->withUserName($this->prefs->userName())
+            ->withWindowMode($this->windowMode->value, $this->bridgeUrl);
     }
 }

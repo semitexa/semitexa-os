@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="uk" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="google" content="notranslate">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Semitexa OS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+  :root{
+    --navy-0:#0a1a2f; --navy-1:#0f2440; --navy-2:#13273f;
+    --cyan:#37b7ff; --cyan-soft:#7fd0ff;
+    --text:#d6e6ff; --text-dim:#7f9dc4;
+    --stroke:rgba(94,140,192,.22); --stroke-hot:rgba(55,183,255,.55);
+    --glass:rgba(18,39,63,.55);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    color:var(--text);
+    background:
+      radial-gradient(1200px 700px at 78% -10%, rgba(55,183,255,.16), transparent 60%),
+      radial-gradient(900px 600px at 8% 110%, rgba(55,183,255,.10), transparent 55%),
+      linear-gradient(160deg, #0b1c33 0%, var(--navy-0) 55%, #08131f 100%);
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  .topbar{
+    position:fixed;top:0;left:0;right:0;height:56px;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 26px;font-size:14px;color:var(--text-dim);
+    border-bottom:1px solid var(--stroke);
+    backdrop-filter:blur(10px);
+  }
+  .brand{display:flex;align-items:center;gap:10px;color:var(--text)}
+  .brand .dot{width:10px;height:10px;border-radius:50%;
+    background:var(--cyan);box-shadow:0 0 14px var(--cyan)}
+  .brand b{font-family:"Syne";font-weight:800;letter-spacing:.5px}
+  .clock{font-variant-numeric:tabular-nums;font-weight:500;color:var(--text)}
+  .stage{
+    height:100%;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:34px;padding:70px 24px 40px;
+  }
+  .hero{text-align:center}
+  .hero h1{font-family:"Syne";font-weight:800;font-size:44px;letter-spacing:.5px;
+    background:linear-gradient(90deg,#eaf4ff,var(--cyan-soft));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p{margin-top:8px;color:var(--text-dim);font-size:15px}
+  .panel{
+    width:min(760px,92vw);
+    background:var(--glass);border:1px solid var(--stroke);
+    border-radius:22px;padding:26px;
+    box-shadow:0 24px 60px rgba(2,8,23,.55), inset 0 1px 0 rgba(255,255,255,.04);
+    backdrop-filter:blur(16px);
+  }
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .tile{
+    display:flex;flex-direction:column;align-items:center;gap:10px;
+    padding:18px 10px;border-radius:16px;cursor:pointer;
+    background:linear-gradient(180deg,rgba(28,51,80,.55),rgba(15,36,64,.35));
+    border:1px solid var(--stroke);
+    transition:transform .18s cubic-bezier(.22,1,.36,1),border-color .18s,box-shadow .18s;
+    user-select:none;
+  }
+  .tile:hover{transform:translateY(-4px);border-color:var(--stroke-hot);
+    box-shadow:0 14px 30px rgba(2,8,23,.5), 0 0 0 1px rgba(55,183,255,.25) inset}
+  .tile .ic{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;
+    background:rgba(55,183,255,.10);border:1px solid rgba(55,183,255,.22);color:var(--cyan-soft)}
+  .tile .ic svg{width:24px;height:24px;stroke-width:1.6}
+  .tile span{font-size:13px;color:var(--text)}
+  .omni{display:flex;gap:10px;margin-top:20px}
+  .omni input{
+    flex:1;background:rgba(8,19,31,.7);border:1px solid var(--stroke);
+    color:var(--text);border-radius:13px;padding:13px 16px;font-size:14px;outline:none;
+    font-family:inherit;
+  }
+  .omni input:focus{border-color:var(--stroke-hot);box-shadow:0 0 0 3px rgba(55,183,255,.14)}
+  .omni button{
+    background:linear-gradient(180deg,var(--cyan),#2b9de0);color:#04121f;font-weight:600;
+    border:none;border-radius:13px;padding:0 20px;cursor:pointer;font-size:14px;font-family:inherit;
+    display:flex;align-items:center;gap:8px;
+  }
+  .omni button:hover{filter:brightness(1.06)}
+  .foot{position:fixed;bottom:16px;left:0;right:0;text-align:center;
+    color:var(--text-dim);font-size:12px;opacity:.8}
+  .foot kbd{background:rgba(255,255,255,.06);border:1px solid var(--stroke);
+    border-radius:6px;padding:1px 7px;font-family:"IBM Plex Sans";font-size:11px}
+  .toast{
+    position:fixed;bottom:56px;left:50%;transform:translateX(-50%) translateY(20px);
+    background:var(--glass);border:1px solid var(--stroke-hot);color:var(--text);
+    padding:11px 18px;border-radius:12px;font-size:13px;opacity:0;pointer-events:none;
+    transition:opacity .25s, transform .25s;backdrop-filter:blur(12px)}
+  .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span><b>SEMITEXA&nbsp;OS</b></div>
+    <div class="clock" id="clock">--:--</div>
+  </div>
+
+  <div class="stage">
+    <div class="hero">
+      <h1>Semitexa OS</h1>
+      <p>Відкрий що завгодно — у справжньому вікні, не в iframe.</p>
+    </div>
+
+    <div class="panel">
+      <div class="grid" id="grid"></div>
+      <div class="omni">
+        <input id="url" type="text" placeholder="Відкрити будь-який сайт…  (напр. github.com)"
+               autocomplete="off" spellcheck="false">
+        <button id="go"><i data-lucide="arrow-right"></i>Відкрити</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">Вікна: перетягуй заголовок · <kbd>Alt</kbd>+<kbd>Tab</kbd> перемкнути · <kbd>Alt</kbd>+<kbd>Enter</kbd> термінал</div>
+  <div class="toast" id="toast"></div>
+
+<script>
+/* Window-title marker so semitexa-wm treats this window as the frameless desktop */
+document.title = "SemitexaDesktop";
+
+const APPS = [
+  {name:"YouTube",  icon:"youtube",     url:"https://www.youtube.com",   w:1000,h:680},
+  {name:"Google",   icon:"search",      url:"https://www.google.com",    w:900, h:640},
+  {name:"GitHub",   icon:"github",      url:"https://github.com",        w:1000,h:700},
+  {name:"Wikipedia",icon:"book-open",   url:"https://www.wikipedia.org", w:900, h:660},
+  {name:"Maps",     icon:"map",         url:"https://www.openstreetmap.org", w:1000,h:680},
+  {name:"Пошта",    icon:"mail",        url:"https://mail.google.com",   w:1000,h:700},
+  {name:"Термінал", icon:"square-terminal", app:"terminal"},
+  {name:"Semitexa", icon:"box",         url:"http://localhost:8080/os",  w:1100,h:720},
+];
+
+const grid = document.getElementById('grid');
+const toast = document.getElementById('toast');
+let toastT;
+function say(msg){
+  toast.textContent = msg; toast.classList.add('on');
+  clearTimeout(toastT); toastT = setTimeout(()=>toast.classList.remove('on'), 2200);
+}
+async function open(app){
+  let q;
+  if(app.app){ q = "app="+encodeURIComponent(app.app); }
+  else { q = "url="+encodeURIComponent(app.url)+"&w="+(app.w||900)+"&h="+(app.h||640); }
+  say("Відкриваю "+app.name+"…");
+  try{ await fetch("/open?"+q); }catch(e){ say("Помилка: "+e); }
+}
+APPS.forEach(a=>{
+  const t = document.createElement('div');
+  t.className = 'tile';
+  t.innerHTML = `<div class="ic"><i data-lucide="${a.icon}"></i></div><span>${a.name}</span>`;
+  t.onclick = ()=>open(a);
+  grid.appendChild(t);
+});
+
+document.getElementById('go').onclick = ()=>{
+  let v = document.getElementById('url').value.trim();
+  if(!v) return;
+  if(!/^https?:\/\//i.test(v)) v = "https://" + v;
+  open({name:v, url:v, w:1000, h:680});
+  document.getElementById('url').value = "";
+};
+document.getElementById('url').addEventListener('keydown',e=>{ if(e.key==='Enter') document.getElementById('go').click(); });
+
+function tick(){
+  const d = new Date();
+  document.getElementById('clock').textContent =
+    d.toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'});
+}
+tick(); setInterval(tick, 15000);
+lucide.createIcons();
+</script>
+</body>
+</html>

@@ -48,6 +48,26 @@ final readonly class IntentOutcome
         return $this->decision === IntentDecision::Executed;
     }
 
+    /**
+     * The human-facing text of this turn, for the dialog transcript: a skill's
+     * output when it ran, the error when it failed, otherwise the assistant's
+     * message (or the reason behind a gate).
+     */
+    public function displayText(): string
+    {
+        if ($this->decision === IntentDecision::Executed) {
+            $output = trim((string) $this->output);
+
+            return $output !== '' ? $output : ('Ran ' . ($this->skill ?? 'a skill') . '.');
+        }
+
+        if ($this->decision === IntentDecision::Error) {
+            return (string) ($this->error ?? 'Something went wrong.');
+        }
+
+        return trim((string) ($this->message ?? $this->reason ?? ''));
+    }
+
     public function isSuccess(): bool
     {
         return $this->decision === IntentDecision::Executed && $this->exitCode === 0;

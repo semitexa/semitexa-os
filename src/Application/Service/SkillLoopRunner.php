@@ -8,6 +8,7 @@ use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Console\Application as ConsoleApplication;
 use Semitexa\Llm\Application\Service\LlmProviderResolver;
+use Semitexa\Llm\Application\Service\PersonaRegistry;
 use Semitexa\Llm\Application\Service\Planner;
 use Semitexa\Llm\Application\Service\SkillExecutor;
 use Semitexa\Llm\Application\Service\SkillRegistry;
@@ -57,6 +58,10 @@ final class SkillLoopRunner
     #[InjectAsReadonly]
     protected OpenDialogStore $dialogs;
 
+    /** The full dialog transcript (both sides, every turn). */
+    #[InjectAsReadonly]
+    protected ConversationStore $conversation;
+
     /**
      * Built once and cached for the lifetime of this (worker-scoped) service:
      * instantiating every `#[AsCommand]` is not free, so we never rebuild per request.
@@ -105,8 +110,9 @@ final class SkillLoopRunner
         $manifest = $this->manifest();
         $planner = new Planner();
 
+        $persona = (new PersonaRegistry())->framing('os');
         $request = new LlmRequest(
-            systemPrompt: $planner->buildSystemPrompt($manifest),
+            systemPrompt: $planner->buildSystemPrompt($manifest, $persona !== '' ? $persona : null),
             userMessage: $intent,
             history: [],
         );
@@ -122,8 +128,24 @@ final class SkillLoopRunner
         };
 
         $this->session->record($outcome);
+        $this->conversation->append(ConversationStore::ROLE_USER, $intent);
+        $this->conversation->append(ConversationStore::ROLE_ASSISTANT, $outcome->displayText(), $this->turnMeta($outcome));
 
         return $outcome;
+    }
+
+    /**
+     * Compact per-turn metadata stored alongside an assistant transcript line.
+     *
+     * @return array<string, mixed>
+     */
+    private function turnMeta(IntentOutcome $outcome): array
+    {
+        return [
+            'decision' => $outcome->decision->value,
+            'skill' => $outcome->skill,
+            'surface' => $outcome->surface()->value,
+        ];
     }
 
     /**
@@ -187,7 +209,9 @@ final class SkillLoopRunner
             );
         }
 
-        return $this->executePipeline($intent, $steps);
+        // run() records the conversation turn for this intent, so the internal
+        // call must not (else the executed pipeline turn would be logged twice).
+        return $this->executePipeline($intent, $steps, recordTurn: false);
     }
 
     /**
@@ -195,8 +219,11 @@ final class SkillLoopRunner
      * and return a single combined {@see IntentOutcome} (the Observe payload).
      *
      * @param list<array{skill: string, arguments: array<string, mixed>}> $steps
+     * @param bool $recordTurn whether to log this as its own conversation/session
+     *                         turn — false when {@see self::run()} already records
+     *                         the turn for the same intent (internal call)
      */
-    public function executePipeline(string $intent, array $steps): IntentOutcome
+    public function executePipeline(string $intent, array $steps, bool $recordTurn = true): IntentOutcome
     {
         $manifest = $this->manifest();
         $outputs = [];
@@ -242,7 +269,11 @@ final class SkillLoopRunner
             pipeline: $ran,
         );
 
-        $this->session->record($outcome);
+        if ($recordTurn) {
+            $this->session->record($outcome);
+            $this->conversation->append(ConversationStore::ROLE_USER, $intent);
+            $this->conversation->append(ConversationStore::ROLE_ASSISTANT, $outcome->displayText(), $this->turnMeta($outcome));
+        }
 
         return $outcome;
     }
@@ -270,6 +301,9 @@ final class SkillLoopRunner
 
         $outcome = $this->execute($intent, $skill, $arguments, $entry->riskLevel->value, null, $manifest);
         $this->session->record($outcome);
+        // The user's intent + the proposal were recorded when the gate was
+        // raised; here we append only the executed result of the approval.
+        $this->conversation->append(ConversationStore::ROLE_ASSISTANT, $outcome->displayText(), $this->turnMeta($outcome));
 
         return $outcome;
     }

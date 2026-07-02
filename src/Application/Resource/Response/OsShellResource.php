@@ -32,4 +32,28 @@ final class OsShellResource extends HtmlResponse implements ResourceInterface
             ->with('providerModel', $model)
             ->with('providerHealthy', $healthy);
     }
+
+    /** The name the user calls their assistant (default "Semi"). */
+    public function withAssistantName(string $name): static
+    {
+        return $this->with('assistantName', $name);
+    }
+
+    /** The user's own name, or '' when unknown (triggers onboarding). */
+    public function withUserName(string $name): static
+    {
+        return $this->with('userName', $name);
+    }
+
+    /**
+     * The install's declared window-hosting mode ('web' | 'os') and the local
+     * bridge URL used to raise real native windows in OS mode. The shell treats
+     * these as a *capability gate*; it still probes at runtime before promoting.
+     */
+    public function withWindowMode(string $mode, string $bridgeUrl): static
+    {
+        return $this
+            ->with('windowMode', $mode)
+            ->with('bridgeUrl', $bridgeUrl);
+    }
 }

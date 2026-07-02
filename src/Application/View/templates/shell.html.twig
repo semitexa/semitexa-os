@@ -13,23 +13,58 @@
     <div class="os-root" id="root"></div>
     <div id="wm-layer" hidden></div>
 
-    <script type="application/json" id="os-boot">{{ { providerName: providerName|default('llm'), providerModel: providerModel|default('?'), providerHealthy: providerHealthy, skills: skills|default([]) }|json_encode|raw }}</script>
+    <script type="application/json" id="os-boot">{{ { providerName: providerName|default('llm'), providerModel: providerModel|default('?'), providerHealthy: providerHealthy, skills: skills|default([]), assistantName: assistantName|default('Semi'), userName: userName|default(''), windowMode: windowMode|default('web'), bridgeUrl: bridgeUrl|default('http://127.0.0.1:8777') }|json_encode|raw }}</script>
     <script>
     (function () {
         const boot = JSON.parse(document.getElementById('os-boot').textContent || '{}');
+        if (!boot.assistantName) boot.assistantName = 'Semi'; // the name the user calls the assistant
+
+        // ---------- window-hosting mode ----------
+        // Two independent facts decide whether a Window-kind dialog is hosted
+        // in-page (an iframe) or promoted to a REAL native window:
+        //   1. the install PERMITS os mode  — SEMITEXA_WINDOW_MODE=os (boot.windowMode)
+        //   2. this client IS the desktop    — ?desktop=1, the flag semitexa-wm
+        //      launches the shell with (it keys off the title to keep the window
+        //      frameless/fullscreen). A plain browser never has it.
+        // Only when BOTH hold do we even consider promoting — and even then not
+        // until the local bridge actually answers (probeBridge). Until proven,
+        // S.windowMode stays 'web', so a browser hitting an os-mode install (or a
+        // desktop whose bridge is down) degrades gracefully to iframes.
+        const DESKTOP = new URLSearchParams(location.search).has('desktop');
+        if (DESKTOP) document.title = 'SemitexaDesktop';
+        const OS_PERMITTED = boot.windowMode === 'os' && DESKTOP;
+        const BRIDGE = boot.bridgeUrl || 'http://127.0.0.1:8777';
+        const isOsMode = () => S.windowMode === 'os';
         const root = document.getElementById('root');
         const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
         const ico = (n, w) => '<i data-lucide="' + n + '" style="width:' + (w||18) + 'px;height:' + (w||18) + 'px;stroke-width:1.5"></i>';
 
+        // Once the user has awakened into a session, a reload should return them
+        // straight to their conversation — not back through the Awakening ritual.
+        const RESUMED = (() => { try { return localStorage.getItem('semitexa_os_session') === '1'; } catch (e) { return false; } })();
+        const markSession = () => { try { localStorage.setItem('semitexa_os_session', '1'); } catch (e) {} };
+        // The compact chat dock (Focus/Chill) remembers open/collapsed across reloads.
+        const CHATDOCK = (() => { try { return localStorage.getItem('semitexa_os_chatdock') === 'collapsed' ? 'collapsed' : 'open'; } catch (e) { return 'open'; } })();
+        const setChatDock = (v) => { S.chatDock = v; try { localStorage.setItem('semitexa_os_chatdock', v); } catch (e) {} };
+        // Cursor for the proactive-message poll — the last-seen turn id, so the
+        // assistant announces each unprompted message (e.g. a task auto-completed) once.
+        let PROACTIVE_CURSOR = (() => { try { return localStorage.getItem('semitexa_os_proactive') || ''; } catch (e) { return ''; } })();
+        const setProactiveCursor = (v) => { PROACTIVE_CURSOR = v; try { localStorage.setItem('semitexa_os_proactive', v); } catch (e) {} };
+
         const S = {
-            screen: 'awakening', awake: 'idle',
+            screen: RESUMED ? 'os' : 'awakening', awake: RESUMED ? 'snapshot' : 'idle',
             mode: 'ambient', xray: false,
             run: null,            // { intent, stage, decision, skill, policy, reason, message, surfaces:[] }
             surfaces: [],
             units: [],            // real skills in flight for the current/last run: {name,status,busy,exit}
             log: [{ t: 'os:session · ready', tone: 'mute' }],
-            cue: null, chill: 'none', busy: false, dialogs: [], pos: {}, recents: [],
+            cue: null, busy: false, dialogs: [], pos: {}, recents: [], webApps: [],
+            windowMode: 'web', // resolved live: 'os' only once the bridge answers (see probeBridge)
+            chatDock: CHATDOCK, // 'open' | 'collapsed' — the Focus/Chill side chat
+            proactiveUnseen: 0, // proactive messages arrived while the dock was collapsed
             input: '', clock: new Date(), snapshot: null,
+            history: [],          // persisted dialog transcript (both sides) shown as the Ambient chat
+            queue: [],            // messages sent but not yet answered — shown instantly, processed one at a time
         };
         let sid = 1;
 
@@ -40,12 +75,11 @@
         // ---------- screens ----------
         function awakeningHTML() {
             let cap = '';
-            if (S.awake === 'idle') cap = '<div class="os-awaken__cap"><h1>"Hi, Semi"</h1><p>No boot. No lock screen. Touch to begin.</p></div>';
+            if (S.awake === 'idle') cap = '<div class="os-awaken__cap"><h1>"Hi, ' + esc(boot.assistantName) + '"</h1><p>Touch to begin.</p></div>';
             else if (S.awake === 'auth') cap = '<div class="os-awaken__auth">Recognising voice biometrics…</div>';
             else if (S.awake === 'snapshot') cap = snapshotHTML();
             return '<div class="os-awaken">'
                 + '<div class="os-awaken__grid"></div>'
-                + '<div class="os-awaken__brand">Semi<span class="os-brand-accent">texa</span> <span class="os-brand-os">OS</span></div>'
                 + '<div class="os-orb" data-act="awaken"><div class="os-orb__ring"></div><div class="os-orb__ring delay"></div>'
                 + '<div class="os-orb__core">' + ico('mic', 46) + '</div></div>'
                 + cap + '</div>';
@@ -76,12 +110,11 @@
             const modes = ['ambient','focus','chill'];
             const labels = { ambient: 'Ambient', focus: 'Focus', chill: 'Chill' };
             const btns = modes.map(m => '<button class="os-modebtn' + (S.mode===m?' active':'') + '" data-act="mode" data-mode="' + m + '">' + labels[m] + '</button>').join('');
-            const dot = boot.providerHealthy ? '#37b7ff' : '#ff6b82';
             return '<header class="os-topbar">'
                 + '<div class="os-topbar__clock">' + S.clock.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' · ' + S.clock.toLocaleDateString([], {month:'short',day:'numeric'}) + '</div>'
                 + '<div class="os-modeswitch">' + btns + '</div>'
                 + '<button class="os-xray-toggle' + (S.xray?' active':'') + '" data-act="xray">' + ico('scan-eye',16) + ' X-Ray</button>'
-                + '<div class="os-topbar__user">' + ico('bell') + '<span><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' + dot + ';margin-right:6px"></span>' + esc(boot.providerName) + ' · <span class="uid">' + esc(boot.providerModel) + '</span></span></div>'
+                + '<div class="os-topbar__user">' + ico('bell') + '</div>'
                 + '</header>';
         }
 
@@ -152,21 +185,32 @@
 
         function ambientHTML() {
             let inner = '';
-            if (!S.run && S.surfaces.length === 0) {
-                const hh = new Date().getHours();
-                const greet = hh < 5 ? 'Still up' : hh < 12 ? 'Good morning' : hh < 18 ? 'Good afternoon' : 'Good evening';
-                inner = '<div class="os-calm"><div class="os-calm__greet">' + greet + ', Alina.</div>'
-                    + '<div class="os-calm__sub">Tell Semi what you want. A surface is raised only when the intent needs space.</div>'
-                    + '<div class="os-resumed">' + ico('history') + ' Resumed · <b>' + esc(boot.providerName) + ' deployment</b> · ' + ((boot.skills||[]).length) + ' skills ready</div></div>';
+            const hasThread = ((S.history && S.history.length > 0) || (S.queue && S.queue.length > 0));
+            if (!S.run && S.surfaces.length === 0 && !hasThread) {
+                // Empty state — a warm greeting. Everything the user types (even
+                // introducing themselves) then flows through the model.
+                let greet, sub;
+                if (boot.userName) {
+                    const hh = new Date().getHours();
+                    const t = hh < 5 ? 'Still up' : hh < 12 ? 'Good morning' : hh < 18 ? 'Good afternoon' : 'Good evening';
+                    greet = t + ', ' + esc(boot.userName) + '.';
+                    sub = 'Tell ' + esc(boot.assistantName) + ' what you want. A surface is raised only when the intent needs space.';
+                } else {
+                    greet = 'Hi, I\'m ' + esc(boot.assistantName) + '.';
+                    sub = 'What can I do for you?';
+                }
+                inner = '<div class="os-calm"><div class="os-calm__greet">' + greet + '</div><div class="os-calm__sub">' + sub + '</div></div>';
             } else {
-                if (S.run) {
-                    inner += '<div class="os-loop"><div class="os-loop__eyebrow">' + ico('rotate-ccw',15) + ' the loop · over the Skill Registry</div>'
-                        + '<div class="os-loop__stages">' + stageCards() + '</div>'
-                        + '<div class="os-decision">' + decisionPill() + gateHTML() + '</div></div>';
+                // The dialog transcript (persisted turns + queued messages) is the
+                // thread; the thinking indicator or an interactive gate sits at the bottom.
+                inner += conversationHTML(); // includes the "typing" row when busy
+                if (!S.busy && S.run) {
+                    // An interactive gate (confirm / already-open) awaiting the user.
+                    inner += '<div class="os-decision">' + decisionPill() + gateHTML() + '</div>';
                 }
                 if (S.surfaces.length) inner += '<div class="os-surfaces">' + S.surfaces.map(surfaceHTML).join('') + '</div>';
             }
-            return '<div class="os-scroll">' + inner + '</div>' + intentbarHTML();
+            return '<div class="os-scroll" id="os-scroll">' + inner + '</div>' + intentbarHTML();
         }
 
         function intentbarHTML() {
@@ -179,14 +223,61 @@
             const sugg = list
                 .map(s => '<button class="os-suggest-chip" data-act="suggest" data-text="' + esc(s.text) + '"' + (s.hint ? ' title="' + esc(s.hint) + '"' : '') + '>' + esc(trim(s.text)) + '</button>').join('');
             const busy = S.busy;
+            // The input is NEVER disabled — you can keep sending while the OS is
+            // still thinking; messages queue and each appears instantly.
+            const placeholder = 'Tell ' + boot.assistantName + ' what you want…';
+            const idle = !((S.history && S.history.length) || (S.queue && S.queue.length) || S.run);
             return '<div class="os-intentbar">'
-                + (!S.run ? '<div class="os-suggest">' + sugg + '</div>' : '')
+                + (idle ? '<div class="os-suggest">' + sugg + '</div>' : '')
                 + '<div class="os-intentbar__field' + (busy ? ' is-busy' : '') + '"><span class="dot"></span>'
-                + '<input id="intent-input"' + (busy ? ' disabled' : '') + ' placeholder="' + (busy ? 'Semi is thinking…' : 'Tell Semi what you want…') + '" value="' + esc(S.input) + '" autocomplete="off">'
-                + (busy
-                    ? '<span class="os-intentbar__spin">' + ico('loader-2', 20) + '</span>'
-                    : '<button class="os-intentbar__send" data-act="submit">' + ico('arrow-up', 20) + '</button>')
+                + '<input id="intent-input" placeholder="' + esc(placeholder) + '" value="' + esc(S.input) + '" autocomplete="off">'
+                + '<button class="os-intentbar__send" data-act="submit">' + ico('arrow-up', 20) + '</button>'
                 + '</div></div>';
+        }
+
+        // The compact side chat for Focus/Chill (Messenger-style). The full-screen
+        // conversation lives only in Ambient; here it folds into a small dock that
+        // collapses to a bubble. Reuses #intent-input so intent-first holds in every
+        // zone and the existing submit / Enter / input handlers just work.
+        function chatDockHTML() {
+            if (S.chatDock === 'collapsed') {
+                const badge = S.proactiveUnseen > 0 ? '<span class="os-chatdock-fab__badge">' + (S.proactiveUnseen > 9 ? '9+' : S.proactiveUnseen) + '</span>' : '';
+                return '<button class="os-chatdock-fab" data-act="chatdock-toggle" title="Chat with ' + esc(boot.assistantName) + '">' + ico('message-circle', 24) + badge + '</button>';
+            }
+            const hasThread = ((S.history && S.history.length) || (S.queue && S.queue.length) || S.run);
+            const body = hasThread
+                ? conversationHTML() + ((!S.busy && S.run) ? '<div class="os-decision">' + decisionPill() + gateHTML() + '</div>' : '')
+                : '<div class="os-chatdock__empty">Ask ' + esc(boot.assistantName) + ' anything — it keeps working while you stay here.</div>';
+            return '<div class="os-chatdock">'
+                + '<div class="os-chatdock__bar"><span class="os-chatdock__title">' + ico('sparkles', 15) + ' ' + esc(boot.assistantName) + '</span>'
+                + '<button class="os-chatdock__min" data-act="chatdock-toggle" title="Collapse">' + ico('minus', 16) + '</button></div>'
+                + '<div class="os-chatdock__body" id="os-dock-scroll">' + body + '</div>'
+                + '<div class="os-chatdock__input"><input id="intent-input" placeholder="Message ' + esc(boot.assistantName) + '…" value="' + esc(S.input) + '" autocomplete="off">'
+                + '<button class="os-chatdock__send" data-act="submit">' + ico('arrow-up', 18) + '</button></div>'
+                + '</div>';
+        }
+
+        // Chill's "what's running" panel — the observability primitives (current run
+        // + loop stage + units + recent activity) raised into a full at-rest view.
+        // Phase 1 is built on what exists (the foreground intent loop); a backend
+        // registry for background tasks (copies, downloads) is a later phase.
+        function chillProcessesHTML() {
+            const active = !!S.run || S.units.length > 0;
+            let inner;
+            if (active) {
+                const units = S.units.length
+                    ? '<div class="os-chill-units">' + S.units.map(u => '<div class="os-unit' + (u.busy?' busy':'') + '"><div class="os-unit__head">' + ico('box',19) + '<span class="os-unit__name">' + esc(u.name) + '</span><span class="os-unit__dot"></span></div><div class="os-unit__status">' + esc(u.status + (u.exit != null && u.status !== 'running' ? ' · exit ' + u.exit : '')) + '</div></div>').join('') + '</div>'
+                    : '';
+                inner = '<div class="os-chill-loop">' + stageCards() + '</div>' + units;
+            } else {
+                const recent = ((S.snapshot && S.snapshot.recent) || []).slice().reverse().slice(0, 5);
+                inner = recent.length
+                    ? '<div class="os-chill-recent">' + recent.map(e => '<div class="os-chill-recent__row"><span class="os-chill-recent__k">' + esc(e.skill || e.intent || e.decision || 'activity') + '</span><span class="os-chill-recent__v">' + esc(e.decision || '') + '</span></div>').join('') + '</div>'
+                    : '<div class="os-chill-proc__idle">' + ico('moon', 22) + '<div>All quiet.</div><div class="os-chill-proc__hint">Nothing running right now. When ' + esc(boot.assistantName) + ' works — or something copies, plays or loads — it shows up here.</div></div>';
+            }
+            return '<div class="os-chill-proc">'
+                + '<div class="os-chill-proc__eyebrow">' + ico('activity', 16) + ' Processes · what\'s running' + (active ? ' <span class="os-chill-proc__live">live</span>' : '') + '</div>'
+                + inner + '</div>';
         }
 
         // Focus shows RUNNING dialogs as classic app icons (+ a Recents row for
@@ -214,25 +305,50 @@
 
             const body = dialogs.length
                 ? '<div class="os-iconrow">' + running + '</div>'
-                : '<div class="os-focus-empty">' + ico('sparkles', 28) + '<div>Nothing running.</div><div class="os-focus-empty__hint">Tell Semi what you want in Ambient — it opens the right tool here.</div></div>';
+                : '<div class="os-focus-empty">' + ico('sparkles', 28) + '<div>Nothing running.</div><div class="os-focus-empty__hint">Tell ' + esc(boot.assistantName) + ' what you want in Ambient — it opens the right tool here.</div></div>';
+
+            // "Your apps" — external sites the user registered (webapp: dialogs).
+            // Click to (re)open in a window; the model adds new ones on request.
+            const apps = S.webApps || [];
+            const appsHtml = apps.length
+                ? '<div class="os-recents"><div class="os-recents__h">Your apps</div><div class="os-iconrow">'
+                    + apps.map(a => '<div class="os-appicon-wrap"><button class="os-appicon recent" data-act="open-webapp" data-id="' + esc(a.id) + '" title="Open ' + esc(a.name) + '">'
+                        + '<span class="os-appicon__sym">' + ico(a.icon || 'globe', 24) + '</span>'
+                        + '<span class="os-appicon__label">' + esc(a.name) + '</span></button>'
+                        + '<button class="os-appicon-x" data-act="remove-webapp" data-id="' + esc(a.id) + '" title="Remove ' + esc(a.name) + '">' + ico('x', 12) + '</button></div>').join('')
+                    + '</div><div class="os-recents__hint">Ask ' + esc(boot.assistantName) + ' to “open …” any site to add one.</div></div>'
+                : '';
 
             return '<div class="os-scroll"><div class="os-focus-zone">'
                 + '<div class="os-focus__eyebrow"><span class="tag">Focus</span><span class="note">Running apps · launched from Ambient</span></div>'
-                + body + recentsHtml
-                + '</div></div>';
+                + body + appsHtml + recentsHtml
+                + '</div></div>' + chatDockHTML();
         }
 
+        // Chill = the leisure zone. Instead of a mock, Semi asks what you feel
+        // like and everything routes through the LLM (run-skill / intent bar →
+        // /os/intent), so the planner catches context ("something relaxing" →
+        // music, "let's play" → the game). Leisure UI-skills open as dialogs.
+        // Chill = the "at rest, watch everything" zone: a live panel of what's
+        // running (chillProcessesHTML) + leisure launchers (media / video / games).
+        // The conversation is NOT inline here — it lives in the compact chat dock,
+        // so you can watch a video or a process and still talk to Semi. Leisure
+        // chips route through the LLM (run-skill → /os/intent); apps open as windows.
         function chillHTML() {
-            let cue = '';
-            if (S.chill === 'waiting') cue = '<div class="os-cue-voice" style="border-color:rgba(255,107,130,.3)"><div class="os-cue-voice__eyebrow" style="color:#ff9aab">' + ico('alert-triangle',17) + ' sync-worker crashed · waiting for a combat lull…</div></div>';
-            else if (S.chill === 'ask') cue = '<div class="os-cue-voice"><div class="os-cue-voice__eyebrow">' + ico('volume-2',17) + ' Semi · by voice, gently</div><div class="os-cue-voice__body">"A sync daemon went down. Want me to restart it? No rush."</div><div style="display:flex;gap:12px"><button class="os-btn-purple" data-act="chill-restart">Restart it</button><button class="os-btn-sm" data-act="chill-dismiss">Later</button></div></div>';
-            return '<div class="os-chill"><div class="os-chill__stage">'
-                + '<div class="os-chill__game"><span class="dot"></span> The Witcher 3 · running · fullscreen</div>'
-                + '<div class="os-chill__hud"><span style="border-color:rgba(183,148,246,.3)">GPU 98%</span><span>non-critical services · suppressed</span></div>'
-                + '<div><div class="os-chill__title">Chill mode</div><div class="os-chill__sub">The OS darkened, suppressed background services, and gave the game maximum GPU/NPU. Skills still run — silently.</div>'
-                + '<div class="os-chill__actions"><button class="os-btn-purple" data-act="chill-voice">' + ico('mic',17) + ' "Semi, status report" · runs silently</button>'
-                + '<button class="os-btn-sm" style="height:44px" data-act="chill-daemon">' + ico('alert-triangle',17) + ' Simulate daemon failure</button></div></div>'
-                + cue + '</div></div>';
+            const name = boot.userName ? (', ' + esc(boot.userName)) : '';
+            const chip = (icon, label, text) => '<button class="os-chill-chip" data-act="run-skill" data-text="' + esc(text) + '">' + ico(icon, 18) + '<span>' + esc(label) + '</span></button>';
+            const chips = '<div class="os-chill-chips">'
+                + chip('gamepad-2', 'Tic-tac-toe with ' + boot.assistantName, "Let's play tic-tac-toe")
+                + chip('music', 'Music', 'Put on some relaxing music')
+                + chip('youtube', 'YouTube', 'Open YouTube to watch something')
+                + chip('dices', 'Surprise me', 'Surprise me with something fun to do')
+                + '</div>';
+            const leisure = '<div class="os-chill-leisure">'
+                + '<div class="os-chill-hero__greet">In the mood for something' + name + '?</div>'
+                + '<div class="os-chill-hero__sub">Watch, play, or just relax — pick something, or ask ' + esc(boot.assistantName) + ' in the chat.</div>'
+                + chips + '</div>';
+            const inner = chillProcessesHTML() + leisure;
+            return '<div class="os-scroll" id="os-scroll"><div class="os-chill">' + inner + '</div></div>' + chatDockHTML();
         }
 
         function xrayHTML() {
@@ -266,13 +382,17 @@
             if (S.mode === 'ambient') stage = ambientHTML();
             else if (S.mode === 'focus') stage = focusHTML();
             else if (S.mode === 'chill') stage = chillHTML();
-            const railClass = S.xray ? ' with-rail' : '';
+            const railClass = (S.xray ? ' with-rail' : '') + (S.mode === 'chill' ? ' chill' : '');
             root.innerHTML = '<div class="os-shell">' + topbarHTML()
                 + '<div class="os-main"><div class="os-stage' + railClass + '">' + stage + '</div>'
                 + (S.xray ? xrayHTML() : '') + '</div>' + cueHTML() + '</div>';
             drawIcons();
             const inp = document.getElementById('intent-input');
             if (inp && S._focusInput) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); S._focusInput = false; }
+            const scroll = document.getElementById('os-scroll');
+            if (scroll) scroll.scrollTop = scroll.scrollHeight; // keep the newest turn in view
+            const dockScroll = document.getElementById('os-dock-scroll');
+            if (dockScroll) dockScroll.scrollTop = dockScroll.scrollHeight; // same, inside the chat dock
             syncDialogs();
         }
 
@@ -299,17 +419,9 @@
         function observe(resp) {
             // Render by the surface the backend arbiter declared (minimal-sufficient).
             const surf = resp.surface || 'window';
-            const title = resp.skill || 'Semi';
+            const title = resp.skill || boot.assistantName;
             const body = ((resp.output && resp.output.trim()) ? resp.output : (resp.message || '')) || '';
             const meta = (typeof resp.exit_code === 'number') ? 'exit ' + resp.exit_code : '';
-            // Chill = do-not-disturb: never raise a space-taking surface; collapse
-            // everything to a gentle cue (the smallest surface), per Scenario B.
-            if (S.mode === 'chill') {
-                const line = (body.split('\n')[0] || 'Done.').slice(0, 80);
-                S.cue = { title, body: line };
-                setTimeout(() => { S.cue = null; render(); }, 4200);
-                return;
-            }
             if (surf === 'none') return;
             if (surf === 'cue') { S.cue = { title, body: body || 'Done.' }; setTimeout(() => { S.cue = null; render(); }, 4200); return; }
             if (surf === 'inline') { pushSurface({ kind: 'inline', title, taxo: 'inline card', body, meta }); return; }
@@ -317,35 +429,76 @@
             pushSurface({ kind: 'window', title, taxo: 'full window', body, meta });
         }
 
-        function submit() { const inp = document.getElementById('intent-input'); runIntent((inp && inp.value) || ''); }
-        async function runIntent(text) {
-            text = (text || '').trim();
-            if (!text) return;
-            S.mode = 'ambient'; S._focusInput = true;
-            S.input = ''; S.run = { intent: text, stage: 'plan', decision: 'plan' }; S.units = []; S.busy = true;
+        function submit() {
+            const inp = document.getElementById('intent-input');
+            const val = ((inp && inp.value) || '').trim();
+            if (!val) return;
+            if (inp) inp.value = '';
+            S.input = '';
+            // Everything goes through the model — including introducing yourself.
+            // The planner extracts your name from any phrasing (set-user-name),
+            // so onboarding is a real conversation, not client-side parsing.
+            // Stay in the current zone — Ambient shows the full conversation; Focus
+            // and Chill surface it in the chat dock. Make sure that dock is open so
+            // the reply is visible.
+            if (S.mode !== 'ambient' && S.chatDock === 'collapsed') setChatDock('open');
+            S.queue.push(val);
+            S._focusInput = true;
+            render();
+            processQueue();
+        }
+        // Process queued messages one at a time. Non-blocking: the input stays
+        // live so more can be sent while this runs; each is answered in turn.
+        // Pauses while an interactive gate (S.run) is open.
+        async function processQueue() {
+            if (S.busy || S.run || S.queue.length === 0) return;
+            const text = S.queue[0]; // peek — the message stays shown until answered
+            if (S.mode !== 'chill') S.mode = 'ambient'; // stay in the zone the intent came from
+            S.run = { intent: text, stage: 'plan', decision: 'plan' }; S.units = []; S.busy = true;
             log('intent · "' + text + '"', 'accent'); render();
             const resp = await post('/os/intent', { intent: text });
             S.busy = false;
             S.units = unitsFromOutcome(resp);
             const d = resp.decision;
             S.run.decision = d; S.run.message = resp.message; S.run.reason = resp.reason; S.run.skill = resp.skill; S.run.policy = resp.risk_level; S.run.arguments = resp.arguments; S.run.pipeline = resp.pipeline || [];
-            if (d === 'answer') { S.run.stage = 'observe'; log('planner · answer'); observe(resp); }
-            else if (d === 'ask') { S.run.stage = 'ask'; log('planner · ask (clarify gate)'); }
-            else if (d === 'refuse') { S.run.stage = 'refuse'; log('planner · refuse (safety stop)', 'danger'); }
-            else if (d === 'needs_confirmation') { S.run.stage = 'confirm'; log('planner · propose_skill · ' + (resp.skill||'')); }
-            else if (d === 'executed') { S.run.stage = 'observe'; log('executed · ' + (resp.skill||'')); observe(resp); }
-            else if (d === 'open_dialog') {
+            refreshSuggestions(); // the system just learned something — re-adapt the chips
+            refreshPrefs();       // a rename intent may have changed the assistant's name
+
+            if (d === 'needs_confirmation') { S.run.stage = 'confirm'; log('planner · propose_skill · ' + (resp.skill||'')); render(); return; }
+            if (d === 'dialog_exists') { S.run.stage = 'dialog_exists'; log('already open · ' + (resp.skill||''), 'accent'); fetchDialogs(); render(); return; }
+
+            // Everything else is terminal — the exchange is in the DB now.
+            S.queue.shift();
+            if (d === 'open_dialog') {
                 log('open dialog · ' + (resp.skill||''), 'accent');
-                S.run.stage = 'observe'; S.run.decision = 'open_dialog';
-                pushSurface({ kind: 'inline', title: resp.skill, taxo: 'opening in Focus', body: (resp.message || ('I think this tool fits — ' + (resp.skill || 'a tool') + '.')) + ' Opening it in Focus…' });
-                render();
-                setTimeout(function () { S.run = null; S.surfaces = []; S.mode = 'focus'; fetchDialogs().then(render); }, 2600);
+                S.run = null; S.surfaces = [];
+                await refreshHistory();
+                // Chill-launched leisure apps (game/music/video) open right in Chill;
+                // otherwise the tool surfaces in Focus.
+                const zone = (S.mode === 'chill') ? 'chill' : 'focus';
+                setTimeout(function () { S.mode = zone; fetchDialogs().then(render); }, 1400);
+                processQueue();
                 return;
             }
-            else if (d === 'dialog_exists') { S.run.stage = 'dialog_exists'; log('already open · ' + (resp.skill||''), 'accent'); fetchDialogs(); }
-            else { S.run.stage = 'refuse'; S.run.message = resp.message || 'Something went wrong.'; log('error', 'danger'); }
-            render();
-            refreshSuggestions(); // the system just learned something — re-adapt the chips
+            if (d === 'answer') log('planner · answer');
+            else if (d === 'ask') log('planner · ask (clarify)');
+            else if (d === 'refuse') log('planner · refuse (safety stop)', 'danger');
+            else if (d === 'executed') log('executed · ' + (resp.skill||''));
+            else log('error', 'danger');
+            S.run = null; S.surfaces = [];
+            await refreshHistory();
+            // A skill may have opened a window as a side effect (e.g. open-web-app
+            // wraps a site as a dialog). If a new dialog appeared, reveal it.
+            if (d === 'executed') {
+                const before = (S.dialogs || []).length;
+                await fetchDialogs();
+                fetchWebApps(); // an open-web-app may have registered a new app
+                if ((S.dialogs || []).length > before) {
+                    if (S.mode !== 'chill') S.mode = 'focus';
+                    render();
+                }
+            }
+            processQueue(); // next queued message, if any
         }
         async function approve() {
             const r = S.run; if (!r) return;
@@ -358,31 +511,123 @@
                 : await post('/os/skill', { intent: r.intent, skill: r.skill, arguments: r.arguments || {} });
             S.busy = false;
             S.units = unitsFromOutcome(resp);
-            r.stage = 'observe'; r.decision = resp.decision; log('observe · ' + (resp.skill||r.skill)); observe(resp); render();
+            log('observe · ' + (resp.skill||r.skill));
+            // Approved & executed — the result joins the persisted thread; drop
+            // the confirmed message from the queue and continue.
+            S.run = null; S.surfaces = [];
+            S.queue.shift();
+            refreshPrefs();
+            await refreshHistory();
+            processQueue();
         }
 
-        // Chill DND: run a safe skill silently (no window, no loop HUD) → gentle cue.
-        async function chillRun(skill) {
-            log('chill · ' + skill + ' · silent', 'mute');
-            const resp = await post('/os/skill', { intent: '(chill) ' + skill, skill, arguments: {} });
-            S.units = unitsFromOutcome(resp);
-            observe(resp); // S.mode === 'chill' → forced cue
-            render();
-        }
-
-        // ---------- dialogs (Focus zone) — persistent #wm-layer window manager ----------
+        // ---------- dialogs (Focus / Chill zone) — persistent #wm-layer window manager ----------
         const wmLayer = document.getElementById('wm-layer');
         const winZ = {};
         let zTop = 100;
+
+        // ---------- native bridge (OS mode) ----------
+        // On the native desktop, windows open as top-level chromium --app
+        // windows framed by semitexa-wm. The bridge is a tiny local daemon on
+        // the machine itself; the shell just asks it to open a URL (BRIDGE is
+        // resolved at boot from boot.bridgeUrl).
+        //
+        // The env flag only PERMITS os mode; this probe confirms the bridge is
+        // actually up before we promote a single dialog. Success flips the live
+        // source of truth S.windowMode to 'os'; failure leaves us on iframes.
+        async function probeBridge() {
+            if (!OS_PERMITTED) return;
+            try {
+                await fetch(BRIDGE + '/', { mode: 'no-cors' });
+                S.windowMode = 'os';
+            } catch (e) { /* bridge down → stay in web (iframe) mode */ }
+        }
+        async function nativeOpen(url) {
+            try {
+                const r = await fetch(BRIDGE + '/open?url=' + encodeURIComponent(url) + '&w=1100&h=700');
+                return r.ok;
+            } catch (e) { return false; }
+        }
+        // Ask the bridge to spawn a real native program (not a web view) — e.g.
+        // a genuine Alpine shell for the Terminal. The capability web mode can't
+        // offer: no sandbox, a real tty on the real machine.
+        async function nativeOpenApp(app) {
+            try {
+                const r = await fetch(BRIDGE + '/open?app=' + encodeURIComponent(app));
+                return r.ok;
+            } catch (e) { return false; }
+        }
+        const nativeDiverted = new Set();
+        // In OS mode a dialog is a REAL native window, not an in-page iframe.
+        // A web-app resolves to its external URL; every other dialog opens its
+        // own entry route (origin + d.entry — e.g. /os/app/calendar) as a
+        // chromium --app window framed by semitexa-wm. Either way the
+        // server-side dialog is closed so it never also renders in-page.
+        async function divertDialog(d) {
+            if (nativeDiverted.has(d.id)) return;
+            nativeDiverted.add(d.id);
+            if (d.skill === 'Terminal') {
+                // A real program, not a web surface: the bridge spawns an actual
+                // Alpine shell (xterm) rather than a chromium window of the web
+                // console route. Web mode keeps the sandboxed console surface.
+                await nativeOpenApp('terminal');
+            } else {
+                let url = null;
+                if ((d.skill || '').indexOf('webapp:') === 0) {
+                    if (!(S.webApps || []).length) await fetchWebApps();
+                    const app = (S.webApps || []).find(a => 'webapp:' + a.id === d.skill);
+                    url = app ? app.url : null;
+                } else if (d.entry) {
+                    url = location.origin + d.entry;
+                }
+                if (url) await nativeOpen(url);
+            }
+            try { await post('/os/dialog/close', { id: d.id }); } catch (e) {}
+        }
 
         async function fetchDialogs() {
             try {
                 const r = await fetch('/os/dialogs', { headers: { 'Accept': 'application/json' } });
                 const j = await r.json();
                 S.dialogs = j.dialogs || [];
-                S.dialogs.forEach(d => { if (!S.recents.some(x => x.name === d.skill)) S.recents.unshift({ name: d.skill, icon: d.icon }); });
+                // Recents reflect internal skills that have been opened (web-apps
+                // live in "Your apps"). Compute from the full list before any
+                // OS-mode diversion empties the in-page window set.
+                S.dialogs.forEach(d => { if ((d.skill || '').indexOf('webapp:') !== 0 && !S.recents.some(x => x.name === d.skill)) S.recents.unshift({ name: d.skill, icon: d.icon }); });
                 S.recents = S.recents.slice(0, 6);
+                if (isOsMode()) {
+                    // In OS mode every dialog is a real native window (bridge),
+                    // never an in-page iframe: divert them all and clear the
+                    // in-page window set so syncDialogs() renders nothing here.
+                    const divert = S.dialogs.slice();
+                    S.dialogs = [];
+                    divert.forEach(divertDialog);
+                }
             } catch (e) {}
+        }
+        // The user's registered external apps (for the "Your apps" launcher).
+        async function fetchWebApps() {
+            try {
+                const r = await fetch('/os/webapps', { headers: { 'Accept': 'application/json' } });
+                const j = await r.json();
+                S.webApps = j.apps || [];
+            } catch (e) {}
+        }
+        async function openWebApp(id) {
+            if (isOsMode()) {
+                if (!(S.webApps || []).length) await fetchWebApps();
+                const app = (S.webApps || []).find(a => a.id === id);
+                if (app) { await nativeOpen(app.url); return; }
+            }
+            const before = (S.dialogs || []).length;
+            await post('/os/webapp/open', { id });
+            await fetchDialogs();
+            if ((S.dialogs || []).length >= before) { if (S.mode !== 'chill') S.mode = 'focus'; render(); }
+        }
+        async function removeWebApp(id) {
+            await post('/os/webapp/remove', { id });
+            await fetchWebApps();
+            render();
         }
         // Pull the adaptive Ambient chips. We send the client's *local* wall-clock
         // context (hour + weekend) so suggestions match the user's real time of
@@ -395,6 +640,71 @@
                 const r = await fetch('/os/suggestions?hour=' + now.getHours() + '&weekend=' + weekend + '&limit=4', { headers: { 'Accept': 'application/json' } });
                 const d = await r.json();
                 S.suggestions = Array.isArray(d.suggestions) ? d.suggestions : [];
+                render();
+            } catch (e) {}
+        }
+        // Re-read the assistant's name (it can change via a rename intent or the
+        // Settings dialog) and re-render so it takes effect everywhere at once.
+        async function refreshPrefs() {
+            try {
+                const r = await fetch('/os/preferences', { headers: { 'Accept': 'application/json' } });
+                const d = await r.json();
+                if (d && d.assistant_name) { boot.assistantName = d.assistant_name; render(); }
+            } catch (e) {}
+        }
+        // The persisted dialog transcript, rendered as a chat thread.
+        function conversationHTML() {
+            // Persisted turns + any queued (sent-but-not-yet-answered) user
+            // messages, so a message shows the instant it is sent.
+            const turns = (S.history || []).concat(
+                (S.queue || []).map(function (text) { return { role: 'user', text: text, meta: {} }; })
+            );
+            const calendarSkills = ['calendar-create', 'calendar-lookup', 'Calendar'];
+            const rows = turns.map(function (t) {
+                const who = t.role === 'user' ? 'user' : 'assistant';
+                const tag = (who === 'assistant' && t.meta && t.meta.skill)
+                    ? '<span class="os-msg__tag">' + esc(t.meta.skill) + '</span>' : '';
+                // A clickable affordance to open the calendar dialog in Focus,
+                // shown under calendar-related answers.
+                const cta = (who === 'assistant' && t.meta && calendarSkills.indexOf(t.meta.skill) !== -1)
+                    ? '<button type="button" class="os-msg__cta" data-act="open-calendar">' + ico('calendar', 15) + ' Open calendar</button>'
+                    : '';
+                return '<div class="os-msg os-msg--' + who + '"><div class="os-msg__bubble">' + esc(t.text) + tag + '</div>' + cta + '</div>';
+            }).join('');
+            // The "typing" indicator is a row INSIDE the chat container, so it
+            // aligns with the message bubbles instead of sliding to the far left.
+            const typing = S.busy
+                ? '<div class="os-msg os-msg--assistant"><div class="os-msg__bubble os-typing"><span></span><span></span><span></span></div></div>'
+                : '';
+            return '<div class="os-chat">' + rows + typing + '</div>';
+        }
+        // Load the saved transcript from the DB so returning to Ambient shows the
+        // whole conversation, not a blank screen.
+        async function refreshHistory() {
+            try {
+                const r = await fetch('/os/conversation', { headers: { 'Accept': 'application/json' } });
+                const d = await r.json();
+                S.history = Array.isArray(d.turns) ? d.turns : [];
+                render();
+            } catch (e) {}
+        }
+        // Proactive channel: the assistant speaking first. Poll /os/proactive; a
+        // new item (e.g. a task auto-completed) → refresh the thread so it appears
+        // in the conversation, raise a cue toast, and badge the dock if collapsed.
+        async function pollProactive() {
+            if (S.screen !== 'os') return;
+            try {
+                const r = await fetch('/os/proactive?since=' + encodeURIComponent(PROACTIVE_CURSOR), { headers: { 'Accept': 'application/json' } });
+                const d = await r.json();
+                if (d.cursor) setProactiveCursor(d.cursor);
+                const items = d.items || [];
+                if (!items.length) return;
+                await refreshHistory();                 // pull the new turn(s) into the thread
+                const last = items[items.length - 1];
+                S.cue = { title: boot.assistantName, body: last.text };
+                setTimeout(() => { S.cue = null; render(); }, 5200);
+                if (S.mode !== 'ambient' && S.chatDock === 'collapsed') S.proactiveUnseen += items.length;
+                blip(760);
                 render();
             } catch (e) {}
         }
@@ -415,7 +725,12 @@
 
         function createWindow(d) {
             const node = document.createElement('div');
-            node.className = 'os-win'; node.dataset.id = d.id;
+            // Apps size to their content: the calendar is wide, media players are
+            // large, the game board is portrait-ish — everything else is default.
+            const lg = (d.skill === 'Calendar' || (d.skill || '').indexOf('webapp:') === 0);
+            const game = (d.skill === 'tic-tac-toe');
+            node.className = 'os-win' + (lg ? ' os-win--lg' : '') + (game ? ' os-win--game' : '');
+            node.dataset.id = d.id;
             node.innerHTML =
                 '<div class="os-win__bar"><span class="os-win__title">' + ico(d.icon || 'app-window', 15) + ' ' + esc(d.title) + '</span>'
                 + '<span class="os-win__ctl">'
@@ -452,9 +767,10 @@
 
         // Reconcile #wm-layer with S.dialogs without recreating iframes (preserves state).
         function syncDialogs() {
-            const inFocus = (S.screen === 'os' && S.mode === 'focus');
-            wmLayer.hidden = !inFocus;
-            if (!inFocus) return;
+            // Windows live in Focus and Chill (leisure apps: game, music, video).
+            const showWindows = (S.screen === 'os' && (S.mode === 'focus' || S.mode === 'chill'));
+            wmLayer.hidden = !showWindows;
+            if (!showWindows) return;
             const dialogs = S.dialogs || [];
             const ids = dialogs.map(d => d.id);
             Array.from(wmLayer.children).forEach(n => { if (!ids.includes(n.dataset.id)) n.remove(); });
@@ -464,6 +780,7 @@
                 if (!node) { node = createWindow(d); wmLayer.appendChild(node); }
                 const max = d.state === 'maximized';
                 node.classList.toggle('max', max);
+                node.classList.toggle('focused', d.id === S.focusedId && d.state !== 'minimized'); // cyan border, like the WM's active frame
                 node.style.display = (d.state === 'minimized') ? 'none' : 'flex';
                 node.style.zIndex = winZ[d.id] || (100 + (d.order || 0));
                 const mb = node.querySelector('[data-maxbtn]');
@@ -493,14 +810,31 @@
             const t = e.target.closest('[data-act]'); if (!t) return;
             const act = t.dataset.act;
             if (act === 'awaken') { if (S.awake!=='idle') return; S.awake='auth'; blip(540); render(); setTimeout(()=>{ S.awake='snapshot'; render(); }, 1500); }
-            else if (act === 'enter-continue') { S.screen='os'; S.mode='ambient'; blip(720); log('continued · local LLM deployment · fixture','accent'); render(); refreshSuggestions(); }
-            else if (act === 'enter-fresh') { S.screen='os'; S.mode='ambient'; blip(720); render(); refreshSuggestions(); }
-            else if (act === 'mode') { S.mode = t.dataset.mode; if (S.mode!=='chill') S.chill='none'; blip(620); render(); if (S.mode === 'focus') fetchDialogs().then(render); }
+            else if (act === 'enter-continue') { markSession(); S.screen='os'; S.mode='ambient'; blip(720); log('continued · local LLM deployment · fixture','accent'); render(); refreshSuggestions(); refreshHistory(); }
+            else if (act === 'enter-fresh') { markSession(); S.screen='os'; S.mode='ambient'; blip(720); render(); refreshSuggestions(); refreshHistory(); }
+            else if (act === 'mode') { S.mode = t.dataset.mode; blip(620); render(); if (S.mode === 'focus' || S.mode === 'chill') { fetchDialogs().then(render); if (S.mode === 'focus') fetchWebApps().then(render); } if (S.mode === 'ambient') refreshHistory(); }
             else if (act === 'xray') { S.xray = !S.xray; blip(700); render(); }
+            else if (act === 'chatdock-toggle') { setChatDock(S.chatDock === 'open' ? 'collapsed' : 'open'); if (S.chatDock === 'open') { S._focusInput = true; S.proactiveUnseen = 0; } blip(600); render(); }
             else if (act === 'submit') { S._focusInput = true; submit(); }
             else if (act === 'suggest') { S.input = t.dataset.text; S._focusInput = true; render(); }
-            else if (act === 'run-skill') { runIntent(t.dataset.text); }
+            else if (act === 'run-skill') { if (S.mode !== 'ambient' && S.chatDock === 'collapsed') setChatDock('open'); S.queue.push(t.dataset.text); S._focusInput = true; render(); processQueue(); }
             else if (act === 'open-dialog') { openDialog(t.dataset.skill); }
+            else if (act === 'open-webapp') { openWebApp(t.dataset.id); }
+            else if (act === 'remove-webapp') { removeWebApp(t.dataset.id); }
+            else if (act === 'open-calendar') {
+                // Open the Calendar dialog in Focus — or focus it if already open.
+                fetchDialogs().then(function () {
+                    const existing = (S.dialogs || []).find(function (d) { return d.skill === 'Calendar'; });
+                    if (existing) {
+                        S.mode = 'focus'; render();
+                        existing.state === 'minimized'
+                            ? dialogState(existing.id, 'normal').then(function () { focusDialog(existing.id); })
+                            : focusDialog(existing.id);
+                    } else {
+                        openDialog('Calendar').then(function () { S.mode = 'focus'; render(); });
+                    }
+                });
+            }
             else if (act === 'task-click') {
                 const id = t.dataset.id; const d = (S.dialogs || []).find(x => x.id === id);
                 if (!d) return;
@@ -508,29 +842,43 @@
                 else if (S.focusedId === id) { dialogState(id, 'minimized'); }
                 else { focusDialog(id); }
             }
-            else if (act === 'dlg-open-another') { const sk = t.dataset.skill; S.run = null; openDialog(sk).then(() => { S.mode = 'focus'; render(); }); }
+            else if (act === 'dlg-open-another') { const sk = t.dataset.skill; S.run = null; S.queue.shift(); openDialog(sk).then(() => { S.mode = 'focus'; render(); }); refreshHistory(); processQueue(); }
             else if (act === 'dlg-switch') {
-                const sk = t.dataset.skill; S.run = null; S.mode = 'focus';
+                const sk = t.dataset.skill; S.run = null; S.queue.shift(); S.mode = 'focus';
                 fetchDialogs().then(() => {
                     render();
                     const d = (S.dialogs || []).find(x => x.skill === sk);
-                    if (!d) return;
-                    if (d.state === 'minimized') { dialogState(d.id, 'normal').then(() => focusDialog(d.id)); }
-                    else { focusDialog(d.id); }
+                    if (d) { d.state === 'minimized' ? dialogState(d.id, 'normal').then(() => focusDialog(d.id)) : focusDialog(d.id); }
                 });
+                refreshHistory(); processQueue();
             }
             else if (act === 'approve') approve();
-            else if (act === 'dismiss') { S.run = null; render(); }
+            else if (act === 'dismiss') { S.run = null; S.surfaces = []; S.queue.shift(); refreshHistory(); processQueue(); }
             else if (act === 'close-surface') { S.surfaces = S.surfaces.filter(x => x.id !== t.dataset.id); render(); }
-            else if (act === 'chill-voice') { blip(680); chillRun('os:status'); }
-            else if (act === 'chill-daemon') { S.chill='waiting'; render(); setTimeout(()=>{ S.chill='ask'; render(); }, 2200); }
-            else if (act === 'chill-restart') { S.chill='none'; S.cue={ title:'Daemon restarted', body:'sync-worker · healthy' }; render(); setTimeout(()=>{ S.cue=null; render(); }, 3500); }
-            else if (act === 'chill-dismiss') { S.chill='none'; render(); }
         });
         root.addEventListener('keydown', (e) => {
             if (e.target.id === 'intent-input' && e.key === 'Enter') { e.preventDefault(); S._focusInput = true; submit(); }
         });
         root.addEventListener('input', (e) => { if (e.target.id === 'intent-input') S.input = e.target.value; });
+
+        // Web mode: the Settings iframe posts a message to its parent shell so a
+        // rename takes effect everywhere without a reload. (In OS mode Settings is
+        // a separate native window whose parent is NOT the shell — this never
+        // fires there; the focus re-sync below covers that case instead.)
+        window.addEventListener('message', (e) => {
+            const m = e.data;
+            if (m && m.type === 'os:prefs-changed') {
+                if (m.assistantName) boot.assistantName = m.assistantName;
+                if (m.userName) boot.userName = m.userName;
+                render();
+            }
+        });
+
+        // OS mode: apps are separate native windows, so cross-window state can't
+        // ride postMessage. The server (/os/preferences) is the source of truth,
+        // so re-sync from it whenever the shell window regains focus — e.g. after
+        // the user finishes in a native Settings window and switches back.
+        window.addEventListener('focus', () => { if (isOsMode()) refreshPrefs(); });
 
         setInterval(() => { S.clock = new Date(); if (S.screen==='os') { const c = root.querySelector('.os-topbar__clock'); if (c) c.textContent = S.clock.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' · ' + S.clock.toLocaleDateString([], {month:'short',day:'numeric'}); } }, 1000);
 
@@ -545,6 +893,18 @@
             }).catch(() => {});
 
         render();
+        // Resolve the window-hosting mode (bridge probe) BEFORE restoring dialogs
+        // so OS-mode windows are promoted to native from the first paint instead
+        // of flashing as iframes first. In web mode probeBridge resolves at once.
+        probeBridge().then(() => {
+            // Resuming a session on reload: land in Ambient with the conversation,
+            // suggestions and any open dialogs restored.
+            if (S.screen === 'os') { refreshHistory(); refreshSuggestions(); fetchDialogs().then(render); }
+        });
+        // Proactive-message poll — seed the cursor first (no toast for history),
+        // then watch for the assistant speaking first (e.g. a task finished).
+        pollProactive();
+        setInterval(pollProactive, 6000);
     })();
     </script>
 </body>

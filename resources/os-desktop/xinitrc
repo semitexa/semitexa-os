@@ -1,0 +1,27 @@
+#!/bin/sh
+xset -dpms
+xset s off
+xset s noblank
+xsetroot -solid "#0a1a2f"
+xsetroot -cursor_name left_ptr    # consistent desktop cursor (was default X)
+
+# Semitexa bridge (native window opener + fallback launcher)
+python3 "$HOME/semitexa-os/bridge/bridged.py" &
+i=0; while [ $i -lt 40 ]; do nc -z 127.0.0.1 8777 && break; i=$((i+1)); sleep 0.3; done
+
+# Desktop surface: the real Semitexa OS shell (local docker app).
+# Fall back to the bridge launcher if the app isn't up in time.
+DESK="http://127.0.0.1:8777/"
+i=0; while [ $i -lt 90 ]; do
+  if nc -z 127.0.0.1 9507; then DESK="http://127.0.0.1:9507/os?desktop=1"; break; fi
+  i=$((i+1)); sleep 1
+done
+
+chromium --app="$DESK" \
+  --no-sandbox --disable-gpu --disable-infobars --noerrdialogs --test-type \
+  --disable-features=Translate,TranslateUI \
+  --no-first-run --no-default-browser-check \
+  --user-data-dir="$HOME/.config/semitexa-web" &
+
+"$HOME/semitexa-os/wm/semitexa-wm"
+exec openbox
