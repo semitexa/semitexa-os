@@ -163,7 +163,7 @@ final class DesignSkinCommand extends BaseCommand
         $map = [
             '#2e9e4f' => ['green', 'forest', 'ліс', 'зелен', 'emerald', 'mint', 'moss'],
             '#1e7fb8' => ['sea', 'ocean', 'blue', 'море', 'син', 'блакит', 'water', 'sky'],
-            '#e8703a' => ['sunset', 'orange', 'warm', 'захід', 'помаранч', 'ember', 'autumn', 'осін'],
+            '#e8703a' => ['sunset', 'sundown', 'dusk', 'orange', 'warm', 'захід', 'захо', 'помаранч', 'ember', 'autumn', 'осін', 'вечір', 'вечор'],
             '#c0392b' => ['red', 'crimson', 'червон', 'fire', 'ruby'],
             '#7b57c2' => ['purple', 'violet', 'фіолет', 'lavender', 'plum', 'бузков'],
             '#d6547a' => ['pink', 'rose', 'рожев', 'blossom'],
