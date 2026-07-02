@@ -62,6 +62,7 @@
             windowMode: 'web', // resolved live: 'os' only once the bridge answers (see probeBridge)
             chatDock: CHATDOCK, // 'open' | 'collapsed' — the Focus/Chill side chat
             proactiveUnseen: 0, // proactive messages arrived while the dock was collapsed
+            tasks: [], // real tasks (os_task) shown as "processes" in Chill; empty if the tasks package is absent
             input: '', clock: new Date(), snapshot: null,
             history: [],          // persisted dialog transcript (both sides) shown as the Ambient chat
             queue: [],            // messages sent but not yet answered — shown instantly, processed one at a time
@@ -262,21 +263,43 @@
         // Phase 1 is built on what exists (the foreground intent loop); a backend
         // registry for background tasks (copies, downloads) is a later phase.
         function chillProcessesHTML() {
-            const active = !!S.run || S.units.length > 0;
-            let inner;
-            if (active) {
-                const units = S.units.length
-                    ? '<div class="os-chill-units">' + S.units.map(u => '<div class="os-unit' + (u.busy?' busy':'') + '"><div class="os-unit__head">' + ico('box',19) + '<span class="os-unit__name">' + esc(u.name) + '</span><span class="os-unit__dot"></span></div><div class="os-unit__status">' + esc(u.status + (u.exit != null && u.status !== 'running' ? ' · exit ' + u.exit : '')) + '</div></div>').join('') + '</div>'
-                    : '';
-                inner = '<div class="os-chill-loop">' + stageCards() + '</div>' + units;
-            } else {
+            // Phase 2: real tasks (os_task) ARE the processes. A task in flight —
+            // especially an automated one advancing on its own — is exactly "what's
+            // running". Tasks list newest-first from /os/app/tasks/list.
+            const tasks = S.tasks || [];
+            const isActive = (t) => t.status === 'in_progress' || (t.automated && t.status !== 'done' && t.status !== 'cancelled');
+            const running = tasks.filter(isActive);
+            const recentDone = tasks.filter(t => t.status === 'done').slice(0, 3);
+            const loopRun = !!S.run || S.units.length > 0;   // the foreground intent loop is a process too
+            const live = running.length > 0 || loopRun;
+
+            const taskCard = (t) => {
+                const showBar = t.status === 'in_progress' || (t.automated && t.status !== 'done' && t.status !== 'cancelled');
+                return '<div class="os-proc-task">'
+                    + '<div class="os-proc-task__head">' + ico(t.automated ? 'bot' : 'circle-dot', 17)
+                    + '<span class="os-proc-task__title">' + esc(t.title) + '</span>'
+                    + (t.automated ? '<span class="os-proc-task__auto">auto</span>' : '')
+                    + '<span class="os-proc-task__pct">' + (showBar ? (t.progress || 0) + '%' : esc(t.status_label)) + '</span></div>'
+                    + (showBar ? '<div class="os-proc-bar"><i style="width:' + (t.progress || 0) + '%"></i></div>' : '')
+                    + '</div>';
+            };
+
+            let inner = '';
+            if (loopRun) inner += '<div class="os-chill-loop">' + stageCards() + '</div>';
+            if (running.length) inner += '<div class="os-proc-list">' + running.map(taskCard).join('') + '</div>';
+            if (recentDone.length) {
+                inner += '<div class="os-proc-recent"><div class="os-proc-recent__h">Recently completed</div>'
+                    + recentDone.map(t => '<div class="os-proc-recent__row">' + ico('check', 14) + '<span>' + esc(t.title) + '</span></div>').join('') + '</div>';
+            }
+            if (inner === '') {
+                // No real tasks and no live loop → Phase-1 fallback (durable trace / idle).
                 const recent = ((S.snapshot && S.snapshot.recent) || []).slice().reverse().slice(0, 5);
                 inner = recent.length
                     ? '<div class="os-chill-recent">' + recent.map(e => '<div class="os-chill-recent__row"><span class="os-chill-recent__k">' + esc(e.skill || e.intent || e.decision || 'activity') + '</span><span class="os-chill-recent__v">' + esc(e.decision || '') + '</span></div>').join('') + '</div>'
-                    : '<div class="os-chill-proc__idle">' + ico('moon', 22) + '<div>All quiet.</div><div class="os-chill-proc__hint">Nothing running right now. When ' + esc(boot.assistantName) + ' works — or something copies, plays or loads — it shows up here.</div></div>';
+                    : '<div class="os-chill-proc__idle">' + ico('moon', 22) + '<div>All quiet.</div><div class="os-chill-proc__hint">Nothing running right now. Ask ' + esc(boot.assistantName) + ' to run something — automated tasks show their progress here.</div></div>';
             }
             return '<div class="os-chill-proc">'
-                + '<div class="os-chill-proc__eyebrow">' + ico('activity', 16) + ' Processes · what\'s running' + (active ? ' <span class="os-chill-proc__live">live</span>' : '') + '</div>'
+                + '<div class="os-chill-proc__eyebrow">' + ico('activity', 16) + ' Processes · what\'s running' + (live ? ' <span class="os-chill-proc__live">live</span>' : '') + '</div>'
                 + inner + '</div>';
         }
 
@@ -688,6 +711,17 @@
                 render();
             } catch (e) {}
         }
+        // Real tasks (os_task) power the Chill "Processes" panel. Soft dependency:
+        // if the tasks package isn't installed the endpoint 404s, S.tasks stays
+        // empty, and Chill falls back to the foreground loop / trace view.
+        async function refreshTasks() {
+            try {
+                const r = await fetch('/os/app/tasks/list', { headers: { 'Accept': 'application/json' } });
+                if (!r.ok) { S.tasks = []; return; }
+                const d = await r.json();
+                S.tasks = Array.isArray(d.tasks) ? d.tasks : [];
+            } catch (e) { S.tasks = []; }
+        }
         // Proactive channel: the assistant speaking first. Poll /os/proactive; a
         // new item (e.g. a task auto-completed) → refresh the thread so it appears
         // in the conversation, raise a cue toast, and badge the dock if collapsed.
@@ -812,7 +846,7 @@
             if (act === 'awaken') { if (S.awake!=='idle') return; S.awake='auth'; blip(540); render(); setTimeout(()=>{ S.awake='snapshot'; render(); }, 1500); }
             else if (act === 'enter-continue') { markSession(); S.screen='os'; S.mode='ambient'; blip(720); log('continued · local LLM deployment · fixture','accent'); render(); refreshSuggestions(); refreshHistory(); }
             else if (act === 'enter-fresh') { markSession(); S.screen='os'; S.mode='ambient'; blip(720); render(); refreshSuggestions(); refreshHistory(); }
-            else if (act === 'mode') { S.mode = t.dataset.mode; blip(620); render(); if (S.mode === 'focus' || S.mode === 'chill') { fetchDialogs().then(render); if (S.mode === 'focus') fetchWebApps().then(render); } if (S.mode === 'ambient') refreshHistory(); }
+            else if (act === 'mode') { S.mode = t.dataset.mode; blip(620); render(); if (S.mode === 'focus' || S.mode === 'chill') { fetchDialogs().then(render); if (S.mode === 'focus') fetchWebApps().then(render); if (S.mode === 'chill') refreshTasks().then(render); } if (S.mode === 'ambient') refreshHistory(); }
             else if (act === 'xray') { S.xray = !S.xray; blip(700); render(); }
             else if (act === 'chatdock-toggle') { setChatDock(S.chatDock === 'open' ? 'collapsed' : 'open'); if (S.chatDock === 'open') { S._focusInput = true; S.proactiveUnseen = 0; } blip(600); render(); }
             else if (act === 'submit') { S._focusInput = true; submit(); }
@@ -905,6 +939,8 @@
         // then watch for the assistant speaking first (e.g. a task finished).
         pollProactive();
         setInterval(pollProactive, 6000);
+        // Keep the Chill processes panel live while it's open (task progress ticks).
+        setInterval(() => { if (S.screen === 'os' && S.mode === 'chill') refreshTasks().then(render); }, 3500);
     })();
     </script>
 </body>

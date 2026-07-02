@@ -380,3 +380,18 @@ body {
 .os-chill-proc__idle i { color: #6f7d99; }
 .os-chill-proc__hint { font-size: 13px; color: #6f7d99; line-height: 1.5; max-width: 460px; }
 .os-chill-leisure { text-align: center; padding: 8px 0 24px; }
+
+/* ---------- Chill processes from real tasks (Phase 2) ---------- */
+.os-proc-list { display: flex; flex-direction: column; gap: 10px; }
+.os-proc-task { background: rgba(15,23,42,.5); border: 1px solid rgba(148,163,184,.14); border-radius: 12px; padding: 12px 14px; }
+.os-proc-task__head { display: flex; align-items: center; gap: 10px; }
+.os-proc-task__head i { color: var(--accent); flex: 0 0 auto; }
+.os-proc-task__title { flex: 1; font-size: 14px; color: #eaf2ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.os-proc-task__auto { font-size: 10px; letter-spacing: .04em; color: var(--accent); border: 1px solid rgba(55,183,255,.35); border-radius: 999px; padding: 1px 7px; flex: 0 0 auto; }
+.os-proc-task__pct { font-family: var(--font-mono); font-size: 12px; color: #8d9bb8; flex: 0 0 auto; }
+.os-proc-bar { height: 6px; border-radius: 999px; background: rgba(148,163,184,.14); margin-top: 10px; overflow: hidden; }
+.os-proc-bar > i { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width .5s; }
+.os-proc-recent { margin-top: 16px; }
+.os-proc-recent__h { font-family: var(--font-mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: #6f7d99; margin-bottom: 8px; }
+.os-proc-recent__row { display: flex; align-items: center; gap: 8px; color: #8d9bb8; font-size: 13px; padding: 3px 0; }
+.os-proc-recent__row i { color: #5eead4; flex: 0 0 auto; }
