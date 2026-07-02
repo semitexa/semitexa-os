@@ -57,6 +57,7 @@ final class CalendarAppHandler implements TypedHandlerInterface
     data-ui-calendar-save="/platform/calendar/events/save"
     data-ui-calendar-delete="/platform/calendar/events/delete"
     data-ui-calendar-view="month"
+    data-ui-calendar-live="0"
     class="uical"></div>
   <script src="/assets/platform-ui/js/calendar-dates.js"></script>
   <script src="/assets/platform-ui/js/calendar-runtime.js"></script>

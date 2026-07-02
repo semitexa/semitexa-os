@@ -96,6 +96,12 @@ final class SkillLoopRunner
             );
         }
 
+        // Persist the user's turn IMMEDIATELY — before the planner / skill run — so
+        // that a worker crash during processing (e.g. a concurrent SSE Redis-read
+        // deadlock on the same Swoole worker) can never drop the user's message
+        // from history. The assistant reply is still appended once the loop finishes.
+        $this->conversation->append(ConversationStore::ROLE_USER, $intent);
+
         if (!$this->provider()->healthCheck()) {
             return new IntentOutcome(
                 intent: $intent,
@@ -128,7 +134,7 @@ final class SkillLoopRunner
         };
 
         $this->session->record($outcome);
-        $this->conversation->append(ConversationStore::ROLE_USER, $intent);
+        // User turn already persisted at the top of the loop (crash-safe); append the reply.
         $this->conversation->append(ConversationStore::ROLE_ASSISTANT, $outcome->displayText(), $this->turnMeta($outcome));
 
         return $outcome;
