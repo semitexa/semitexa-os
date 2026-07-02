@@ -60,7 +60,8 @@ final class DesignSkinCommand extends BaseCommand
         $this->setName('os:design-skin')
             ->setDescription('Reskin the OS interface to match a described mood/style (LLM) or a seed hex.')
             ->addOption('prompt', null, InputOption::VALUE_REQUIRED, 'Natural-language description of the desired look/mood.')
-            ->addOption('hex', null, InputOption::VALUE_REQUIRED, 'Seed colour #rrggbb (deterministic, skips the LLM).');
+            ->addOption('hex', null, InputOption::VALUE_REQUIRED, 'Seed colour #rrggbb (deterministic, skips the LLM).')
+            ->addOption('llm', null, InputOption::VALUE_NONE, 'Use the LLM resolver for a smarter seed (slow on a cold model; keyword-first otherwise).');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -79,20 +80,23 @@ final class DesignSkinCommand extends BaseCommand
                 return Command::SUCCESS;
             }
             $label = $prompt;
-            try {
-                $resolution = (new PromptResolverFactory(provider: $this->llm->provider()))->create()->resolve($prompt);
-                $seed = (string) $resolution->params->seed;
-                $algorithmId = $resolution->params->algorithm;
-                $knobs = $resolution->params->knobs;
-            } catch (\Throwable $e) {
-                // The design model was slow/unavailable — do NOT give up: fall through
-                // to a deterministic keyword→seed so the interface still reskins.
-            }
-            // Whatever happened, guarantee a usable seed so a skin is always produced.
-            if (!$this->isHex($seed)) {
-                $seed = $this->seedFromPrompt($prompt);
-                $algorithmId = 'balanced';
-                $knobs = [];
+            // Keyword-first: derive the seed from the mood INSTANTLY + reliably, so a
+            // chat turn always reskins the OS. The LLM resolver picks a smarter seed,
+            // but on the cold remote model it can block for minutes (provider timeout
+            // × retries) — far too long to hold a chat turn — so it is opt-in via
+            // --llm (use it when the model is warm); otherwise we never touch it.
+            $seed = $this->seedFromPrompt($prompt);
+            if ($input->getOption('llm')) {
+                try {
+                    $resolution = (new PromptResolverFactory(provider: $this->llm->provider()))->create()->resolve($prompt);
+                    if ($this->isHex((string) $resolution->params->seed)) {
+                        $seed = (string) $resolution->params->seed;
+                        $algorithmId = $resolution->params->algorithm;
+                        $knobs = $resolution->params->knobs;
+                    }
+                } catch (\Throwable) {
+                    // Keep the keyword seed — the model was slow/unavailable.
+                }
             }
         }
 
