@@ -249,6 +249,20 @@ body {
 .os-ambview__btn:hover { color: var(--os-text); }
 .os-ambview__btn.active { background: rgba(var(--accent-rgb),.18); color: var(--os-text); }
 
+/* Workspace node editor (click a node) */
+.os-nedit__backdrop { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; background: rgba(2,8,23,.55); backdrop-filter: blur(3px); }
+.os-nedit { width: min(440px, calc(100% - 48px)); max-height: calc(100% - 80px); overflow-y: auto; background: rgba(var(--os-surface-rgb),.97); border: 1px solid rgba(var(--accent-rgb),.35); border-radius: 16px; box-shadow: 0 30px 80px rgba(2,8,23,.6); }
+.os-nedit__head { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid rgba(148,163,184,.18); color: var(--accent); }
+.os-nedit__title { font-family: var(--font-display); font-weight: 700; font-size: 18px; color: var(--os-text); }
+.os-nedit__body { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+.os-nedit__field { display: flex; flex-direction: column; gap: 5px; }
+.os-nedit__field > span { font-size: 12px; color: #8d9bb8; font-family: var(--font-mono); letter-spacing: .04em; }
+.os-nedit__field input, .os-nedit__field textarea, .os-nedit__field select { background: rgba(var(--os-surface-rgb),.5); border: 1px solid rgba(148,163,184,.25); border-radius: 10px; padding: 9px 12px; color: var(--os-text); font: 400 14px var(--font-ui); outline: none; resize: vertical; }
+.os-nedit__field input:focus, .os-nedit__field textarea:focus, .os-nedit__field select:focus { border-color: var(--accent); }
+.os-nedit__avatar { display: flex; justify-content: center; }
+.os-nedit__avatar img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(var(--accent-rgb),.5); }
+.os-nedit__foot { display: flex; align-items: center; gap: 10px; padding: 14px 20px 18px; border-top: 1px solid rgba(148,163,184,.18); }
+
 /* ---------- Focus ---------- */
 .os-focus { max-width: 1040px; margin: 0 auto; width: 100%; }
 .os-focus__eyebrow { display: flex; align-items: center; gap: 12px; }

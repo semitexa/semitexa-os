@@ -51,6 +51,7 @@ final class WeaveGraphHandler implements TypedHandlerInterface
             'label' => $n->title,
             'kind' => $n->kind->value,
             'self' => $n->id === $selfId,
+            'props' => $n->properties,
         ], $data['nodes']);
 
         $links = array_map(static fn ($e): array => [
