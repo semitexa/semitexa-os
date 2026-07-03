@@ -38,6 +38,8 @@
         const root = document.getElementById('root');
         const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
         const ico = (n, w) => '<i data-lucide="' + n + '" style="width:' + (w||18) + 'px;height:' + (w||18) + 'px;stroke-width:1.5"></i>';
+        const fmtTime = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const fmtDate = (d) => d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 
         // Once the user has awakened into a session, a reload should return them
         // straight to their conversation — not back through the Awakening ritual.
@@ -156,7 +158,11 @@
             const labels = { ambient: 'Ambient', focus: 'Focus', chill: 'Chill' };
             const btns = modes.map(m => '<button class="os-modebtn' + (S.mode===m?' active':'') + '" data-act="mode" data-mode="' + m + '">' + labels[m] + '</button>').join('');
             return '<header class="os-topbar">'
-                + '<div class="os-topbar__clock">' + S.clock.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' · ' + S.clock.toLocaleDateString([], {month:'short',day:'numeric'}) + '</div>'
+                + '<button class="os-topbar__clock" data-act="open-calendar" title="Open calendar">'
+                + '<span class="os-clock__ico">' + ico('calendar-days', 20) + '</span>'
+                + '<span class="os-clock__text"><span class="os-clock__time">' + fmtTime(S.clock) + '</span>'
+                + '<span class="os-clock__date">' + fmtDate(S.clock) + '</span></span>'
+                + '</button>'
                 + '<div class="os-modeswitch">' + btns + '</div>'
                 + '<div class="os-topbar__right">' + themeSwitchHTML()
                 + '<button class="os-xray-toggle' + (S.xray?' active':'') + '" data-act="xray">' + ico('scan-eye',16) + ' X-Ray</button>'
@@ -1083,7 +1089,7 @@
         // the user finishes in a native Settings window and switches back.
         window.addEventListener('focus', () => { if (isOsMode()) refreshPrefs(); });
 
-        setInterval(() => { S.clock = new Date(); if (S.screen==='os') { const c = root.querySelector('.os-topbar__clock'); if (c) c.textContent = S.clock.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' · ' + S.clock.toLocaleDateString([], {month:'short',day:'numeric'}); } if (S.themeMode === 'auto') applyThemeMode(); }, 1000);
+        setInterval(() => { S.clock = new Date(); if (S.screen==='os') { const c = root.querySelector('.os-clock__time'); if (c) c.textContent = fmtTime(S.clock); const dt = root.querySelector('.os-clock__date'); if (dt) dt.textContent = fmtDate(S.clock); } if (S.themeMode === 'auto') applyThemeMode(); }, 1000);
 
         // Restore the real State Snapshot (OS-owned session log) for the Awakening screen.
         fetch('/os/snapshot', { headers: { 'Accept': 'application/json' } })

@@ -93,7 +93,12 @@ body {
 .os-topbar { height: 60px; flex: 0 0 auto; display: flex; align-items: center; gap: 14px; padding: 0 22px;
     border-bottom: 1px solid rgba(148,163,184,.16); background: rgba(var(--os-surface-rgb),.5); backdrop-filter: blur(14px); position: relative; z-index: 60; }
 .os-topbar__brand { font-family: var(--font-display); font-weight: 800; letter-spacing: -.03em; font-size: 20px; color: var(--os-text); white-space: nowrap; }
-.os-topbar__clock { font-family: var(--font-mono); font-size: 13px; color: #5d6b86; letter-spacing: .04em; white-space: nowrap; }
+.os-topbar__clock { display: inline-flex; align-items: center; gap: 10px; padding: 4px 12px 4px 8px; border-radius: 12px; border: 1px solid transparent; background: transparent; cursor: pointer; white-space: nowrap; transition: background .2s, border-color .2s; }
+.os-topbar__clock:hover { background: rgba(var(--os-surface-rgb),.55); border-color: rgba(var(--accent-rgb),.35); }
+.os-clock__ico { display: flex; align-items: center; color: var(--accent); }
+.os-clock__text { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.12; }
+.os-clock__time { font-family: var(--font-mono); font-size: 17px; font-weight: 700; letter-spacing: .02em; color: var(--os-text); }
+.os-clock__date { font-family: var(--font-ui); font-size: 11px; color: #8d9bb8; letter-spacing: .03em; }
 .os-modeswitch { margin-left: auto; display: flex; align-items: center; gap: 6px; background: rgba(30,41,59,.5);
     border: 1px solid rgba(148,163,184,.18); border-radius: 999px; padding: 4px; }
 .os-modebtn { height: 32px; padding: 0 16px; border-radius: 999px; border: none; background: transparent; color: #a8b4cc;
