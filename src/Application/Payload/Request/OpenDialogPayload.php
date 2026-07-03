@@ -23,6 +23,7 @@ final class OpenDialogPayload implements ValidatablePayloadInterface
 {
     private string $skill = '';
     private ?string $parentId = null;
+    private string $path = '';
 
     /**
      * @return array<string, list<string>>
@@ -55,5 +56,16 @@ final class OpenDialogPayload implements ValidatablePayloadInterface
     public function setParentId(?string $parentId): void
     {
         $this->parentId = $parentId !== '' ? $parentId : null;
+    }
+
+    /** Optional context appended to the skill's entry as `?path=` (e.g. open Files at a folder). */
+    public function getPath(): string
+    {
+        return $this->path;
+    }
+
+    public function setPath(string $path): void
+    {
+        $this->path = $path;
     }
 }

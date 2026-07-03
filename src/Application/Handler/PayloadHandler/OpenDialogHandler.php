@@ -39,11 +39,24 @@ final class OpenDialogHandler implements TypedHandlerInterface
                 ->setHeader('Content-Type', 'application/json');
         }
 
+        // Optional context (e.g. open Files at a folder): appended to the entry
+        // URL as ?path= and reflected in the window title.
+        $entryUrl = (string) $entry->entry;
+        $title = $entry->name;
+        $path = trim($payload->getPath());
+        if ($path !== '') {
+            $entryUrl .= (str_contains($entryUrl, '?') ? '&' : '?') . 'path=' . rawurlencode($path);
+            $base = basename($path);
+            if ($base !== '') {
+                $title = $base;
+            }
+        }
+
         $dialog = $this->dialogs->open(
             skill: $entry->name,
-            title: $entry->name,
+            title: $title,
             icon: $entry->icon,
-            entry: $entry->entry,
+            entry: $entryUrl,
             parentId: $payload->getParentId(),
         );
 
