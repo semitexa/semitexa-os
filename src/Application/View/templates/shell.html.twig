@@ -611,6 +611,37 @@
             };
             return map[kind] || '#94a3b8';
         }
+        // Real per-kind icons on the graph nodes: reuse the shell's Lucide set —
+        // rasterise each glyph (white) to a cached <img> once, then draw it on the
+        // node's coloured disc in nodeCanvasObject. No new dependency.
+        const KIND_ICON = {
+            project: 'briefcase', person: 'user', org: 'building-2', topic: 'hash',
+            note: 'sticky-note', task: 'list-checks', event: 'calendar', place: 'map-pin',
+            folder: 'folder', file: 'file-text', app: 'layout-grid', thread: 'message-square',
+        };
+        const _iconCache = {};
+        function preloadNodeIcons() {
+            if (!(window.lucide && window.lucide.createIcons)) { setTimeout(preloadNodeIcons, 200); return; }
+            const names = Object.values(KIND_ICON).concat(['user-round', 'circle-dot']);
+            const holder = document.createElement('div');
+            holder.style.cssText = 'position:absolute;left:-9999px;top:-9999px;';
+            holder.innerHTML = names.map(function (n) { return '<span data-k="' + n + '"><i data-lucide="' + n + '"></i></span>'; }).join('');
+            document.body.appendChild(holder);
+            window.lucide.createIcons();
+            names.forEach(function (n) {
+                const svg = holder.querySelector('[data-k="' + n + '"] svg');
+                if (!svg) { _iconCache[n] = null; return; }
+                svg.setAttribute('stroke', '#ffffff');
+                const img = new Image();
+                img.onload = function () { try { if (weaveGraph) weaveGraph.nodeRelSize(weaveGraph.nodeRelSize()); } catch (e) {} };
+                img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+                _iconCache[n] = img;
+            });
+            document.body.removeChild(holder);
+        }
+        function nodeIcon(kind, isSelf) {
+            return _iconCache[isSelf ? 'user-round' : (KIND_ICON[kind] || 'circle-dot')] || null;
+        }
         function cssVar(name, fallback) {
             try { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback; } catch (e) { return fallback; }
         }
@@ -638,15 +669,23 @@
                 .nodeLabel(function (n) { return n.kind; }) // hover tooltip = kind (title is drawn below)
                 .nodeCanvasObjectMode(function () { return 'after'; })
                 .nodeCanvasObject(function (n, ctx, scale) {
-                    const label = n.label || '';
-                    if (!label) return;
-                    const fontSize = Math.max(12 / scale, 2);
-                    ctx.font = fontSize + 'px "IBM Plex Sans", system-ui, sans-serif';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'top';
-                    ctx.fillStyle = n.self ? accent : textColor;
                     const r = Math.sqrt(n.self ? 7 : 2) * 5;
-                    ctx.fillText(label, n.x, n.y + r + 2 / scale);
+                    // real per-kind icon (white) on the coloured disc
+                    const img = nodeIcon(n.kind, n.self);
+                    if (img && img.complete && img.naturalWidth) {
+                        const s = r * 1.15;
+                        ctx.drawImage(img, n.x - s / 2, n.y - s / 2, s, s);
+                    }
+                    // title label below the node
+                    const label = n.label || '';
+                    if (label) {
+                        const fontSize = Math.max(12 / scale, 2);
+                        ctx.font = fontSize + 'px "IBM Plex Sans", system-ui, sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'top';
+                        ctx.fillStyle = n.self ? accent : textColor;
+                        ctx.fillText(label, n.x, n.y + r + 2 / scale);
+                    }
                 })
                 .linkColor(function () { return 'rgba(148,163,184,0.4)'; })
                 .linkWidth(1)
@@ -659,6 +698,7 @@
             // Spread the layout so it reads as a constellation, not a clump.
             try { weaveGraph.d3Force('charge').strength(-320); } catch (e) {}
             try { weaveGraph.d3Force('link').distance(95); } catch (e) {}
+            preloadNodeIcons();
             weaveResize();
             window.addEventListener('resize', weaveResize);
         }
