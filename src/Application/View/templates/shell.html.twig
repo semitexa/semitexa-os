@@ -59,6 +59,7 @@
             units: [],            // real skills in flight for the current/last run: {name,status,busy,exit}
             log: [{ t: 'os:session · ready', tone: 'mute' }],
             cue: null, busy: false, dialogs: [], pos: {}, recents: [], webApps: [],
+            launchQuery: '',      // Focus launcher type-to-filter text
             windowMode: 'web', // resolved live: 'os' only once the bridge answers (see probeBridge)
             chatDock: CHATDOCK, // 'open' | 'collapsed' — the Focus/Chill side chat
             proactiveUnseen: 0, // proactive messages arrived while the dock was collapsed
@@ -302,12 +303,13 @@
                 + inner + '</div>';
         }
 
-        // Focus shows RUNNING dialogs as classic app icons (+ a Recents row for
-        // misclick recovery). Apps are NOT launched here — only via Ambient intent.
-        // The windows live in the persistent #wm-layer (syncDialogs).
+        // Focus = the app zone: a searchable launcher of ALL installed apps
+        // (UI-skills from boot.skills + the user's registered web apps) plus the
+        // currently-running windows. Apps launch DIRECTLY here — not only via an
+        // Ambient intent — because chat-only launching proved inconvenient for a
+        // plain "open X". Windows live in the persistent #wm-layer (syncDialogs).
         function focusHTML() {
             const dialogs = S.dialogs || [];
-            const maxZ = Math.max(0, ...dialogs.map(d => d.order || 0));
 
             const running = dialogs.map(d => {
                 const active = d.id === S.focusedId && d.state !== 'minimized';
@@ -315,36 +317,52 @@
                     + '<span class="os-appicon__sym">' + ico(d.icon || 'app-window', 24) + '</span>'
                     + '<span class="os-appicon__label">' + esc(d.title) + '</span></button>';
             }).join('');
-
-            const runningSkills = dialogs.map(d => d.skill);
-            const recents = (S.recents || []).filter(s => !runningSkills.includes(s.name));
-            const recentsHtml = recents.length
-                ? '<div class="os-recents"><div class="os-recents__h">Recently opened</div><div class="os-iconrow">'
-                    + recents.map(s => '<button class="os-appicon recent" data-act="open-dialog" data-skill="' + esc(s.name) + '" title="Reopen ' + esc(s.name) + '">'
-                        + '<span class="os-appicon__sym">' + ico(s.icon || 'app-window', 24) + '</span>'
-                        + '<span class="os-appicon__label">' + esc(s.name) + '</span></button>').join('') + '</div></div>'
-                : '';
-
-            const body = dialogs.length
-                ? '<div class="os-iconrow">' + running + '</div>'
-                : '<div class="os-focus-empty">' + ico('sparkles', 28) + '<div>Nothing running.</div><div class="os-focus-empty__hint">Tell ' + esc(boot.assistantName) + ' what you want in Ambient — it opens the right tool here.</div></div>';
-
-            // "Your apps" — external sites the user registered (webapp: dialogs).
-            // Click to (re)open in a window; the model adds new ones on request.
-            const apps = S.webApps || [];
-            const appsHtml = apps.length
-                ? '<div class="os-recents"><div class="os-recents__h">Your apps</div><div class="os-iconrow">'
-                    + apps.map(a => '<div class="os-appicon-wrap"><button class="os-appicon recent" data-act="open-webapp" data-id="' + esc(a.id) + '" title="Open ' + esc(a.name) + '">'
-                        + '<span class="os-appicon__sym">' + ico(a.icon || 'globe', 24) + '</span>'
-                        + '<span class="os-appicon__label">' + esc(a.name) + '</span></button>'
-                        + '<button class="os-appicon-x" data-act="remove-webapp" data-id="' + esc(a.id) + '" title="Remove ' + esc(a.name) + '">' + ico('x', 12) + '</button></div>').join('')
-                    + '</div><div class="os-recents__hint">Ask ' + esc(boot.assistantName) + ' to “open …” any site to add one.</div></div>'
+            const runningHtml = dialogs.length
+                ? '<div class="os-recents"><div class="os-recents__h">Running · ' + dialogs.length + '</div><div class="os-iconrow">' + running + '</div></div>'
                 : '';
 
             return '<div class="os-scroll"><div class="os-focus-zone">'
-                + '<div class="os-focus__eyebrow"><span class="tag">Focus</span><span class="note">Running apps · launched from Ambient</span></div>'
-                + body + appsHtml + recentsHtml
+                + '<div class="os-focus__eyebrow"><span class="tag">Focus</span><span class="note">Open an app — or switch to a running one</span></div>'
+                + launcherHTML()
+                + runningHtml
                 + '</div></div>' + chatDockHTML();
+        }
+
+        // The unified, type-to-filter app launcher. UI-skills open via the existing
+        // openDialog() path; web apps via openWebApp() (keeping the remove-x). The
+        // filtering runs IN PLACE (filterLauncher) so typing never triggers a
+        // re-render — the input keeps focus and the grid just shows/hides tiles.
+        function launcherHTML() {
+            const q = (S.launchQuery || '').trim().toLowerCase();
+            const skills = (boot.skills || []).filter(s => s.is_ui);
+            const apps = S.webApps || [];
+            const total = skills.length + apps.length;
+
+            const tile = (dataName, inner) => {
+                const dn = dataName.toLowerCase();
+                return '<div class="os-appicon-wrap os-launch-tile" data-name="' + esc(dn) + '"'
+                    + ((!q || dn.indexOf(q) !== -1) ? '' : ' hidden') + '>' + inner + '</div>';
+            };
+            const skillTiles = skills.map(s => tile(s.name + ' ' + (s.summary || ''),
+                '<button class="os-appicon" data-act="open-dialog" data-skill="' + esc(s.name) + '" title="' + esc(s.summary || s.name) + '">'
+                + '<span class="os-appicon__sym">' + ico(s.icon || 'app-window', 24) + '</span>'
+                + '<span class="os-appicon__label">' + esc(s.name) + '</span></button>')).join('');
+            const appTiles = apps.map(a => tile(a.name + ' ' + (a.host || ''),
+                '<button class="os-appicon" data-act="open-webapp" data-id="' + esc(a.id) + '" title="Open ' + esc(a.name) + '">'
+                + '<span class="os-appicon__sym">' + ico(a.icon || 'globe', 24) + '</span>'
+                + '<span class="os-appicon__label">' + esc(a.name) + '</span></button>'
+                + '<button class="os-appicon-x" data-act="remove-webapp" data-id="' + esc(a.id) + '" title="Remove ' + esc(a.name) + '">' + ico('x', 12) + '</button>')).join('');
+
+            const grid = total
+                ? '<div class="os-iconrow os-launcher-grid">' + skillTiles + appTiles + '</div>'
+                    + '<div class="os-launcher-empty" hidden>' + ico('search-x', 20) + ' <span>No apps match “<b class="q"></b>”.</span></div>'
+                : '<div class="os-launcher-empty">' + ico('layout-grid', 20) + ' <span>No apps yet. Ask ' + esc(boot.assistantName) + ' to open a site to add one.</span></div>';
+
+            return '<div class="os-launcher">'
+                + '<div class="os-launcher__bar"><span class="os-launcher__ico">' + ico('search', 17) + '</span>'
+                + '<input id="launcher-input" placeholder="Search apps…" value="' + esc(S.launchQuery || '') + '" autocomplete="off" spellcheck="false">'
+                + '<button class="os-launcher__clear" data-act="launcher-clear" title="Clear" style="' + (q ? '' : 'display:none') + '">' + ico('x', 16) + '</button>'
+                + '</div>' + grid + '</div>';
         }
 
         // Chill = the leisure zone. Instead of a mock, Semi asks what you feel
@@ -400,6 +418,11 @@
 
         function render() {
             if (S.screen === 'awakening') { root.innerHTML = awakeningHTML(); drawIcons(); return; }
+            // The launcher filters in place, but any full re-render (dialog/webapp
+            // fetch, proactive poll) rebuilds innerHTML and would drop the search
+            // box's focus — capture it so we can restore focus + caret below.
+            const keepLauncher = document.activeElement && document.activeElement.id === 'launcher-input';
+            const lsel = keepLauncher ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
             let stage = '';
             if (S.mode === 'ambient') stage = ambientHTML();
             else if (S.mode === 'focus') stage = focusHTML();
@@ -409,6 +432,16 @@
                 + '<div class="os-main"><div class="os-stage' + railClass + '">' + stage + '</div>'
                 + (S.xray ? xrayHTML() : '') + '</div>' + cueHTML() + '</div>';
             drawIcons();
+            // Restore the launcher search box focus (kept across re-render), or give
+            // it focus on first entering Focus (S._focusLauncher) so you can type
+            // to filter immediately.
+            const li = document.getElementById('launcher-input');
+            if (li && (keepLauncher || S._focusLauncher)) {
+                li.focus();
+                if (keepLauncher && lsel) { try { li.setSelectionRange(lsel[0], lsel[1]); } catch (e) {} }
+                else { li.setSelectionRange(li.value.length, li.value.length); }
+                S._focusLauncher = false;
+            }
             const inp = document.getElementById('intent-input');
             if (inp && S._focusInput) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); S._focusInput = false; }
             const scroll = document.getElementById('os-scroll');
@@ -651,6 +684,35 @@
             await fetchWebApps();
             render();
         }
+        // Type-to-filter the launcher grid IN PLACE (no re-render → the input keeps
+        // focus + cursor while typing). Matches a tile's data-name (app name plus
+        // its summary/host). Also toggles the "no match" empty row + the clear button.
+        function filterLauncher(q) {
+            S.launchQuery = q;
+            const query = (q || '').trim().toLowerCase();
+            const clr = document.querySelector('.os-launcher__clear');
+            if (clr) clr.style.display = query ? '' : 'none';
+            const grid = document.querySelector('.os-launcher-grid');
+            if (!grid) return;
+            let visible = 0;
+            grid.querySelectorAll('.os-launch-tile').forEach(el => {
+                const hit = !query || (el.dataset.name || '').indexOf(query) !== -1;
+                el.hidden = !hit; if (hit) visible++;
+            });
+            const empty = grid.parentNode.querySelector('.os-launcher-empty');
+            if (empty) {
+                empty.hidden = !(query && visible === 0);
+                const qs = empty.querySelector('.q'); if (qs) qs.textContent = q;
+            }
+        }
+        // Enter in the search box opens the first visible app — reuses that tile's
+        // own button handler, so UI-skills and web apps both just work.
+        function openFirstLauncherMatch() {
+            const grid = document.querySelector('.os-launcher-grid'); if (!grid) return;
+            const el = Array.from(grid.querySelectorAll('.os-launch-tile')).find(x => !x.hidden);
+            const btn = el && el.querySelector('button[data-act="open-dialog"], button[data-act="open-webapp"]');
+            if (btn) btn.click();
+        }
         // Pull the adaptive Ambient chips. We send the client's *local* wall-clock
         // context (hour + weekend) so suggestions match the user's real time of
         // day regardless of the server timezone. Called on entry and after each
@@ -866,7 +928,7 @@
             if (act === 'awaken') { if (S.awake!=='idle') return; S.awake='auth'; blip(540); render(); setTimeout(()=>{ S.awake='snapshot'; render(); }, 1500); }
             else if (act === 'enter-continue') { markSession(); S.screen='os'; S.mode='ambient'; blip(720); log('continued · local LLM deployment · fixture','accent'); render(); refreshSuggestions(); refreshHistory(); }
             else if (act === 'enter-fresh') { markSession(); S.screen='os'; S.mode='ambient'; blip(720); render(); refreshSuggestions(); refreshHistory(); }
-            else if (act === 'mode') { S.mode = t.dataset.mode; blip(620); if (S.mode === 'ambient') S.proactiveUnseen = 0; render(); if (S.mode === 'focus' || S.mode === 'chill') { fetchDialogs().then(render); if (S.mode === 'focus') fetchWebApps().then(render); if (S.mode === 'chill') refreshTasks().then(render); } if (S.mode === 'ambient') refreshHistory(); }
+            else if (act === 'mode') { S.mode = t.dataset.mode; blip(620); if (S.mode === 'ambient') S.proactiveUnseen = 0; if (S.mode === 'focus') S._focusLauncher = true; render(); if (S.mode === 'focus' || S.mode === 'chill') { fetchDialogs().then(render); if (S.mode === 'focus') fetchWebApps().then(render); if (S.mode === 'chill') refreshTasks().then(render); } if (S.mode === 'ambient') refreshHistory(); }
             else if (act === 'xray') { S.xray = !S.xray; blip(700); render(); }
             else if (act === 'chatdock-toggle') { setChatDock(S.chatDock === 'open' ? 'collapsed' : 'open'); if (S.chatDock === 'open') { S._focusInput = true; S.proactiveUnseen = 0; } blip(600); render(); }
             else if (act === 'submit') { S._focusInput = true; submit(); }
@@ -875,6 +937,7 @@
             else if (act === 'open-dialog') { openDialog(t.dataset.skill); }
             else if (act === 'open-webapp') { openWebApp(t.dataset.id); }
             else if (act === 'remove-webapp') { removeWebApp(t.dataset.id); }
+            else if (act === 'launcher-clear') { const li = document.getElementById('launcher-input'); if (li) li.value = ''; filterLauncher(''); if (li) li.focus(); }
             else if (act === 'open-calendar') {
                 // Open the Calendar dialog in Focus — or focus it if already open.
                 fetchDialogs().then(function () {
@@ -912,8 +975,15 @@
         });
         root.addEventListener('keydown', (e) => {
             if (e.target.id === 'intent-input' && e.key === 'Enter') { e.preventDefault(); S._focusInput = true; submit(); }
+            else if (e.target.id === 'launcher-input') {
+                if (e.key === 'Enter') { e.preventDefault(); openFirstLauncherMatch(); }
+                else if (e.key === 'Escape') { e.preventDefault(); e.target.value = ''; filterLauncher(''); }
+            }
         });
-        root.addEventListener('input', (e) => { if (e.target.id === 'intent-input') S.input = e.target.value; });
+        root.addEventListener('input', (e) => {
+            if (e.target.id === 'intent-input') S.input = e.target.value;
+            else if (e.target.id === 'launcher-input') filterLauncher(e.target.value);
+        });
 
         // Web mode: the Settings iframe posts a message to its parent shell so a
         // rename takes effect everywhere without a reload. (In OS mode Settings is
