@@ -49,7 +49,7 @@ body {
 @keyframes cueIn { from{opacity:0;transform:translateY(14px) scale(.96)} to{opacity:1;transform:translateY(0) scale(1)} }
 
 .hidden { display: none !important; }
-.os-root { position: fixed; inset: 0; overflow: hidden; }
+.os-root { position: fixed; inset: 0; overflow: hidden; z-index: 2; } /* above the graph (#weave-layer z1), below dialogs (#wm-layer z50) */
 
 /* ---------- Awakening ---------- */
 .os-awaken { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -242,8 +242,20 @@ body {
 /* The WebGL canvas lives in the persistent #weave-layer behind the shell chrome
  * (below the top bar, above the shell --os-bg which shows through the transparent
  * canvas). The intent bar + sub-view toggle float on top. */
-#weave-layer { position: fixed; left: 0; right: 0; top: 60px; bottom: 0; z-index: 5; }
+/* The 3D graph is a BACKGROUND layer (behind the shell chrome, which is fixed
+ * #root). z-index:-1 keeps it under the top bar / toggle / intent bar / editor
+ * modal; pointer events reach it only through the transparent workspace stage
+ * (below), so the graph stays interactive while the chrome/forms stay usable. */
+#weave-layer { position: fixed; left: 0; right: 0; top: 60px; bottom: 0; z-index: 1; }
 .os-workspace-stage { flex: 1 1 auto; min-height: 0; }
+/* While browsing the graph (workspace, no modal open), the whole #root chrome is
+ * transparent to the pointer so drags/clicks fall through to the graph behind;
+ * only the top bar + the two controls opt back in. Opening the editor drops this
+ * class, so #root is fully interactive again and the graph is frozen behind. */
+.os-root--graph { pointer-events: none; }
+.os-root--graph .os-topbar,
+.os-root--graph .os-ambview,
+.os-root--graph .os-intentbar { pointer-events: auto; }
 .os-ambview { position: absolute; left: 50%; bottom: 104px; transform: translateX(-50%); z-index: 56; display: flex; gap: 4px; padding: 4px; background: rgba(var(--os-surface-rgb),.7); border: 1px solid rgba(148,163,184,.2); border-radius: 999px; backdrop-filter: blur(12px); box-shadow: 0 8px 24px rgba(2,8,23,.35); }
 .os-ambview__btn { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 15px; border-radius: 999px; border: none; background: transparent; color: #a8b4cc; font: 600 12.5px var(--font-ui); cursor: pointer; transition: background .2s, color .2s; }
 .os-ambview__btn:hover { color: var(--os-text); }

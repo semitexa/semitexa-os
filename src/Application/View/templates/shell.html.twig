@@ -642,6 +642,10 @@
         function syncWorkspace() {
             const show = (S.screen === 'os' && S.mode === 'ambient' && S.ambientView === 'workspace');
             weaveLayer.hidden = !show;
+            // Route pointer events: while browsing the graph (no modal), #root is
+            // click-through so the graph behind stays interactive; opening the
+            // editor drops the class so the form captures normally.
+            root.classList.toggle('os-root--graph', show && !S.nodeEditor);
             if (!show) {
                 return;
             }
