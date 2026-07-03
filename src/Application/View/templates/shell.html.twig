@@ -8,10 +8,12 @@
     <link rel="stylesheet" href="/assets/os/css/design-extras.css">
     <link rel="stylesheet" href="/assets/os/css/shell.css">
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script src="/assets/os/js/vendor/3d-force-graph.min.js"></script>
 </head>
 <body>
     <div class="os-root" id="root"></div>
     <div id="wm-layer" hidden></div>
+    <div id="weave-layer" hidden></div>
 
     <script type="application/json" id="os-boot">{{ { providerName: providerName|default('llm'), providerModel: providerModel|default('?'), providerHealthy: providerHealthy, skills: skills|default([]), assistantName: assistantName|default('Semi'), userName: userName|default(''), windowMode: windowMode|default('web'), bridgeUrl: bridgeUrl|default('http://127.0.0.1:8777') }|json_encode|raw }}</script>
     <script>
@@ -51,6 +53,9 @@
         // Light/dark preference: 'auto' | 'dark' | 'light'. localStorage gives an
         // instant (no-flash) value on boot; the server (/os/preferences) reconciles.
         const THEMEMODE = (() => { try { const v = localStorage.getItem('semitexa_os_theme_mode'); return (v === 'dark' || v === 'light' || v === 'auto') ? v : 'auto'; } catch (e) { return 'auto'; } })();
+        // Ambient sub-view: 'chat' (Планування — the intent conversation) or
+        // 'workspace' (the 3D Weave force-graph). Persisted across reloads.
+        const AMBVIEW = (() => { try { return localStorage.getItem('semitexa_os_ambient_view') === 'workspace' ? 'workspace' : 'chat'; } catch (e) { return 'chat'; } })();
         // Cursor for the proactive-message poll — the last-seen turn id, so the
         // assistant announces each unprompted message (e.g. a task auto-completed) once.
         let PROACTIVE_CURSOR = (() => { try { return localStorage.getItem('semitexa_os_proactive') || ''; } catch (e) { return ''; } })();
@@ -58,7 +63,7 @@
 
         const S = {
             screen: RESUMED ? 'os' : 'awakening', awake: RESUMED ? 'snapshot' : 'idle',
-            mode: 'ambient', xray: false, themeMode: THEMEMODE,
+            mode: 'ambient', xray: false, themeMode: THEMEMODE, ambientView: AMBVIEW,
             run: null,            // { intent, stage, decision, skill, policy, reason, message, surfaces:[] }
             surfaces: [],
             units: [],            // real skills in flight for the current/last run: {name,status,busy,exit}
@@ -261,7 +266,21 @@
                 }
                 if (S.surfaces.length) inner += '<div class="os-surfaces">' + S.surfaces.map(surfaceHTML).join('') + '</div>';
             }
-            return '<div class="os-scroll" id="os-scroll">' + inner + '</div>' + intentbarHTML();
+            // Two Ambient sub-views: 'chat' (Планування — the conversation) and
+            // 'workspace' (the 3D Weave graph, rendered in the persistent
+            // #weave-layer behind — see syncWorkspace). The toggle sits under the
+            // content, above the intent bar (which stays live in both views).
+            const stage = (S.ambientView === 'workspace')
+                ? '<div class="os-workspace-stage"></div>'
+                : '<div class="os-scroll" id="os-scroll">' + inner + '</div>';
+            return stage + ambientViewToggleHTML() + intentbarHTML();
+        }
+
+        // Планування (chat) ↔ Workspace (3D graph) switch under the chat.
+        function ambientViewToggleHTML() {
+            const v = S.ambientView || 'chat';
+            const opt = (m, icon, label) => '<button class="os-ambview__btn' + (v === m ? ' active' : '') + '" data-act="ambient-view" data-view="' + m + '">' + ico(icon, 15) + '<span>' + label + '</span></button>';
+            return '<div class="os-ambview">' + opt('chat', 'messages-square', 'Планування') + opt('workspace', 'orbit', 'Workspace') + '</div>';
         }
 
         function intentbarHTML() {
@@ -484,6 +503,71 @@
             return '<div class="os-cue"><div class="os-cue__head">' + ico('volume-2') + '<span class="os-cue__title">' + esc(S.cue.title) + '</span></div><div class="os-cue__body">' + esc(S.cue.body) + '</div></div>';
         }
 
+        // ---------- Ambient Workspace: 3D Weave force-graph ----------
+        // The WebGL graph is stateful (canvas + physics), so it lives in the
+        // persistent #weave-layer (sibling of #root, never wiped by render) and is
+        // created once — same discipline as #wm-layer for dialog windows.
+        const weaveLayer = document.getElementById('weave-layer');
+        let weaveGraph = null;
+        let weaveLoaded = false;
+
+        function kindColor(kind) {
+            const map = {
+                project: '#37b7ff', person: '#34d399', topic: '#a78bfa', note: '#60a5fa',
+                task: '#fbbf24', event: '#22d3ee', app: '#f472b6', file: '#94a3b8',
+                place: '#f59e0b', org: '#818cf8', thread: '#cbd5e1',
+            };
+            return map[kind] || '#94a3b8';
+        }
+        function cssVar(name, fallback) {
+            try { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback; } catch (e) { return fallback; }
+        }
+        function weaveResize() {
+            if (weaveGraph) weaveGraph.width(weaveLayer.clientWidth).height(weaveLayer.clientHeight);
+        }
+        function centerWeaveNode(n) {
+            if (!weaveGraph || !n) return;
+            const dist = 1 + 120 / Math.max(1, Math.hypot(n.x || 0, n.y || 0, n.z || 0));
+            weaveGraph.cameraPosition({ x: (n.x || 0) * dist, y: (n.y || 0) * dist, z: (n.z || 0) * dist }, n, 800);
+        }
+        function initWeaveGraph() {
+            if (weaveGraph || !window.ForceGraph3D) return;
+            const accent = cssVar('--accent', '#37b7ff');
+            weaveGraph = ForceGraph3D()(weaveLayer)
+                .backgroundColor('rgba(0,0,0,0)')          // let the shell's --os-bg show through
+                .showNavInfo(false)
+                .nodeLabel(function (n) { return n.label; })
+                .nodeColor(function (n) { return n.self ? accent : kindColor(n.kind); })
+                .nodeVal(function (n) { return n.self ? 12 : 4; })
+                .nodeOpacity(0.95)
+                .linkColor(function () { return 'rgba(148,163,184,0.35)'; })
+                .linkWidth(0.6)
+                .onNodeClick(function (n) { centerWeaveNode(n); });
+            weaveResize();
+            window.addEventListener('resize', weaveResize);
+        }
+        async function loadWeaveGraph(force) {
+            if (!weaveGraph || (weaveLoaded && !force)) return;
+            try {
+                const r = await fetch('/os/weave/graph?t=' + Date.now(), { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+                const d = await r.json();
+                weaveGraph.graphData({ nodes: d.nodes || [], links: d.links || [] });
+                weaveLoaded = true;
+            } catch (e) {}
+        }
+        function syncWorkspace() {
+            const show = (S.screen === 'os' && S.mode === 'ambient' && S.ambientView === 'workspace');
+            weaveLayer.hidden = !show;
+            if (!show) {
+                return;
+            }
+            if (!weaveGraph) {
+                initWeaveGraph();
+            }
+            weaveResize();
+            loadWeaveGraph();
+        }
+
         function render() {
             if (S.screen === 'awakening') { root.innerHTML = awakeningHTML(); drawIcons(); return; }
             // The launcher filters in place, but any full re-render (dialog/webapp
@@ -517,6 +601,7 @@
             const dockScroll = document.getElementById('os-dock-scroll');
             if (dockScroll) dockScroll.scrollTop = dockScroll.scrollHeight; // same, inside the chat dock
             syncDialogs();
+            syncWorkspace();
         }
 
         // ---------- backend wiring (Ambient) ----------
@@ -1015,6 +1100,11 @@
             else if (act === 'mode') { S.mode = t.dataset.mode; blip(620); if (S.mode === 'ambient') S.proactiveUnseen = 0; if (S.mode === 'focus') S._focusLauncher = true; render(); if (S.mode === 'focus' || S.mode === 'chill') { fetchDialogs().then(render); if (S.mode === 'focus') fetchWebApps().then(render); if (S.mode === 'chill') refreshTasks().then(render); } if (S.mode === 'ambient') refreshHistory(); }
             else if (act === 'xray') { S.xray = !S.xray; blip(700); render(); }
             else if (act === 'theme-mode') { setThemeMode(t.dataset.mode); blip(640); render(); }
+            else if (act === 'ambient-view') {
+                const v = t.dataset.view === 'workspace' ? 'workspace' : 'chat';
+                if (v !== S.ambientView) { S.ambientView = v; try { localStorage.setItem('semitexa_os_ambient_view', v); } catch (e) {} if (v === 'workspace') weaveLoaded = false; }
+                blip(620); render();
+            }
             else if (act === 'chatdock-toggle') { setChatDock(S.chatDock === 'open' ? 'collapsed' : 'open'); if (S.chatDock === 'open') { S._focusInput = true; S.proactiveUnseen = 0; } blip(600); render(); }
             else if (act === 'submit') { S._focusInput = true; submit(); }
             else if (act === 'suggest') { S.input = t.dataset.text; S._focusInput = true; render(); }

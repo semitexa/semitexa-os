@@ -238,6 +238,17 @@ body {
 .os-intentbar__spin i { animation: os-spin .8s linear infinite; }
 .os-intentbar__send:hover { background: rgba(var(--accent-rgb),.3); }
 
+/* ---------- Ambient Workspace (3D Weave graph) ---------- */
+/* The WebGL canvas lives in the persistent #weave-layer behind the shell chrome
+ * (below the top bar, above the shell --os-bg which shows through the transparent
+ * canvas). The intent bar + sub-view toggle float on top. */
+#weave-layer { position: fixed; left: 0; right: 0; top: 60px; bottom: 0; z-index: 5; }
+.os-workspace-stage { flex: 1 1 auto; min-height: 0; }
+.os-ambview { position: absolute; left: 50%; bottom: 104px; transform: translateX(-50%); z-index: 56; display: flex; gap: 4px; padding: 4px; background: rgba(var(--os-surface-rgb),.7); border: 1px solid rgba(148,163,184,.2); border-radius: 999px; backdrop-filter: blur(12px); box-shadow: 0 8px 24px rgba(2,8,23,.35); }
+.os-ambview__btn { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 15px; border-radius: 999px; border: none; background: transparent; color: #a8b4cc; font: 600 12.5px var(--font-ui); cursor: pointer; transition: background .2s, color .2s; }
+.os-ambview__btn:hover { color: var(--os-text); }
+.os-ambview__btn.active { background: rgba(var(--accent-rgb),.18); color: var(--os-text); }
+
 /* ---------- Focus ---------- */
 .os-focus { max-width: 1040px; margin: 0 auto; width: 100%; }
 .os-focus__eyebrow { display: flex; align-items: center; gap: 12px; }
