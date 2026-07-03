@@ -22,7 +22,7 @@ use Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface;
  * lazily constructed for the skills that `new` this class outside DI
  * ({@see RenameAssistantSkill}, {@see SetUserNameSkill}).
  *
- * @phpstan-type Preferences array{assistant_name: string, user_name: string}
+ * @phpstan-type Preferences array{assistant_name: string, user_name: string, theme_mode: string}
  */
 #[AsService]
 final class OsPreferences
@@ -31,9 +31,14 @@ final class OsPreferences
     private const KEY_ASSISTANT_NAME = 'assistant_name';
     private const KEY_USER_NAME = 'user_name';
     private const KEY_TIMEZONE = 'timezone';
+    private const KEY_THEME_MODE = 'theme_mode';
     private const MAX_NAME_LEN = 24;
     private const DEFAULT_ASSISTANT_NAME = 'Semi';
     private const DEFAULT_TIMEZONE = 'Europe/Kyiv';
+
+    /** Light/dark preference. 'auto' follows the OS (with a time-of-day fallback client-side). */
+    private const THEME_MODES = ['auto', 'dark', 'light'];
+    private const DEFAULT_THEME_MODE = 'auto';
 
     #[InjectAsReadonly]
     protected SettingsStoreInterface $settings;
@@ -49,7 +54,34 @@ final class OsPreferences
         return [
             'assistant_name' => $this->cleanName($this->rawString(self::KEY_ASSISTANT_NAME)) ?? self::DEFAULT_ASSISTANT_NAME,
             'user_name' => $this->cleanName($this->rawString(self::KEY_USER_NAME)) ?? '',
+            'theme_mode' => $this->themeMode(),
         ];
+    }
+
+    /** The light/dark preference — one of auto|dark|light (default auto). */
+    public function themeMode(): string
+    {
+        $raw = $this->rawString(self::KEY_THEME_MODE);
+
+        return in_array($raw, self::THEME_MODES, true) ? $raw : self::DEFAULT_THEME_MODE;
+    }
+
+    /**
+     * Set the light/dark preference.
+     *
+     * @return Preferences the applied preferences
+     *
+     * @throws \InvalidArgumentException on an unknown mode
+     */
+    public function setThemeMode(string $mode): array
+    {
+        $mode = strtolower(trim($mode));
+        if (!in_array($mode, self::THEME_MODES, true)) {
+            throw new \InvalidArgumentException('Theme mode must be one of: ' . implode(', ', self::THEME_MODES) . '.');
+        }
+        $this->settings()->set(self::MODULE, self::KEY_THEME_MODE, $mode);
+
+        return $this->all();
     }
 
     public function assistantName(): string

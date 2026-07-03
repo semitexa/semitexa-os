@@ -25,6 +25,7 @@ final class PreferencesUpdateHandler implements TypedHandlerInterface
     {
         $assistant = trim($payload->getAssistantName());
         $user = trim($payload->getUserName());
+        $themeMode = trim($payload->getThemeMode());
         $applied = false;
         $error = null;
 
@@ -35,6 +36,10 @@ final class PreferencesUpdateHandler implements TypedHandlerInterface
             }
             if ($user !== '') {
                 $this->prefs->setUserName($user);
+                $applied = true;
+            }
+            if ($themeMode !== '') {
+                $this->prefs->setThemeMode($themeMode);
                 $applied = true;
             }
         } catch (\InvalidArgumentException $e) {

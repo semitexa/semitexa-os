@@ -113,7 +113,13 @@ final class DesignSkinCommand extends BaseCommand
         $resolvedKnobs = KnobResolver::resolve($knobs, $algorithm->knobSchema());
         $dual = (new SkinBuilder())->buildDualPalette($algorithm, $seed, $resolvedKnobs);
 
-        $this->skin->set($this->mapDarkPalette($dual->dark), $label);
+        // Store BOTH palettes so the shell's Dark/Light/Auto switch has a real
+        // light skin to apply — not only the dark one it used to keep.
+        $this->skin->set(
+            dark: $this->mapPalette($dual->dark, false),
+            light: $this->mapPalette($dual->light, true),
+            label: $label,
+        );
 
         $output->writeln('Reskinned the interface to match "' . $label . '". Say "reset the theme" to go back.');
 
@@ -121,18 +127,20 @@ final class DesignSkinCommand extends BaseCommand
     }
 
     /**
-     * Map the generated DARK --ui-* palette onto the five tokenized shell vars.
+     * Map a generated --ui-* palette onto the five tokenized shell vars. The same
+     * logic serves both modes; $light only changes the fallback defaults used when
+     * a key is absent (a light palette should degrade to light, not dark).
      *
-     * @param array<string, string> $dark
+     * @param array<string, string> $p
      * @return array<string, string>
      */
-    private function mapDarkPalette(array $dark): array
+    private function mapPalette(array $p, bool $light): array
     {
-        $accent = $dark['--ui-accent-brand'] ?? '#37b7ff';
-        $page   = $dark['--ui-surface-page'] ?? '#0f172a';
-        $panel  = $dark['--ui-surface-panel'] ?? '#0f172a';
-        $sunken = $dark['--ui-surface-sunken'] ?? $page;
-        $text   = $dark['--ui-text-primary'] ?? '#eaf2ff';
+        $accent = $p['--ui-accent-brand'] ?? ($light ? '#1e7fb8' : '#37b7ff');
+        $page   = $p['--ui-surface-page'] ?? ($light ? '#eef3fa' : '#0f172a');
+        $panel  = $p['--ui-surface-panel'] ?? ($light ? '#ffffff' : '#0f172a');
+        $sunken = $p['--ui-surface-sunken'] ?? $page;
+        $text   = $p['--ui-text-primary'] ?? ($light ? '#16222e' : '#eaf2ff');
         $accentRgb = $this->hexToRgb($accent);
 
         return [

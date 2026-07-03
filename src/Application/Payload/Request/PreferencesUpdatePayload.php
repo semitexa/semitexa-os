@@ -24,6 +24,8 @@ final class PreferencesUpdatePayload implements ValidatablePayloadInterface
 
     private string $userName = '';
 
+    private string $themeMode = '';
+
     /**
      * Both fields are optional so the same endpoint serves the onboarding ask
      * (user name only) and the Settings dialog (either/both). The handler
@@ -54,5 +56,15 @@ final class PreferencesUpdatePayload implements ValidatablePayloadInterface
     public function setUserName(string $userName): void
     {
         $this->userName = $userName;
+    }
+
+    public function getThemeMode(): string
+    {
+        return $this->themeMode;
+    }
+
+    public function setThemeMode(string $themeMode): void
+    {
+        $this->themeMode = $themeMode;
     }
 }

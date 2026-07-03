@@ -46,6 +46,9 @@
         // The compact chat dock (Focus/Chill) remembers open/collapsed across reloads.
         const CHATDOCK = (() => { try { return localStorage.getItem('semitexa_os_chatdock') === 'collapsed' ? 'collapsed' : 'open'; } catch (e) { return 'open'; } })();
         const setChatDock = (v) => { S.chatDock = v; try { localStorage.setItem('semitexa_os_chatdock', v); } catch (e) {} };
+        // Light/dark preference: 'auto' | 'dark' | 'light'. localStorage gives an
+        // instant (no-flash) value on boot; the server (/os/preferences) reconciles.
+        const THEMEMODE = (() => { try { const v = localStorage.getItem('semitexa_os_theme_mode'); return (v === 'dark' || v === 'light' || v === 'auto') ? v : 'auto'; } catch (e) { return 'auto'; } })();
         // Cursor for the proactive-message poll — the last-seen turn id, so the
         // assistant announces each unprompted message (e.g. a task auto-completed) once.
         let PROACTIVE_CURSOR = (() => { try { return localStorage.getItem('semitexa_os_proactive') || ''; } catch (e) { return ''; } })();
@@ -53,7 +56,7 @@
 
         const S = {
             screen: RESUMED ? 'os' : 'awakening', awake: RESUMED ? 'snapshot' : 'idle',
-            mode: 'ambient', xray: false,
+            mode: 'ambient', xray: false, themeMode: THEMEMODE,
             run: null,            // { intent, stage, decision, skill, policy, reason, message, surfaces:[] }
             surfaces: [],
             units: [],            // real skills in flight for the current/last run: {name,status,busy,exit}
@@ -69,10 +72,41 @@
             queue: [],            // messages sent but not yet answered — shown instantly, processed one at a time
         };
         let sid = 1;
+        // Set light/dark on <html> before the first paint (no flash), and react
+        // live to OS colour-scheme changes while in auto.
+        applyThemeMode();
+        try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (S.themeMode === 'auto') applyThemeMode(); }); } catch (e) {}
 
         function blip(f) { try { const C = window.AudioContext||window.webkitAudioContext; if(!C) return; const a = blip._a||(blip._a=new C()); const o=a.createOscillator(),g=a.createGain(); o.type='sine'; o.frequency.value=f||660; o.connect(g); g.connect(a.destination); const t=a.currentTime; g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(.05,t+.03); g.gain.exponentialRampToValueAtTime(.0001,t+.42); o.start(t); o.stop(t+.44);} catch(e){} }
         function log(t, tone) { S.log = [{ t, tone: tone||'mute' }, ...S.log].slice(0, 9); }
         function drawIcons() { let n=0; (function r(){ if(window.lucide&&window.lucide.createIcons) window.lucide.createIcons(); else if(n++<40) setTimeout(r,120); })(); }
+
+        // ---------- light / dark mode ----------
+        // Resolve the preference to a concrete 'light'|'dark'. 'auto' follows the OS
+        // colour-scheme; where the environment expresses no dark preference (e.g. the
+        // native desktop's bare chromium), fall back to time-of-day so day/night still
+        // works. The whole shell themes off data-skin-mode + color-scheme on <html>.
+        function resolveThemeMode(mode) {
+            if (mode === 'light' || mode === 'dark') return mode;
+            try { if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'; } catch (e) {}
+            const h = new Date().getHours();
+            return (h >= 19 || h < 7) ? 'dark' : 'light';
+        }
+        function applyThemeMode() {
+            const eff = resolveThemeMode(S.themeMode);
+            const el = document.documentElement;
+            if (el.getAttribute('data-skin-mode') !== eff) el.setAttribute('data-skin-mode', eff);
+            if (el.style.colorScheme !== eff) el.style.colorScheme = eff;
+        }
+        // Set + persist the preference (localStorage for instant boot, the server so
+        // it survives / syncs and the chat command shares one source of truth).
+        function setThemeMode(mode) {
+            if (mode !== 'auto' && mode !== 'dark' && mode !== 'light') return;
+            S.themeMode = mode;
+            try { localStorage.setItem('semitexa_os_theme_mode', mode); } catch (e) {}
+            applyThemeMode();
+            post('/os/preferences', { theme_mode: mode });
+        }
 
         // ---------- screens ----------
         function awakeningHTML() {
@@ -108,6 +142,15 @@
                 + '</div></div>';
         }
 
+        // A three-way light/dark switch: Light · Dark · Auto (follows the system).
+        function themeSwitchHTML() {
+            const opt = (m, icon, label) => '<button class="os-themebtn' + (S.themeMode === m ? ' active' : '') + '" data-act="theme-mode" data-mode="' + m + '" title="' + label + ' theme" aria-label="' + label + ' theme">' + ico(icon, 15) + '</button>';
+            return '<div class="os-themeswitch">'
+                + opt('light', 'sun', 'Light')
+                + opt('dark', 'moon', 'Dark')
+                + opt('auto', 'monitor', 'Auto')
+                + '</div>';
+        }
         function topbarHTML() {
             const modes = ['ambient','focus','chill'];
             const labels = { ambient: 'Ambient', focus: 'Focus', chill: 'Chill' };
@@ -115,8 +158,9 @@
             return '<header class="os-topbar">'
                 + '<div class="os-topbar__clock">' + S.clock.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' · ' + S.clock.toLocaleDateString([], {month:'short',day:'numeric'}) + '</div>'
                 + '<div class="os-modeswitch">' + btns + '</div>'
+                + '<div class="os-topbar__right">' + themeSwitchHTML()
                 + '<button class="os-xray-toggle' + (S.xray?' active':'') + '" data-act="xray">' + ico('scan-eye',16) + ' X-Ray</button>'
-                + '</header>';
+                + '</div></header>';
         }
 
         // ---------- ambient + loop ----------
@@ -757,7 +801,17 @@
             try {
                 const r = await fetch('/os/preferences', { headers: { 'Accept': 'application/json' } });
                 const d = await r.json();
-                if (d && d.assistant_name) { boot.assistantName = d.assistant_name; render(); }
+                let changed = false;
+                if (d && d.assistant_name) { boot.assistantName = d.assistant_name; changed = true; }
+                // A chat command ("switch to light mode") changes the mode server-side;
+                // reflect it here so the toggle + look update within a poll.
+                if (d && d.theme_mode && d.theme_mode !== S.themeMode) {
+                    S.themeMode = d.theme_mode;
+                    try { localStorage.setItem('semitexa_os_theme_mode', d.theme_mode); } catch (e) {}
+                    applyThemeMode();
+                    changed = true;
+                }
+                if (changed) render();
             } catch (e) {}
         }
         // The persisted dialog transcript, rendered as a chat thread.
@@ -954,6 +1008,7 @@
             else if (act === 'enter-fresh') { markSession(); S.screen='os'; S.mode='ambient'; blip(720); render(); refreshSuggestions(); refreshHistory(); }
             else if (act === 'mode') { S.mode = t.dataset.mode; blip(620); if (S.mode === 'ambient') S.proactiveUnseen = 0; if (S.mode === 'focus') S._focusLauncher = true; render(); if (S.mode === 'focus' || S.mode === 'chill') { fetchDialogs().then(render); if (S.mode === 'focus') fetchWebApps().then(render); if (S.mode === 'chill') refreshTasks().then(render); } if (S.mode === 'ambient') refreshHistory(); }
             else if (act === 'xray') { S.xray = !S.xray; blip(700); render(); }
+            else if (act === 'theme-mode') { setThemeMode(t.dataset.mode); blip(640); render(); }
             else if (act === 'chatdock-toggle') { setChatDock(S.chatDock === 'open' ? 'collapsed' : 'open'); if (S.chatDock === 'open') { S._focusInput = true; S.proactiveUnseen = 0; } blip(600); render(); }
             else if (act === 'submit') { S._focusInput = true; submit(); }
             else if (act === 'suggest') { S.input = t.dataset.text; S._focusInput = true; render(); }
@@ -1028,7 +1083,7 @@
         // the user finishes in a native Settings window and switches back.
         window.addEventListener('focus', () => { if (isOsMode()) refreshPrefs(); });
 
-        setInterval(() => { S.clock = new Date(); if (S.screen==='os') { const c = root.querySelector('.os-topbar__clock'); if (c) c.textContent = S.clock.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' · ' + S.clock.toLocaleDateString([], {month:'short',day:'numeric'}); } }, 1000);
+        setInterval(() => { S.clock = new Date(); if (S.screen==='os') { const c = root.querySelector('.os-topbar__clock'); if (c) c.textContent = S.clock.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' · ' + S.clock.toLocaleDateString([], {month:'short',day:'numeric'}); } if (S.themeMode === 'auto') applyThemeMode(); }, 1000);
 
         // Restore the real State Snapshot (OS-owned session log) for the Awakening screen.
         fetch('/os/snapshot', { headers: { 'Accept': 'application/json' } })

@@ -30,8 +30,28 @@ final class SkinStore
     #[InjectAsReadonly]
     protected SettingsStoreInterface $settings;
 
-    /** @param array<string, string> $vars */
-    public function set(array $vars, string $label = ''): void
+    /**
+     * Persist a generated skin's DARK + LIGHT var-sets. The shell picks the block
+     * matching the active `data-skin-mode`; $light may be empty for a dark-only skin.
+     *
+     * @param array<string, string> $dark
+     * @param array<string, string> $light
+     */
+    public function set(array $dark, array $light = [], string $label = ''): void
+    {
+        $this->settings()->set(self::MODULE, self::KEY, (string) json_encode(
+            ['dark' => $this->clean($dark), 'light' => $this->clean($light), 'label' => $this->sanitize($label)],
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
+        ));
+    }
+
+    /**
+     * Keep only the whitelisted, sanitised shell vars.
+     *
+     * @param array<string, string> $vars
+     * @return array<string, string>
+     */
+    private function clean(array $vars): array
     {
         $clean = [];
         foreach (self::ALLOWED as $k) {
@@ -39,10 +59,8 @@ final class SkinStore
                 $clean[$k] = $this->sanitize($vars[$k]);
             }
         }
-        $this->settings()->set(self::MODULE, self::KEY, (string) json_encode(
-            ['vars' => $clean, 'label' => $this->sanitize($label)],
-            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
-        ));
+
+        return $clean;
     }
 
     public function clear(): void
@@ -55,13 +73,28 @@ final class SkinStore
         return (string) ($this->raw()['label'] ?? '');
     }
 
-    /** The `:root{}` override for the active skin, or '' when none (OS default). */
+    /**
+     * The active skin's overrides: a `:root{}` (dark) block plus a
+     * `:root[data-skin-mode="light"]{}` (light) block, or '' when no skin is set.
+     * The shell injects this after the base tokens so it wins by source order.
+     */
     public function css(): string
     {
-        $vars = $this->raw()['vars'] ?? [];
-        if (!is_array($vars) || $vars === []) {
-            return '';
-        }
+        $raw = $this->raw();
+        // Back-compat: pre-dual skins stored a single dark set under 'vars'.
+        $dark = is_array($raw['dark'] ?? null) ? $raw['dark'] : (is_array($raw['vars'] ?? null) ? $raw['vars'] : []);
+        $light = is_array($raw['light'] ?? null) ? $raw['light'] : [];
+
+        return $this->block(':root', $dark) . $this->block(':root[data-skin-mode="light"]', $light);
+    }
+
+    /**
+     * One `<selector>{ …vars… }` block, or '' if the set is empty.
+     *
+     * @param array<string, mixed> $vars
+     */
+    private function block(string $selector, array $vars): string
+    {
         $lines = [];
         foreach (self::ALLOWED as $k) {
             if (isset($vars[$k]) && is_string($vars[$k]) && $vars[$k] !== '') {
@@ -69,7 +102,7 @@ final class SkinStore
             }
         }
 
-        return $lines === [] ? '' : ":root{\n" . implode("\n", $lines) . "\n}";
+        return $lines === [] ? '' : $selector . "{\n" . implode("\n", $lines) . "\n}\n";
     }
 
     /** @return array<string, mixed> */
