@@ -693,7 +693,13 @@
                 .linkDirectionalArrowRelPos(1)
                 .linkDirectionalArrowColor(function () { return 'rgba(148,163,184,0.55)'; })
                 .cooldownTicks(120)
-                .onNodeClick(function (n, e) { openNodePop(n, e); })
+                .onNodeClick(function (n, e) {
+                    if ((n.kind === 'folder' || n.kind === 'file') && n.props && n.props.path) {
+                        openWeavePath(n, e); // terminal node → open its real location
+                    } else {
+                        openNodePop(n, e);
+                    }
+                })
                 .onEngineStop(function () { if (weaveGraph) weaveGraph.zoomToFit(400, 60); });
             // Spread the layout so it reads as a constellation, not a clump.
             try { weaveGraph.d3Force('charge').strength(-320); } catch (e) {}
@@ -735,6 +741,24 @@
             const p = S.nodePop; if (!p || !p.node) return;
             await post('/os/weave/node/remove', { id: p.node.id });
             S.nodePop = null; render(); loadWeaveGraph(true);
+        }
+        // A folder/file node is a terminal point → clicking it opens its REAL
+        // location via the local bridge: a code project in a code editor, any
+        // other folder in the file manager (the bridge auto-detects). With no
+        // bridge (web/dev), fall back to the manage popover so it's still useful.
+        async function openWeavePath(node, e) {
+            const path = node && node.props && node.props.path;
+            if (!path) { openNodePop(node, e); return; }
+            let ok = false;
+            try { ok = (await fetch(BRIDGE + '/open?path=' + encodeURIComponent(path))).ok; } catch (err) { ok = false; }
+            if (ok) {
+                S.nodePop = null;
+                S.cue = { title: node.label, body: 'Opening ' + path + '…' };
+                render();
+                setTimeout(function () { S.cue = null; render(); }, 3500);
+            } else {
+                openNodePop(node, e); // no desktop bridge reachable → manage the node instead
+            }
         }
         async function weaveSaveNode() {
             const e = S.nodeEditor; if (!e || e.adding || !e.node) return;
