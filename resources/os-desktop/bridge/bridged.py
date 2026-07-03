@@ -11,7 +11,14 @@ Serves the desktop launcher at / and exposes a tiny local API:
                                           project (has .git/package.json/…) in a
                                           code editor, otherwise the file manager.
                                           `with` forces the choice.
+  GET /list?path=<dir>                 -> JSON directory listing (for the in-OS
+                                          Files app), confined to SEMITEXA_FILES_ROOT.
+  GET /read?path=<file>                -> JSON text content of a file (capped).
   GET /windows                         -> lists native app windows (best-effort).
+
+The Files endpoints are confined to SEMITEXA_FILES_ROOT (default: the home dir)
+so the in-OS file manager can browse real projects without exposing the whole
+disk.
 
 Bound to localhost only. The launcher is served same-origin, so no CORS needed.
 """
@@ -82,6 +89,51 @@ def spawn(cmd):
     subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      start_new_session=True)
 
+# --- Files API (for the in-OS file manager), confined to a root -------------
+FILES_ROOT = os.path.abspath(os.path.expanduser(os.environ.get("SEMITEXA_FILES_ROOT", "~")))
+
+def _confined(path):
+    """Resolve a path and confine it to FILES_ROOT; None if it escapes."""
+    p = os.path.abspath(os.path.expanduser(path or FILES_ROOT))
+    if p == FILES_ROOT or p.startswith(FILES_ROOT + os.sep):
+        return p
+    return None
+
+def list_dir(path):
+    p = _confined(path)
+    if not p or not os.path.isdir(p):
+        return None
+    entries = []
+    try:
+        names = os.listdir(p)
+    except OSError:
+        return None
+    for name in names:
+        fp = os.path.join(p, name)
+        try:
+            is_dir = os.path.isdir(fp)
+            st = os.stat(fp)
+            entries.append({"name": name, "type": "dir" if is_dir else "file",
+                            "size": st.st_size, "mtime": int(st.st_mtime)})
+        except OSError:
+            continue
+    entries.sort(key=lambda e: (e["type"] != "dir", e["name"].lower()))
+    return {"path": p, "root": FILES_ROOT,
+            "parent": (os.path.dirname(p) if p != FILES_ROOT else None),
+            "entries": entries}
+
+def read_file(path, cap=200000):
+    p = _confined(path)
+    if not p or not os.path.isfile(p):
+        return None
+    try:
+        with open(p, "r", errors="replace") as f:
+            data = f.read(cap + 1)
+        truncated = len(data) > cap
+        return {"path": p, "content": data[:cap], "truncated": truncated}
+    except (OSError, ValueError):
+        return {"path": p, "content": None, "binary": True}
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **k):
         super().__init__(*a, directory=BASE, **k)
@@ -118,6 +170,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return self._json({"ok": True, "app": "terminal"})
             ok = open_url(url, w, h) if url else False
             return self._json({"ok": ok, "url": url}, 200 if ok else 400)
+        if u.path == "/list":
+            r = list_dir(q.get("path", [""])[0])
+            return self._json(r if r else {"error": "not-a-directory-or-denied"}, 200 if r else 400)
+        if u.path == "/read":
+            r = read_file(q.get("path", [""])[0])
+            return self._json(r if r else {"error": "not-a-file-or-denied"}, 200 if r else 400)
         return super().do_GET()
 
     def log_message(self, *a):
