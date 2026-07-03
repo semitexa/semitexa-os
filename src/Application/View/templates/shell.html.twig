@@ -271,7 +271,7 @@
             // #weave-layer behind — see syncWorkspace). The toggle sits under the
             // content, above the intent bar (which stays live in both views).
             const stage = (S.ambientView === 'workspace')
-                ? '<div class="os-workspace-stage"></div>' + weaveCtrlsHTML()
+                ? '<div class="os-workspace-stage"></div>' + weaveHintHTML() + weaveCtrlsHTML()
                 : '<div class="os-scroll" id="os-scroll">' + inner + '</div>';
             return stage + ambientViewToggleHTML() + intentbarHTML();
         }
@@ -283,7 +283,18 @@
             return '<div class="os-ambview">' + opt('chat', 'messages-square', 'Планування') + opt('workspace', 'orbit', 'Workspace') + '</div>';
         }
 
-        // Zoom / fit controls for the 3D graph (wheel + drag also work).
+        // A coach hint so it's obvious how to grow the graph. Stronger call to
+        // action when the graph is just "you"; a quiet reminder once it has grown.
+        function weaveHintHTML() {
+            const n = S.weaveCount || 0;
+            if (n <= 1) {
+                return '<div class="os-weave-hint os-weave-hint--start">' + ico('mouse-pointer-click', 16)
+                    + '<span>This is <b>you</b>. Tap your node to introduce yourself — then <b>Add&nbsp;connected</b> to place your work, family and projects around you.</span></div>';
+            }
+            return '<div class="os-weave-hint">' + ico('mouse-pointer-click', 15)
+                + '<span>Tap a node to edit it — or <b>Add&nbsp;connected</b> to grow from it.</span></div>';
+        }
+        // Zoom / fit controls for the graph (wheel + drag also work).
         function weaveCtrlsHTML() {
             const btn = (act, icon, label) => '<button class="os-weave-ctrl" data-act="' + act + '" title="' + label + '" aria-label="' + label + '">' + ico(icon, 17) + '</button>';
             return '<div class="os-weave-ctrls">'
@@ -320,13 +331,13 @@
                     + field('Email', 'we-email', p.email, 'you@example.com', 'email')
                     + field('Phone', 'we-phone', p.phone, '')
                     + area('About', 'we-about', p.about, 'A few words about you');
-                footer = '<button class="os-btn-sm" data-act="weave-add-open">' + ico('plus', 15) + ' Add connected</button><span style="flex:1"></span><button class="os-btn-sm" data-act="weave-cancel">Cancel</button><button class="os-btn-go" data-act="weave-save">' + ico('check', 16) + ' Save</button>';
+                footer = '<button class="os-btn-add" data-act="weave-add-open">' + ico('plus', 15) + ' Add connected</button><span style="flex:1"></span><button class="os-btn-sm" data-act="weave-cancel">Cancel</button><button class="os-btn-go" data-act="weave-save">' + ico('check', 16) + ' Save</button>';
             } else if (e.node) {
                 const p = e.node.props || {};
                 title = e.node.kind || 'Node';
                 body = field('Title', 'we-title', e.node.label, 'Title')
                     + area('Description', 'we-desc', p.description, 'What is this?');
-                footer = '<button class="os-btn-sm" data-act="weave-add-open">' + ico('plus', 15) + ' Add connected</button><span style="flex:1"></span><button class="os-btn-sm" data-act="weave-cancel">Cancel</button><button class="os-btn-go" data-act="weave-save">' + ico('check', 16) + ' Save</button>';
+                footer = '<button class="os-btn-add" data-act="weave-add-open">' + ico('plus', 15) + ' Add connected</button><span style="flex:1"></span><button class="os-btn-sm" data-act="weave-cancel">Cancel</button><button class="os-btn-go" data-act="weave-save">' + ico('check', 16) + ' Save</button>';
             } else {
                 return '';
             }
@@ -662,6 +673,8 @@
                 const d = await r.json();
                 weaveGraph.graphData({ nodes: d.nodes || [], links: d.links || [] });
                 weaveLoaded = true;
+                const n = (d.nodes || []).length;
+                if (n !== S.weaveCount) { S.weaveCount = n; render(); } // refresh the coach hint
             } catch (e) {}
         }
         function syncWorkspace() {
