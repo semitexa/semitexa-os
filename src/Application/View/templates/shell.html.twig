@@ -303,66 +303,84 @@
                 + inner + '</div>';
         }
 
-        // Focus = the app zone: a searchable launcher of ALL installed apps
-        // (UI-skills from boot.skills + the user's registered web apps) plus the
-        // currently-running windows. Apps launch DIRECTLY here — not only via an
-        // Ambient intent — because chat-only launching proved inconvenient for a
-        // plain "open X". Windows live in the persistent #wm-layer (syncDialogs).
+        // Focus = the app zone. A search box sits on top; BELOW it two views the
+        // launcher swaps between (filterLauncher, no re-render):
+        //  • browse (default, empty query) — the familiar gradation: Running,
+        //    Recently opened, Your apps, then the full All apps catalog.
+        //  • results (while typing) — one flat grid filtered across every app.
+        // Apps launch DIRECTLY here — not only via an Ambient intent — because
+        // chat-only launching proved inconvenient for a plain "open X". Windows
+        // live in the persistent #wm-layer (syncDialogs).
         function focusHTML() {
-            const dialogs = S.dialogs || [];
+            return '<div class="os-scroll"><div class="os-focus-zone">'
+                + '<div class="os-focus__eyebrow"><span class="tag">Focus</span><span class="note">Open an app — or switch to a running one</span></div>'
+                + launcherHTML()
+                + '</div></div>' + chatDockHTML();
+        }
 
+        // Reusable app-tile buttons (shared by the browse sections + results grid).
+        function skillBtn(s, cls) {
+            return '<button class="os-appicon' + (cls ? ' ' + cls : '') + '" data-act="open-dialog" data-skill="' + esc(s.name) + '" title="' + esc(s.summary || s.name) + '">'
+                + '<span class="os-appicon__sym">' + ico(s.icon || 'app-window', 24) + '</span>'
+                + '<span class="os-appicon__label">' + esc(s.name) + '</span></button>';
+        }
+        function webAppTile(a) {
+            return '<div class="os-appicon-wrap"><button class="os-appicon recent" data-act="open-webapp" data-id="' + esc(a.id) + '" title="Open ' + esc(a.name) + '">'
+                + '<span class="os-appicon__sym">' + ico(a.icon || 'globe', 24) + '</span>'
+                + '<span class="os-appicon__label">' + esc(a.name) + '</span></button>'
+                + '<button class="os-appicon-x" data-act="remove-webapp" data-id="' + esc(a.id) + '" title="Remove ' + esc(a.name) + '">' + ico('x', 12) + '</button></div>';
+        }
+        function launcherSection(title, inner, hint) {
+            return '<div class="os-recents"><div class="os-recents__h">' + title + '</div><div class="os-iconrow">' + inner + '</div>'
+                + (hint ? '<div class="os-recents__hint">' + hint + '</div>' : '') + '</div>';
+        }
+
+        // The searchable launcher: a glass search box + the browse/results views.
+        function launcherHTML() {
+            const q = (S.launchQuery || '').trim().toLowerCase();
+            const dialogs = S.dialogs || [];
+            const skills = (boot.skills || []).filter(s => s.is_ui);
+            const apps = S.webApps || [];
+
+            // ---- browse view (the preserved gradation) ----
             const running = dialogs.map(d => {
                 const active = d.id === S.focusedId && d.state !== 'minimized';
                 return '<button class="os-appicon' + (d.state === 'minimized' ? ' min' : '') + (active ? ' active' : '') + '" data-act="task-click" data-id="' + d.id + '" title="' + esc(d.title) + (d.state === 'minimized' ? ' (minimized)' : '') + '">'
                     + '<span class="os-appicon__sym">' + ico(d.icon || 'app-window', 24) + '</span>'
                     + '<span class="os-appicon__label">' + esc(d.title) + '</span></button>';
             }).join('');
-            const runningHtml = dialogs.length
-                ? '<div class="os-recents"><div class="os-recents__h">Running · ' + dialogs.length + '</div><div class="os-iconrow">' + running + '</div></div>'
-                : '';
+            const runningSkills = dialogs.map(d => d.skill);
+            const recents = (S.recents || []).filter(s => !runningSkills.includes(s.name));
 
-            return '<div class="os-scroll"><div class="os-focus-zone">'
-                + '<div class="os-focus__eyebrow"><span class="tag">Focus</span><span class="note">Open an app — or switch to a running one</span></div>'
-                + launcherHTML()
-                + runningHtml
-                + '</div></div>' + chatDockHTML();
-        }
+            let browse = '';
+            if (dialogs.length) browse += launcherSection('Running · ' + dialogs.length, running);
+            if (recents.length) browse += launcherSection('Recently opened',
+                recents.map(s => skillBtn({ name: s.name, icon: s.icon }, 'recent')).join(''));
+            if (apps.length) browse += launcherSection('Your apps', apps.map(webAppTile).join(''),
+                'Ask ' + esc(boot.assistantName) + ' to “open …” any site to add one.');
+            browse += skills.length
+                ? launcherSection('All apps', skills.map(s => skillBtn(s)).join(''))
+                : '<div class="os-launcher-empty">' + ico('layout-grid', 20) + ' <span>No apps yet. Ask ' + esc(boot.assistantName) + ' to open a site to add one.</span></div>';
 
-        // The unified, type-to-filter app launcher. UI-skills open via the existing
-        // openDialog() path; web apps via openWebApp() (keeping the remove-x). The
-        // filtering runs IN PLACE (filterLauncher) so typing never triggers a
-        // re-render — the input keeps focus and the grid just shows/hides tiles.
-        function launcherHTML() {
-            const q = (S.launchQuery || '').trim().toLowerCase();
-            const skills = (boot.skills || []).filter(s => s.is_ui);
-            const apps = S.webApps || [];
-            const total = skills.length + apps.length;
-
+            // ---- results view (flat, filtered across everything) ----
             const tile = (dataName, inner) => {
-                const dn = dataName.toLowerCase();
+                const dn = (dataName || '').toLowerCase();
                 return '<div class="os-appicon-wrap os-launch-tile" data-name="' + esc(dn) + '"'
                     + ((!q || dn.indexOf(q) !== -1) ? '' : ' hidden') + '>' + inner + '</div>';
             };
-            const skillTiles = skills.map(s => tile(s.name + ' ' + (s.summary || ''),
-                '<button class="os-appicon" data-act="open-dialog" data-skill="' + esc(s.name) + '" title="' + esc(s.summary || s.name) + '">'
-                + '<span class="os-appicon__sym">' + ico(s.icon || 'app-window', 24) + '</span>'
-                + '<span class="os-appicon__label">' + esc(s.name) + '</span></button>')).join('');
-            const appTiles = apps.map(a => tile(a.name + ' ' + (a.host || ''),
-                '<button class="os-appicon" data-act="open-webapp" data-id="' + esc(a.id) + '" title="Open ' + esc(a.name) + '">'
-                + '<span class="os-appicon__sym">' + ico(a.icon || 'globe', 24) + '</span>'
-                + '<span class="os-appicon__label">' + esc(a.name) + '</span></button>'
-                + '<button class="os-appicon-x" data-act="remove-webapp" data-id="' + esc(a.id) + '" title="Remove ' + esc(a.name) + '">' + ico('x', 12) + '</button>')).join('');
-
-            const grid = total
-                ? '<div class="os-iconrow os-launcher-grid">' + skillTiles + appTiles + '</div>'
-                    + '<div class="os-launcher-empty" hidden>' + ico('search-x', 20) + ' <span>No apps match “<b class="q"></b>”.</span></div>'
-                : '<div class="os-launcher-empty">' + ico('layout-grid', 20) + ' <span>No apps yet. Ask ' + esc(boot.assistantName) + ' to open a site to add one.</span></div>';
+            const resultTiles = skills.map(s => tile(s.name + ' ' + (s.summary || ''), skillBtn(s)))
+                .concat(apps.map(a => tile(a.name + ' ' + (a.host || ''), webAppTile(a)))).join('');
 
             return '<div class="os-launcher">'
                 + '<div class="os-launcher__bar"><span class="os-launcher__ico">' + ico('search', 17) + '</span>'
                 + '<input id="launcher-input" placeholder="Search apps…" value="' + esc(S.launchQuery || '') + '" autocomplete="off" spellcheck="false">'
                 + '<button class="os-launcher__clear" data-act="launcher-clear" title="Clear" style="' + (q ? '' : 'display:none') + '">' + ico('x', 16) + '</button>'
-                + '</div>' + grid + '</div>';
+                + '</div>'
+                + '<div class="os-launcher-default"' + (q ? ' hidden' : '') + '>' + browse + '</div>'
+                + '<div class="os-launcher-results"' + (q ? '' : ' hidden') + '>'
+                + '<div class="os-iconrow os-launcher-grid">' + resultTiles + '</div>'
+                + '<div class="os-launcher-empty" hidden>' + ico('search-x', 20) + ' <span>No apps match “<b class="q"></b>”.</span></div>'
+                + '</div></div>';
         }
 
         // Chill = the leisure zone. Instead of a mock, Semi asks what you feel
@@ -684,24 +702,30 @@
             await fetchWebApps();
             render();
         }
-        // Type-to-filter the launcher grid IN PLACE (no re-render → the input keeps
-        // focus + cursor while typing). Matches a tile's data-name (app name plus
-        // its summary/host). Also toggles the "no match" empty row + the clear button.
+        // Type-to-filter IN PLACE (no re-render → the input keeps focus + cursor).
+        // An empty query shows the browse gradation; any query swaps to the flat
+        // results grid, filtered by each tile's data-name (app name + summary/host),
+        // and toggles the "no match" row + the clear button.
         function filterLauncher(q) {
             S.launchQuery = q;
             const query = (q || '').trim().toLowerCase();
             const clr = document.querySelector('.os-launcher__clear');
             if (clr) clr.style.display = query ? '' : 'none';
-            const grid = document.querySelector('.os-launcher-grid');
+            const def = document.querySelector('.os-launcher-default');
+            const res = document.querySelector('.os-launcher-results');
+            if (def) def.hidden = !!query;
+            if (res) res.hidden = !query;
+            if (!query || !res) return;
+            const grid = res.querySelector('.os-launcher-grid');
             if (!grid) return;
             let visible = 0;
             grid.querySelectorAll('.os-launch-tile').forEach(el => {
-                const hit = !query || (el.dataset.name || '').indexOf(query) !== -1;
+                const hit = (el.dataset.name || '').indexOf(query) !== -1;
                 el.hidden = !hit; if (hit) visible++;
             });
-            const empty = grid.parentNode.querySelector('.os-launcher-empty');
+            const empty = res.querySelector('.os-launcher-empty');
             if (empty) {
-                empty.hidden = !(query && visible === 0);
+                empty.hidden = visible !== 0;
                 const qs = empty.querySelector('.q'); if (qs) qs.textContent = q;
             }
         }
