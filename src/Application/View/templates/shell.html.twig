@@ -289,10 +289,10 @@
             const n = S.weaveCount || 0;
             if (n <= 1) {
                 return '<div class="os-weave-hint os-weave-hint--start">' + ico('mouse-pointer-click', 16)
-                    + '<span>This is <b>you</b>. Tap your node to introduce yourself — then <b>Add&nbsp;connected</b> to place your work, family and projects around you.</span></div>';
+                    + '<span>This is <b>you</b>. Tap your node, then just <b>type</b> to place your work, family and projects around you — each one links to you.</span></div>';
             }
             return '<div class="os-weave-hint">' + ico('mouse-pointer-click', 15)
-                + '<span>Tap a node to edit it — or <b>Add&nbsp;connected</b> to grow from it.</span></div>';
+                + '<span>Tap any node to add a connected item, edit it, or the pencil for details.</span></div>';
         }
         // Zoom / fit controls for the graph (wheel + drag also work).
         function weaveCtrlsHTML() {
@@ -302,6 +302,29 @@
                 + btn('weave-zoom-out', 'minus', 'Zoom out')
                 + btn('weave-fit', 'maximize', 'Fit to view')
                 + '</div>';
+        }
+
+        // The contextual node popover (opened by openNodePop on node click).
+        function nodePopHTML() {
+            const p = S.nodePop;
+            if (!p || !p.node) return '';
+            const n = p.node;
+            const kinds = ['project', 'person', 'topic', 'note', 'task', 'event', 'org', 'place', 'file'];
+            const opts = kinds.map(function (k) { return '<option value="' + k + '">' + k + '</option>'; }).join('');
+            const dot = n.self ? cssVar('--accent', '#37b7ff') : kindColor(n.kind);
+            return '<div class="os-nodepop__backdrop" id="nodepop-backdrop"><div class="os-nodepop" style="left:' + p.x + 'px;top:' + p.y + 'px">'
+                + '<div class="os-nodepop__head">'
+                + '<span class="os-nodepop__dot" style="background:' + dot + '"></span>'
+                + '<span class="os-nodepop__title">' + esc(n.label) + '</span>'
+                + '<button class="os-nodepop__ic" data-act="pop-edit" title="Edit details">' + ico('pencil', 15) + '</button>'
+                + (n.self ? '' : '<button class="os-nodepop__ic" data-act="pop-remove" title="Remove">' + ico('trash-2', 15) + '</button>')
+                + '</div>'
+                + '<div class="os-nodepop__add">'
+                + '<select id="pop-kind" class="os-nodepop__kind" title="Type">' + opts + '</select>'
+                + '<input id="pop-title" placeholder="Add connected…" autocomplete="off">'
+                + '<button class="os-nodepop__go" data-act="pop-add-save" title="Add (Enter)">' + ico('plus', 17) + '</button>'
+                + '</div>'
+                + '</div></div>';
         }
 
         // The Workspace node editor — a modal raised on node click. The self node
@@ -629,7 +652,7 @@
                 .linkDirectionalArrowRelPos(1)
                 .linkDirectionalArrowColor(function () { return 'rgba(148,163,184,0.55)'; })
                 .cooldownTicks(120)
-                .onNodeClick(function (n) { openNodeEditor(n); })
+                .onNodeClick(function (n, e) { openNodePop(n, e); })
                 .onEngineStop(function () { if (weaveGraph) weaveGraph.zoomToFit(400, 60); });
             // Spread the layout so it reads as a constellation, not a clump.
             try { weaveGraph.d3Force('charge').strength(-320); } catch (e) {}
@@ -642,6 +665,34 @@
         function openNodeEditor(n) {
             S.nodeEditor = { node: n, adding: false };
             render();
+        }
+        // Click a node → a compact contextual popover at the cursor: a focused
+        // "add connected" field (growing is the primary act) + edit/remove. Fast
+        // tap→type→Enter loop; the full editor is one click away (pencil).
+        function openNodePop(n, e) {
+            const w = 300;
+            const cx = (e && e.clientX) || (window.innerWidth / 2);
+            const cy = (e && e.clientY) || (window.innerHeight / 2);
+            S.nodePop = {
+                node: n,
+                x: Math.max(12, Math.min(cx - 20, window.innerWidth - w - 16)),
+                y: Math.max(70, Math.min(cy + 14, window.innerHeight - 170)),
+            };
+            S._popFocus = true;
+            render();
+        }
+        async function popAdd() {
+            const p = S.nodePop; if (!p || !p.node) return;
+            const val = function (id) { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+            const title = val('pop-title'); if (title === '') return;
+            await post('/os/weave/node/add', { parentId: p.node.id, kind: val('pop-kind'), title: title, relation: 'part_of' });
+            S._popFocus = true;                 // keep the popover open for rapid adding
+            loadWeaveGraph(true);
+        }
+        async function popRemove() {
+            const p = S.nodePop; if (!p || !p.node) return;
+            await post('/os/weave/node/remove', { id: p.node.id });
+            S.nodePop = null; render(); loadWeaveGraph(true);
         }
         async function weaveSaveNode() {
             const e = S.nodeEditor; if (!e || e.adding || !e.node) return;
@@ -683,7 +734,7 @@
             // Route pointer events: while browsing the graph (no modal), #root is
             // click-through so the graph behind stays interactive; opening the
             // editor drops the class so the form captures normally.
-            root.classList.toggle('os-root--graph', show && !S.nodeEditor);
+            root.classList.toggle('os-root--graph', show && !S.nodeEditor && !S.nodePop);
             if (!show) {
                 return;
             }
@@ -708,7 +759,7 @@
             const railClass = (S.xray ? ' with-rail' : '') + (S.mode === 'chill' ? ' chill' : '');
             root.innerHTML = '<div class="os-shell">' + topbarHTML()
                 + '<div class="os-main"><div class="os-stage' + railClass + '">' + stage + '</div>'
-                + (S.xray ? xrayHTML() : '') + '</div>' + cueHTML() + nodeEditorHTML() + '</div>';
+                + (S.xray ? xrayHTML() : '') + '</div>' + cueHTML() + nodeEditorHTML() + nodePopHTML() + '</div>';
             drawIcons();
             // Restore the launcher search box focus (kept across re-render), or give
             // it focus on first entering Focus (S._focusLauncher) so you can type
@@ -722,6 +773,8 @@
             }
             const inp = document.getElementById('intent-input');
             if (inp && S._focusInput) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); S._focusInput = false; }
+            const pt = document.getElementById('pop-title');
+            if (pt && S._popFocus) { pt.focus(); S._popFocus = false; }
             const scroll = document.getElementById('os-scroll');
             if (scroll) scroll.scrollTop = scroll.scrollHeight; // keep the newest turn in view
             const dockScroll = document.getElementById('os-dock-scroll');
@@ -1097,7 +1150,7 @@
         // in the conversation, raise a cue toast, and badge the dock if collapsed.
         async function pollProactive() {
             if (S.screen !== 'os') return;
-            if (S.nodeEditor) return; // don't re-render (and wipe form input) mid-edit
+            if (S.nodeEditor || S.nodePop) return; // don't re-render (and wipe form input) mid-edit
             try {
                 const r = await fetch('/os/proactive?since=' + encodeURIComponent(PROACTIVE_CURSOR), { headers: { 'Accept': 'application/json' } });
                 const d = await r.json();
@@ -1221,6 +1274,7 @@
         root.addEventListener('click', (e) => {
             // Click the modal backdrop (not its panel) closes the node editor.
             if (e.target.id === 'we-backdrop') { S.nodeEditor = null; render(); return; }
+            if (e.target.id === 'nodepop-backdrop') { S.nodePop = null; render(); return; }
             const t = e.target.closest('[data-act]'); if (!t) return;
             const act = t.dataset.act;
             if (act === 'awaken') { if (S.awake!=='idle') return; S.awake='auth'; blip(540); render(); setTimeout(()=>{ S.awake='snapshot'; render(); }, 1500); }
@@ -1241,6 +1295,9 @@
             else if (act === 'weave-zoom-in') { weaveZoom(0.75); }
             else if (act === 'weave-zoom-out') { weaveZoom(1.4); }
             else if (act === 'weave-fit') { if (weaveGraph) weaveGraph.zoomToFit(500, 70); }
+            else if (act === 'pop-add-save') { popAdd(); }
+            else if (act === 'pop-edit') { const n = S.nodePop && S.nodePop.node; S.nodePop = null; if (n) openNodeEditor(n); }
+            else if (act === 'pop-remove') { popRemove(); }
             else if (act === 'chatdock-toggle') { setChatDock(S.chatDock === 'open' ? 'collapsed' : 'open'); if (S.chatDock === 'open') { S._focusInput = true; S.proactiveUnseen = 0; } blip(600); render(); }
             else if (act === 'submit') { S._focusInput = true; submit(); }
             else if (act === 'suggest') { S.input = t.dataset.text; S._focusInput = true; render(); }
@@ -1289,6 +1346,10 @@
             else if (e.target.id === 'launcher-input') {
                 if (e.key === 'Enter') { e.preventDefault(); openFirstLauncherMatch(); }
                 else if (e.key === 'Escape') { e.preventDefault(); e.target.value = ''; filterLauncher(''); }
+            }
+            else if (e.target.id === 'pop-title') {
+                if (e.key === 'Enter') { e.preventDefault(); popAdd(); }
+                else if (e.key === 'Escape') { e.preventDefault(); S.nodePop = null; render(); }
             }
         });
         root.addEventListener('input', (e) => {
