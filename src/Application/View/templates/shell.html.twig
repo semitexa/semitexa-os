@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/assets/os/css/design-extras.css">
     <link rel="stylesheet" href="/assets/os/css/shell.css">
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-    <script src="/assets/os/js/vendor/3d-force-graph.min.js"></script>
+    <script src="/assets/os/js/vendor/force-graph.min.js"></script>
 </head>
 <body>
     <div class="os-root" id="root"></div>
@@ -558,10 +558,11 @@
             return '<div class="os-cue"><div class="os-cue__head">' + ico('volume-2') + '<span class="os-cue__title">' + esc(S.cue.title) + '</span></div><div class="os-cue__body">' + esc(S.cue.body) + '</div></div>';
         }
 
-        // ---------- Ambient Workspace: 3D Weave force-graph ----------
-        // The WebGL graph is stateful (canvas + physics), so it lives in the
-        // persistent #weave-layer (sibling of #root, never wiped by render) and is
-        // created once — same discipline as #wm-layer for dialog windows.
+        // ---------- Ambient Workspace: 2D Weave force-graph ----------
+        // The graph (canvas + physics) is stateful, so it lives in the persistent
+        // #weave-layer (sibling of #root, never wiped by render) and is created
+        // once — same discipline as #wm-layer for dialog windows. 2D canvas (not
+        // WebGL): lower cognitive load, cleaner, and no GPU dependency.
         const weaveLayer = document.getElementById('weave-layer');
         let weaveGraph = null;
         let weaveLoaded = false;
@@ -582,42 +583,46 @@
         }
         function centerWeaveNode(n) {
             if (!weaveGraph || !n) return;
-            const dist = 1 + 120 / Math.max(1, Math.hypot(n.x || 0, n.y || 0, n.z || 0));
-            weaveGraph.cameraPosition({ x: (n.x || 0) * dist, y: (n.y || 0) * dist, z: (n.z || 0) * dist }, n, 800);
+            weaveGraph.centerAt(n.x, n.y, 600);
         }
-        // Dolly the camera in/out by scaling its distance from the graph centre
-        // (factor < 1 = closer, > 1 = farther). Drives the +/- buttons, since
-        // wheel/trackpad zoom isn't discoverable to everyone.
+        // Zoom the 2D graph (factor < 1 = out, > 1 = in); drives the +/- buttons.
         function weaveZoom(factor) {
             if (!weaveGraph) return;
-            const p = weaveGraph.cameraPosition();
-            const far = Math.hypot(p.x, p.y, p.z) < 20 && factor > 1;
-            const f = far ? factor * 6 : factor; // escape a near-origin camera
-            weaveGraph.cameraPosition({ x: p.x * f, y: p.y * f, z: p.z * f }, undefined, 250);
+            weaveGraph.zoom(weaveGraph.zoom() * factor, 250);
         }
         function initWeaveGraph() {
-            if (weaveGraph || !window.ForceGraph3D) return;
+            if (weaveGraph || !window.ForceGraph) return;
             const accent = cssVar('--accent', '#37b7ff');
-            weaveGraph = ForceGraph3D()(weaveLayer)
+            const textColor = cssVar('--os-text', '#eaf2ff');
+            weaveGraph = ForceGraph()(weaveLayer)
                 .backgroundColor('rgba(0,0,0,0)')          // let the shell's --os-bg show through
-                .showNavInfo(false)
-                .nodeLabel(function (n) { return n.label; })
+                .nodeRelSize(5)
+                .nodeVal(function (n) { return n.self ? 7 : 2; })
                 .nodeColor(function (n) { return n.self ? accent : kindColor(n.kind); })
-                .nodeVal(function (n) { return n.self ? 26 : 8; })
-                .nodeResolution(18)
-                .nodeOpacity(0.95)
-                .linkColor(function () { return 'rgba(148,163,184,0.45)'; })
-                .linkWidth(0.7)
-                .linkOpacity(0.5)
-                .linkDirectionalArrowLength(3.2)
+                .nodeLabel(function (n) { return n.kind; }) // hover tooltip = kind (title is drawn below)
+                .nodeCanvasObjectMode(function () { return 'after'; })
+                .nodeCanvasObject(function (n, ctx, scale) {
+                    const label = n.label || '';
+                    if (!label) return;
+                    const fontSize = Math.max(12 / scale, 2);
+                    ctx.font = fontSize + 'px "IBM Plex Sans", system-ui, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.fillStyle = n.self ? accent : textColor;
+                    const r = Math.sqrt(n.self ? 7 : 2) * 5;
+                    ctx.fillText(label, n.x, n.y + r + 2 / scale);
+                })
+                .linkColor(function () { return 'rgba(148,163,184,0.4)'; })
+                .linkWidth(1)
+                .linkDirectionalArrowLength(3.5)
                 .linkDirectionalArrowRelPos(1)
-                .linkDirectionalArrowColor(function () { return 'rgba(148,163,184,0.6)'; })
-                .cooldownTicks(140)
+                .linkDirectionalArrowColor(function () { return 'rgba(148,163,184,0.55)'; })
+                .cooldownTicks(120)
                 .onNodeClick(function (n) { openNodeEditor(n); })
-                .onEngineStop(function () { if (weaveGraph) weaveGraph.zoomToFit(500, 70); });
+                .onEngineStop(function () { if (weaveGraph) weaveGraph.zoomToFit(400, 60); });
             // Spread the layout so it reads as a constellation, not a clump.
-            try { weaveGraph.d3Force('charge').strength(-140); } catch (e) {}
-            try { weaveGraph.d3Force('link').distance(60); } catch (e) {}
+            try { weaveGraph.d3Force('charge').strength(-320); } catch (e) {}
+            try { weaveGraph.d3Force('link').distance(95); } catch (e) {}
             weaveResize();
             window.addEventListener('resize', weaveResize);
         }
