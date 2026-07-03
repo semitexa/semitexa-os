@@ -5,21 +5,29 @@ declare(strict_types=1);
 namespace Semitexa\Os\Application\Service;
 
 use Semitexa\Core\Attribute\AsService;
-use Semitexa\Core\Support\ProjectRoot;
+use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Os\Domain\Enum\IntentDecision;
 use Semitexa\Os\Domain\Model\IntentOutcome;
+use Semitexa\Platform\Settings\Application\Service\SettingsStore;
+use Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface;
 
 /**
  * Durable, OS-owned session log — the substrate for the Awakening "State
  * Snapshot" (concept §2). A small ring buffer of recent meaningful actions
- * persisted under `var/os/session.json` so "continue where you were" survives
- * restarts. Local-first / single-user: a plain file, no DB, no semitexa-dev
- * trace dependency (that store is agent epic/task traces, not the OS session).
+ * persisted in the DB-backed settings store (module 'os', key 'session', like
+ * {@see SkinStore}/{@see OsPreferences}) so "continue where you were" survives
+ * restarts AND stays coherent across Swoole workers. No semitexa-dev trace
+ * dependency (that store is agent epic/task traces, not the OS session).
  */
 #[AsService]
 final class OsSessionStore
 {
     private const MAX_EVENTS = 50;
+    private const MODULE = 'os';
+    private const KEY = 'session';
+
+    #[InjectAsReadonly]
+    protected SettingsStoreInterface $settings;
 
     /**
      * Record a terminal, meaningful outcome (a skill ran or the assistant
@@ -109,12 +117,8 @@ final class OsSessionStore
      */
     private function read(): array
     {
-        $file = $this->file();
-        if (!is_file($file)) {
-            return [];
-        }
-        $raw = @file_get_contents($file);
-        if ($raw === false || $raw === '') {
+        $raw = $this->settings()->get(self::MODULE, self::KEY);
+        if (!is_string($raw) || $raw === '') {
             return [];
         }
         $data = json_decode($raw, true);
@@ -127,20 +131,18 @@ final class OsSessionStore
      */
     private function write(array $events): void
     {
-        $file = $this->file();
-        $dir = dirname($file);
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0775, true);
-        }
-        @file_put_contents(
-            $file,
-            (string) json_encode(['events' => $events], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-            LOCK_EX,
-        );
+        $this->settings()->set(self::MODULE, self::KEY, (string) json_encode(
+            ['events' => $events],
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
+        ));
     }
 
-    private function file(): string
+    private function settings(): SettingsStoreInterface
     {
-        return ProjectRoot::get() . '/var/os/session.json';
+        if (!isset($this->settings)) {
+            $this->settings = new SettingsStore();
+        }
+
+        return $this->settings;
     }
 }

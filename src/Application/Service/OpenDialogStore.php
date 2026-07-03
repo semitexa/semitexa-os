@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Semitexa\Os\Application\Service;
 
 use Semitexa\Core\Attribute\AsService;
-use Semitexa\Core\Support\ProjectRoot;
+use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Platform\Settings\Application\Service\SettingsStore;
+use Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface;
 
 /**
  * The registry of OPEN dialog windows (UI-skills) for the session — the data
@@ -13,9 +15,10 @@ use Semitexa\Core\Support\ProjectRoot;
  * a UI-skill; Focus shows the running ones (normal / minimized / maximized) and,
  * when all are minimized, just their icons.
  *
- * Persisted under `var/os/dialogs.json` so the running set survives restarts
- * (ties to the Awakening State Snapshot). Local-first / single-user: a plain
- * file, no DB. Best-effort — never let dialog bookkeeping break the loop.
+ * Persisted in the DB-backed settings store (module 'os', key 'dialogs', like
+ * {@see SkinStore}/{@see OsSessionStore}) so the running set survives restarts
+ * (ties to the Awakening State Snapshot) AND stays coherent across Swoole
+ * workers. Best-effort — never let dialog bookkeeping break the loop.
  *
  * @phpstan-type Dialog array{id:string,skill:string,title:string,icon:?string,entry:?string,state:string,parentId:?string,order:int,openedAt:string}
  */
@@ -24,6 +27,11 @@ final class OpenDialogStore
 {
     private const MAX_DIALOGS = 24;
     private const STATES = ['normal', 'minimized', 'maximized'];
+    private const MODULE = 'os';
+    private const KEY = 'dialogs';
+
+    #[InjectAsReadonly]
+    protected SettingsStoreInterface $settings;
 
     /**
      * Open a new dialog and return its descriptor.
@@ -114,12 +122,8 @@ final class OpenDialogStore
      */
     private function read(): array
     {
-        $file = $this->file();
-        if (!is_file($file)) {
-            return [];
-        }
-        $raw = @file_get_contents($file);
-        if ($raw === false || $raw === '') {
+        $raw = $this->settings()->get(self::MODULE, self::KEY);
+        if (!is_string($raw) || $raw === '') {
             return [];
         }
         $data = json_decode($raw, true);
@@ -132,20 +136,18 @@ final class OpenDialogStore
      */
     private function write(array $dialogs): void
     {
-        $file = $this->file();
-        $dir = dirname($file);
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0775, true);
-        }
-        @file_put_contents(
-            $file,
-            (string) json_encode(['dialogs' => $dialogs], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-            LOCK_EX,
-        );
+        $this->settings()->set(self::MODULE, self::KEY, (string) json_encode(
+            ['dialogs' => $dialogs],
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
+        ));
     }
 
-    private function file(): string
+    private function settings(): SettingsStoreInterface
     {
-        return ProjectRoot::get() . '/var/os/dialogs.json';
+        if (!isset($this->settings)) {
+            $this->settings = new SettingsStore();
+        }
+
+        return $this->settings;
     }
 }
