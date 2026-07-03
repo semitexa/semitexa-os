@@ -309,7 +309,7 @@
             const p = S.nodePop;
             if (!p || !p.node) return '';
             const n = p.node;
-            const kinds = ['project', 'person', 'topic', 'note', 'task', 'event', 'org', 'place', 'file'];
+            const kinds = ['project', 'person', 'topic', 'note', 'task', 'event', 'org', 'place', 'folder', 'file'];
             const opts = kinds.map(function (k) { return '<option value="' + k + '">' + k + '</option>'; }).join('');
             const dot = n.self ? cssVar('--accent', '#37b7ff') : kindColor(n.kind);
             return '<div class="os-nodepop__backdrop" id="nodepop-backdrop"><div class="os-nodepop" style="left:' + p.x + 'px;top:' + p.y + 'px">'
@@ -337,7 +337,7 @@
             const area = (label, id, value, ph) => '<label class="os-nedit__field"><span>' + esc(label) + '</span><textarea id="' + id + '" rows="3" placeholder="' + esc(ph || '') + '">' + esc(value || '') + '</textarea></label>';
             let title, body, footer;
             if (e.adding) {
-                const kinds = ['project', 'person', 'topic', 'note', 'task', 'event', 'org', 'place', 'file'];
+                const kinds = ['project', 'person', 'topic', 'note', 'task', 'event', 'org', 'place', 'folder', 'file'];
                 title = 'Add to “' + esc((e.parent || {}).label || '') + '”';
                 body = '<label class="os-nedit__field"><span>Type</span><select id="we-add-kind">' + kinds.map(k => '<option value="' + k + '">' + k + '</option>').join('') + '</select></label>'
                     + field('Title', 'we-add-title', '', 'e.g. a project, a person…')
@@ -358,7 +358,9 @@
             } else if (e.node) {
                 const p = e.node.props || {};
                 title = e.node.kind || 'Node';
+                const isPath = (e.node.kind === 'folder' || e.node.kind === 'file');
                 body = field('Title', 'we-title', e.node.label, 'Title')
+                    + (isPath ? field('Path', 'we-path', p.path, e.node.kind === 'folder' ? '/path/to/folder' : '/path/to/file.ext') : '')
                     + area('Description', 'we-desc', p.description, 'What is this?');
                 footer = '<button class="os-btn-add" data-act="weave-add-open">' + ico('plus', 15) + ' Add connected</button><span style="flex:1"></span><button class="os-btn-sm" data-act="weave-cancel">Cancel</button><button class="os-btn-go" data-act="weave-save">' + ico('check', 16) + ' Save</button>';
             } else {
@@ -605,7 +607,7 @@
             const map = {
                 project: '#37b7ff', person: '#34d399', topic: '#a78bfa', note: '#60a5fa',
                 task: '#fbbf24', event: '#22d3ee', app: '#f472b6', file: '#94a3b8',
-                place: '#f59e0b', org: '#818cf8', thread: '#cbd5e1',
+                folder: '#eab308', place: '#f59e0b', org: '#818cf8', thread: '#cbd5e1',
             };
             return map[kind] || '#94a3b8';
         }
@@ -705,6 +707,7 @@
             } else {
                 title = val('we-title');
                 props = { description: val('we-desc') };
+                if (document.getElementById('we-path')) { props.path = val('we-path'); } // file/folder location
             }
             await post('/os/weave/node/save', { id: n.id, title: title, propsJson: JSON.stringify(props) });
             S.nodeEditor = null; render(); loadWeaveGraph(true);
