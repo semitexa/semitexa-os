@@ -255,7 +255,11 @@ body {
 .os-root--graph { pointer-events: none; }
 .os-root--graph .os-topbar,
 .os-root--graph .os-ambview,
+.os-root--graph .os-weave-ctrls,
 .os-root--graph .os-intentbar { pointer-events: auto; }
+.os-weave-ctrls { position: absolute; right: 22px; bottom: 108px; display: flex; flex-direction: column; gap: 6px; z-index: 57; }
+.os-weave-ctrl { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 10px; border: 1px solid rgba(148,163,184,.2); background: rgba(var(--os-surface-rgb),.72); color: var(--os-text); cursor: pointer; backdrop-filter: blur(12px); transition: border-color .2s, color .2s; }
+.os-weave-ctrl:hover { border-color: var(--accent); color: var(--accent); }
 .os-ambview { position: absolute; left: 50%; bottom: 104px; transform: translateX(-50%); z-index: 56; display: flex; gap: 4px; padding: 4px; background: rgba(var(--os-surface-rgb),.7); border: 1px solid rgba(148,163,184,.2); border-radius: 999px; backdrop-filter: blur(12px); box-shadow: 0 8px 24px rgba(2,8,23,.35); }
 .os-ambview__btn { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 15px; border-radius: 999px; border: none; background: transparent; color: #a8b4cc; font: 600 12.5px var(--font-ui); cursor: pointer; transition: background .2s, color .2s; }
 .os-ambview__btn:hover { color: var(--os-text); }

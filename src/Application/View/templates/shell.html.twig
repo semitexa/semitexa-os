@@ -271,7 +271,7 @@
             // #weave-layer behind — see syncWorkspace). The toggle sits under the
             // content, above the intent bar (which stays live in both views).
             const stage = (S.ambientView === 'workspace')
-                ? '<div class="os-workspace-stage"></div>'
+                ? '<div class="os-workspace-stage"></div>' + weaveCtrlsHTML()
                 : '<div class="os-scroll" id="os-scroll">' + inner + '</div>';
             return stage + ambientViewToggleHTML() + intentbarHTML();
         }
@@ -281,6 +281,16 @@
             const v = S.ambientView || 'chat';
             const opt = (m, icon, label) => '<button class="os-ambview__btn' + (v === m ? ' active' : '') + '" data-act="ambient-view" data-view="' + m + '">' + ico(icon, 15) + '<span>' + label + '</span></button>';
             return '<div class="os-ambview">' + opt('chat', 'messages-square', 'Планування') + opt('workspace', 'orbit', 'Workspace') + '</div>';
+        }
+
+        // Zoom / fit controls for the 3D graph (wheel + drag also work).
+        function weaveCtrlsHTML() {
+            const btn = (act, icon, label) => '<button class="os-weave-ctrl" data-act="' + act + '" title="' + label + '" aria-label="' + label + '">' + ico(icon, 17) + '</button>';
+            return '<div class="os-weave-ctrls">'
+                + btn('weave-zoom-in', 'plus', 'Zoom in')
+                + btn('weave-zoom-out', 'minus', 'Zoom out')
+                + btn('weave-fit', 'maximize', 'Fit to view')
+                + '</div>';
         }
 
         // The Workspace node editor — a modal raised on node click. The self node
@@ -574,6 +584,16 @@
             if (!weaveGraph || !n) return;
             const dist = 1 + 120 / Math.max(1, Math.hypot(n.x || 0, n.y || 0, n.z || 0));
             weaveGraph.cameraPosition({ x: (n.x || 0) * dist, y: (n.y || 0) * dist, z: (n.z || 0) * dist }, n, 800);
+        }
+        // Dolly the camera in/out by scaling its distance from the graph centre
+        // (factor < 1 = closer, > 1 = farther). Drives the +/- buttons, since
+        // wheel/trackpad zoom isn't discoverable to everyone.
+        function weaveZoom(factor) {
+            if (!weaveGraph) return;
+            const p = weaveGraph.cameraPosition();
+            const far = Math.hypot(p.x, p.y, p.z) < 20 && factor > 1;
+            const f = far ? factor * 6 : factor; // escape a near-origin camera
+            weaveGraph.cameraPosition({ x: p.x * f, y: p.y * f, z: p.z * f }, undefined, 250);
         }
         function initWeaveGraph() {
             if (weaveGraph || !window.ForceGraph3D) return;
@@ -1200,6 +1220,9 @@
             else if (act === 'weave-cancel') { S.nodeEditor = null; render(); }
             else if (act === 'weave-add-open') { S.nodeEditor = { adding: true, parent: (S.nodeEditor && S.nodeEditor.node) || null }; render(); }
             else if (act === 'weave-add-save') { weaveAddNode(); }
+            else if (act === 'weave-zoom-in') { weaveZoom(0.75); }
+            else if (act === 'weave-zoom-out') { weaveZoom(1.4); }
+            else if (act === 'weave-fit') { if (weaveGraph) weaveGraph.zoomToFit(500, 70); }
             else if (act === 'chatdock-toggle') { setChatDock(S.chatDock === 'open' ? 'collapsed' : 'open'); if (S.chatDock === 'open') { S._focusInput = true; S.proactiveUnseen = 0; } blip(600); render(); }
             else if (act === 'submit') { S._focusInput = true; submit(); }
             else if (act === 'suggest') { S.input = t.dataset.text; S._focusInput = true; render(); }
