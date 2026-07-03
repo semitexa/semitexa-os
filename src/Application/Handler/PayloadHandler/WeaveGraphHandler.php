@@ -9,9 +9,8 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Os\Application\Payload\Request\WeaveGraphPayload;
-use Semitexa\Os\Application\Service\OsPreferences;
+use Semitexa\Os\Application\Service\OsGraph;
 use Semitexa\Weave\Domain\Contract\GraphStoreInterface;
-use Semitexa\Weave\Domain\Enum\NodeKind;
 
 /**
  * Serve the Weave graph for the Ambient Workspace (3D force-graph). Shapes the
@@ -26,25 +25,26 @@ final class WeaveGraphHandler implements TypedHandlerInterface
     protected GraphStoreInterface $graph;
 
     #[InjectAsReadonly]
-    protected OsPreferences $prefs;
+    protected OsGraph $osGraph;
 
     public function handle(WeaveGraphPayload $payload, ResourceResponse $resource): ResourceResponse
     {
         $data = $this->graph->graph();
 
-        $self = null;
+        // The owner node is guaranteed by OsGraph (created on first use); make
+        // sure a freshly-created one is included in this render's node list.
+        $self = $this->osGraph->self();
+        $selfId = $self->id;
+        $present = false;
         foreach ($data['nodes'] as $node) {
-            if (($node->properties['is_self'] ?? false) === true) {
-                $self = $node;
+            if ($node->id === $selfId) {
+                $present = true;
                 break;
             }
         }
-        if ($self === null) {
-            $name = $this->prefs->userName();
-            $self = $this->graph->upsertNode(NodeKind::Person, $name !== '' ? $name : 'You', ['is_self' => true], 'os:self');
+        if (!$present) {
             $data['nodes'][] = $self;
         }
-        $selfId = $self->id;
 
         $nodes = array_map(static fn ($n): array => [
             'id' => $n->id,
