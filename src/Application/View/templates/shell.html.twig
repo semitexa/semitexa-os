@@ -861,6 +861,29 @@
             render(); // syncWorkspace() at the end of render inits + loads the graph
             loadWeaveGraph(true);
         }
+        // attach-folder intent: folders live on the USER'S machine — only the
+        // client-side bridge can see them. Resolve the name here (root listing,
+        // exact match first, then contains), then complete via /os/weave/attach
+        // with narrate=1 so the confirmation lands in the chat (proactive poll).
+        async function completeAttachIntent(folder, connectTo) {
+            const fail = (msg) => { S.cue = { title: boot.assistantName, body: msg }; render(); setTimeout(() => { S.cue = null; render(); }, 5200); };
+            try {
+                const r = await fetch(BRIDGE + '/list?path=', { signal: AbortSignal.timeout(2500) });
+                if (!r.ok) throw 0;
+                const d = await r.json();
+                const dirs = (d.entries || []).filter(e => e.type === 'dir');
+                const q = folder.toLowerCase();
+                const hit = dirs.find(e => e.name.toLowerCase() === q)
+                    || dirs.find(e => e.name.toLowerCase().startsWith(q))
+                    || dirs.find(e => e.name.toLowerCase().includes(q));
+                if (!hit) { fail('I couldn\u2019t find a "' + folder + '" folder under ' + d.root + '.'); return; }
+                const path = d.path.replace(/\/$/, '') + '/' + hit.name;
+                await post('/os/weave/attach', { path: path, kind: 'folder', connect_to: connectTo || '', narrate: '1' });
+                markWeaveStale();
+            } catch (e) {
+                fail('I can\u2019t reach your files \u2014 the desktop bridge isn\u2019t running.');
+            }
+        }
         function weaveFocusClear() {
             S.weaveFocus = null;
             render(); loadWeaveGraph(true);
@@ -1001,6 +1024,9 @@
             markWeaveStale();     // a skill (remember/…) may have grown the graph
             if (d === 'executed' && resp.skill === 'show-in-world' && resp.arguments && resp.arguments.query) {
                 enterWorkspaceFocused(String(resp.arguments.query)); // visual navigation by intent
+            }
+            if (d === 'executed' && resp.skill === 'attach-folder' && resp.arguments && resp.arguments.folder) {
+                completeAttachIntent(String(resp.arguments.folder), String(resp.arguments.connect_to || ''));
             }
 
             if (d === 'needs_confirmation') { S.run.stage = 'confirm'; log('planner · propose_skill · ' + (resp.skill||'')); render(); return; }

@@ -341,6 +341,10 @@ final class SkillLoopRunner
                 error: "Planner proposed unknown skill '{$skill}' — rejected.",
             );
         }
+        // Canonicalize: findSkill() tolerates model drift ('attach_folder' for
+        // 'attach-folder'), but everything downstream — transcript meta, X-Ray,
+        // the shell's per-skill outcome hooks — must see ONE canonical name.
+        $skill = $entry->name;
 
         // UI-skill: open a persistent dialog (Focus) instead of executing.
         if ($entry->isUi()) {

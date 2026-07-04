@@ -29,6 +29,9 @@ final class WeaveAttachPayload implements ValidatablePayloadInterface
     /** Optional name of an existing entity to hang the node off. */
     private string $connectTo = '';
 
+    /** '1' → confirm the attach as a proactive chat turn (intent-driven flow). */
+    private string $narrate = '';
+
     /**
      * @return array<string, list<string>>
      */
@@ -60,6 +63,16 @@ final class WeaveAttachPayload implements ValidatablePayloadInterface
     public function setKind(string $kind): void
     {
         $this->kind = $kind;
+    }
+
+    public function getNarrate(): bool
+    {
+        return $this->narrate === '1' || $this->narrate === 'true';
+    }
+
+    public function setNarrate(string $narrate): void
+    {
+        $this->narrate = $narrate;
     }
 
     public function getConnectTo(): string

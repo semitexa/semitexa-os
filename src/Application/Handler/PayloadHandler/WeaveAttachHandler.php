@@ -9,6 +9,7 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Os\Application\Payload\Request\WeaveAttachPayload;
+use Semitexa\Os\Application\Service\ConversationStore;
 use Semitexa\Os\Application\Service\OsGraph;
 
 /**
@@ -23,6 +24,9 @@ final class WeaveAttachHandler implements TypedHandlerInterface
     #[InjectAsReadonly]
     protected OsGraph $graph;
 
+    #[InjectAsReadonly]
+    protected ConversationStore $conversation;
+
     public function handle(WeaveAttachPayload $payload, ResourceResponse $resource): ResourceResponse
     {
         try {
@@ -32,6 +36,16 @@ final class WeaveAttachHandler implements TypedHandlerInterface
                 $payload->getConnectTo(),
             );
             $parent = $result['parent'];
+            if ($payload->getNarrate()) {
+                // Intent flow: make the completed attach audible in the chat —
+                // the same proactive channel the weaver narrates through.
+                $where = ($parent->properties['is_self'] ?? false) === true ? 'you' : '"' . $parent->title . '"';
+                $this->conversation->append(
+                    ConversationStore::ROLE_ASSISTANT,
+                    'Attached "' . $result['node']->title . '" to your world — under ' . $where . '. Open Workspace to see it.',
+                    ['proactive' => true, 'source' => 'files', 'kind' => 'attached', 'skill' => 'attach-folder'],
+                );
+            }
             $body = [
                 'ok' => true,
                 'node' => $result['node']->toArray(),
