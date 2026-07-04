@@ -551,3 +551,10 @@ body {
 .os-busyhint [data-lucide], .os-busyhint svg { color: var(--accent); flex: 0 0 auto; animation: os-spin 1.1s linear infinite; }
 .os-busyhint--dock { margin: 8px 10px 0; border-radius: 12px; width: auto; }
 
+
+/* ---------- Workspace contextual (ego) view chip ---------- */
+.os-weave-focuschip { border-color: rgba(var(--accent-rgb),.45); color: var(--os-text); pointer-events: auto; }
+.os-weave-focuschip [data-lucide], .os-weave-focuschip svg { color: var(--accent); }
+.os-weave-focusx { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin-left: 2px;
+    border: none; border-radius: 50%; background: rgba(var(--accent-rgb),.14); color: var(--os-text); cursor: pointer; flex: 0 0 auto; }
+.os-weave-focusx:hover { background: rgba(var(--accent-rgb),.3); }

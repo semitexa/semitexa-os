@@ -29,21 +29,30 @@ final class WeaveGraphHandler implements TypedHandlerInterface
 
     public function handle(WeaveGraphPayload $payload, ResourceResponse $resource): ResourceResponse
     {
-        $data = $this->graph->graph();
+        // Contextual (ego) view: centre on one node, show only its local world.
+        // This is the concept's primary navigation as the graph grows — the
+        // global constellation is the overview, the local view is where you work.
+        $focus = trim($payload->getFocus());
+        $data = $focus !== ''
+            ? $this->graph->subgraph($focus, $payload->getDepth())
+            : $this->graph->graph();
 
-        // The owner node is guaranteed by OsGraph (created on first use); make
-        // sure a freshly-created one is included in this render's node list.
         $self = $this->osGraph->self();
         $selfId = $self->id;
-        $present = false;
-        foreach ($data['nodes'] as $node) {
-            if ($node->id === $selfId) {
-                $present = true;
-                break;
+
+        if ($focus === '') {
+            // The owner node is guaranteed by OsGraph (created on first use); make
+            // sure a freshly-created one is included in this render's node list.
+            $present = false;
+            foreach ($data['nodes'] as $node) {
+                if ($node->id === $selfId) {
+                    $present = true;
+                    break;
+                }
             }
-        }
-        if (!$present) {
-            $data['nodes'][] = $self;
+            if (!$present) {
+                $data['nodes'][] = $self;
+            }
         }
 
         $nodes = array_map(static fn ($n): array => [

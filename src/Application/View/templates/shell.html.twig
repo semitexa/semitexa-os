@@ -286,6 +286,11 @@
         // A coach hint so it's obvious how to grow the graph. Stronger call to
         // action when the graph is just "you"; a quiet reminder once it has grown.
         function weaveHintHTML() {
+            if (S.weaveFocus) {
+                return '<div class="os-weave-hint os-weave-focuschip">' + ico('crosshair', 15)
+                    + '<span>In focus: <b>' + esc(S.weaveFocus.label) + '</b> — its local world.</span>'
+                    + '<button class="os-weave-focusx" data-act="weave-unfocus" title="Back to everything">' + ico('x', 14) + '</button></div>';
+            }
             const n = S.weaveCount || 0;
             if (n <= 1) {
                 return '<div class="os-weave-hint os-weave-hint--start">' + ico('mouse-pointer-click', 16)
@@ -317,6 +322,7 @@
                 + '<span class="os-nodepop__dot" style="background:' + dot + '"></span>'
                 + '<span class="os-nodepop__title">' + esc(n.label) + '</span>'
                 + '<button class="os-nodepop__ic" data-act="pop-edit" title="Edit details">' + ico('pencil', 15) + '</button>'
+                + (n.self ? '' : '<button class="os-nodepop__ic" data-act="pop-focus" title="Focus: show only this node\u2019s world">' + ico('crosshair', 15) + '</button>')
                 + (n.self ? '' : '<button class="os-nodepop__ic" data-act="pop-remove" title="Remove">' + ico('trash-2', 15) + '</button>')
                 + '</div>'
                 + '<div class="os-nodepop__add">'
@@ -800,13 +806,27 @@
         async function loadWeaveGraph(force) {
             if (!weaveGraph || (weaveLoaded && !force)) return;
             try {
-                const r = await fetch('/os/weave/graph?t=' + Date.now(), { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+                // Contextual (ego) view: when focused, ask only for the local world.
+                const focusQ = S.weaveFocus ? '&focus=' + encodeURIComponent(S.weaveFocus.id) + '&depth=1' : '';
+                const r = await fetch('/os/weave/graph?t=' + Date.now() + focusQ, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
                 const d = await r.json();
                 weaveGraph.graphData({ nodes: d.nodes || [], links: d.links || [] });
                 weaveLoaded = true;
                 const n = (d.nodes || []).length;
                 if (n !== S.weaveCount) { S.weaveCount = n; render(); } // refresh the coach hint
             } catch (e) {}
+        }
+        // P2 contextual view: focus the Workspace on one node's local world
+        // (2 hops). The chip above the graph names the focus; ✕ (or focusing
+        // your own node) returns to the whole constellation.
+        function weaveFocusOn(id, label) {
+            S.weaveFocus = { id: id, label: label };
+            S.nodePop = null;
+            render(); loadWeaveGraph(true);
+        }
+        function weaveFocusClear() {
+            S.weaveFocus = null;
+            render(); loadWeaveGraph(true);
         }
         // The graph changed server-side (a skill or the background weaver wrote
         // to it). Visible Workspace → refetch NOW so the constellation grows in
@@ -1400,6 +1420,8 @@
             else if (act === 'pop-add-save') { popAdd(); }
             else if (act === 'pop-edit') { const n = S.nodePop && S.nodePop.node; S.nodePop = null; if (n) openNodeEditor(n); }
             else if (act === 'pop-remove') { popRemove(); }
+            else if (act === 'pop-focus') { const pn = S.nodePop && S.nodePop.node; if (pn) weaveFocusOn(pn.id, pn.label); }
+            else if (act === 'weave-unfocus') { weaveFocusClear(); }
             else if (act === 'chatdock-toggle') { setChatDock(S.chatDock === 'open' ? 'collapsed' : 'open'); if (S.chatDock === 'open') { S._focusInput = true; S.proactiveUnseen = 0; } blip(600); render(); }
             else if (act === 'submit') { S._focusInput = true; submit(); }
             else if (act === 'suggest') { S.input = t.dataset.text; S._focusInput = true; render(); }
