@@ -9,6 +9,7 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Orm\Application\Service\Uuid7;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Direction;
+use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
 use Semitexa\Os\Application\Db\MySQL\Model\ConversationTurnResource;
 
@@ -122,6 +123,42 @@ final class ConversationStore
             ->fetchAllAs(ConversationTurnResource::class, $this->orm()->getMapperRegistry());
 
         return $rows[0]->id ?? '';
+    }
+
+    /**
+     * Turns created AFTER $afterId (UUIDv7 cursor, '' = from the beginning),
+     * oldest → newest, capped at $limit. This is the weaver's read: it keeps a
+     * durable cursor and consumes the transcript in ordered batches.
+     *
+     * @return list<array{id: string, at: string, role: string, text: string, meta: array<string, mixed>}>
+     */
+    public function turnsAfter(string $afterId, int $limit = 20): array
+    {
+        $query = $this->repository()->query();
+        if ($afterId !== '') {
+            $query = $query->where(ConversationTurnResource::column('id'), Operator::GreaterThan, $afterId);
+        }
+
+        /** @var list<ConversationTurnResource> $rows */
+        $rows = $query
+            ->orderBy(ConversationTurnResource::column('id'), Direction::Asc)
+            ->limit(max(1, $limit))
+            ->fetchAllAs(ConversationTurnResource::class, $this->orm()->getMapperRegistry());
+
+        return array_map(
+            static function (ConversationTurnResource $row): array {
+                $meta = json_decode($row->meta_json, true);
+
+                return [
+                    'id' => $row->id,
+                    'at' => $row->created_at->format('c'),
+                    'role' => $row->role,
+                    'text' => $row->text,
+                    'meta' => is_array($meta) ? $meta : [],
+                ];
+            },
+            $rows,
+        );
     }
 
     /**
