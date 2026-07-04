@@ -208,6 +208,12 @@ final class Weaver
         );
         $projectsLine = $projects === [] ? '' : "\n- Known projects: " . implode(', ', $projects)
             . '. When something clearly belongs to one of these, relate it to that project (works_on, part_of, …) instead of "self".';
+        // Canonical-title reuse: the model minting a VARIANT of an existing title
+        // ("documentation for Semitexa" vs "Semitexa documentation") creates a
+        // near-duplicate node. Show it what already exists so it reuses titles.
+        $known = array_map(static fn ($n): string => $n->title, $this->graphStore()->graph(30)['nodes']);
+        $knownLine = $known === [] ? '' : "\n- Titles already in the graph: " . implode('; ', $known)
+            . '. When the transcript refers to one of these, use its EXACT title — never a rephrasing.';
 
         return <<<PROMPT
             You maintain a personal knowledge graph for the user. From the conversation transcript, extract DURABLE real-world entities in the user's life and work, and the relationships between them.
@@ -222,7 +228,7 @@ final class Weaver
             - Titles: the NAME of the thing only, max 6 words, exactly as the user named it, in the user's language. Never a sentence or description.
             - relation: a short snake_case predicate (works_at, part_of, married_to, located_in, interested_in, owns, works_on, friend_of, ...). Invent one if none fits.
             - Every entity should appear in at least one relation when the transcript supports it.
-            - Nothing durable in the transcript? Reply {"entities":[],"relations":[]}.{$projectsLine}
+            - Nothing durable in the transcript? Reply {"entities":[],"relations":[]}.{$projectsLine}{$knownLine}
 
             Examples:
             "user: мій колега Богдан допомагає мені з дизайном Semitexa"
