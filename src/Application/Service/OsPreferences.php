@@ -22,7 +22,7 @@ use Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface;
  * lazily constructed for the skills that `new` this class outside DI
  * ({@see RenameAssistantSkill}, {@see SetUserNameSkill}).
  *
- * @phpstan-type Preferences array{assistant_name: string, user_name: string, theme_mode: string}
+ * @phpstan-type Preferences array{assistant_name: string, user_name: string, theme_mode: string, timezone: string}
  */
 #[AsService]
 final class OsPreferences
@@ -55,6 +55,7 @@ final class OsPreferences
             'assistant_name' => $this->cleanName($this->rawString(self::KEY_ASSISTANT_NAME)) ?? self::DEFAULT_ASSISTANT_NAME,
             'user_name' => $this->cleanName($this->rawString(self::KEY_USER_NAME)) ?? '',
             'theme_mode' => $this->themeMode(),
+            'timezone' => $this->timezone()->getName(),
         ];
     }
 
@@ -110,6 +111,28 @@ final class OsPreferences
         } catch (\Exception) {
             return new \DateTimeZone(self::DEFAULT_TIMEZONE);
         }
+    }
+
+    /**
+     * Set the OS wall-clock timezone (an IANA identifier, e.g. "Europe/Kyiv").
+     * The shell auto-detects the browser's zone on boot and reconciles it here.
+     *
+     * @return Preferences the applied preferences
+     *
+     * @throws \InvalidArgumentException on an unknown identifier
+     */
+    public function setTimezone(string $timezone): array
+    {
+        $timezone = trim($timezone);
+
+        try {
+            $zone = new \DateTimeZone($timezone);
+        } catch (\Exception) {
+            throw new \InvalidArgumentException('Unknown timezone identifier: ' . $timezone);
+        }
+        $this->settings()->set(self::MODULE, self::KEY_TIMEZONE, $zone->getName());
+
+        return $this->all();
     }
 
     /**

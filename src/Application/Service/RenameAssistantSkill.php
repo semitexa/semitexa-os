@@ -28,6 +28,9 @@ use Semitexa\Llm\Domain\Enum\AiRiskLevel;
     confirmation: AiConfirmationMode::Never,
     argumentPolicy: AiArgumentPolicy::Allowlisted,
     exposeArguments: ['name'],
+    argumentHints: [
+        'name' => 'The new assistant name only (e.g. "Jarvis") — a name, not a sentence.',
+    ],
     channels: ['web'],
 )]
 final class RenameAssistantSkill implements InvocableSkillInterface

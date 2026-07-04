@@ -17,6 +17,7 @@ use Semitexa\Llm\Domain\Contract\LlmProviderInterface;
 use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
 use Semitexa\Llm\Domain\Enum\PlannerResponseType;
 use Semitexa\Llm\Domain\Model\LlmRequest;
+use Semitexa\Llm\Domain\Model\LlmResponse;
 use Semitexa\Llm\Domain\Model\PlannerResponse;
 use Semitexa\Llm\Domain\Model\SkillEntry;
 use Semitexa\Llm\Domain\Model\SkillManifest;
@@ -62,6 +63,10 @@ final class SkillLoopRunner
     /** The full dialog transcript (both sides, every turn). */
     #[InjectAsReadonly]
     protected ConversationStore $conversation;
+
+    /** Supplies the user's wall-clock timezone for the planner's date anchor. */
+    #[InjectAsReadonly]
+    protected OsPreferences $prefs;
 
     /**
      * Built once and cached for the lifetime of this (worker-scoped) service:
@@ -118,7 +123,8 @@ final class SkillLoopRunner
         $planner = new Planner();
 
         $plannerResponse = $planner->parseResponse(
-            $this->plannerProvider()->complete($this->plannerRequest($intent, $manifest)),
+            $this->completePlanner($this->plannerRequest($intent, $manifest)),
+            manifest: $manifest, // lets the parser salvage `{"type":"<skill-name>"}` model drift
         );
 
         $outcome = match ($plannerResponse->type) {
@@ -483,27 +489,61 @@ final class SkillLoopRunner
         $persona = (new PersonaRegistry())->framing('os');
 
         return new LlmRequest(
-            systemPrompt: (new Planner())->buildSystemPrompt($manifest, $persona !== '' ? $persona : null),
+            systemPrompt: (new Planner())->buildSystemPrompt(
+                $manifest,
+                $persona !== '' ? $persona : null,
+                // Anchor "today"/"tomorrow" in the USER's zone — the server runs
+                // in UTC, which resolves "завтра" to the wrong day near midnight.
+                $this->prefs->timezone(),
+            ),
             userMessage: $userMessage,
             history: [],
         );
     }
 
     /**
+     * True once ANY planner completion in this worker has succeeded — the shared
+     * runtime's prompt-prefix cache is warm from here on (warmup or a real turn,
+     * whichever lands first).
+     */
+    private bool $plannerWarm = false;
+
+    /**
      * The provider used for routing: reasoning trace OFF (we only consume the
      * structured decision, and a thinking-capable model like gemma4 would otherwise
      * spend its token budget on a trace, slowing routing and risking truncated JSON),
-     * a capped generation, and a generous timeout — the FIRST turn pays the full
-     * manifest prefill while later turns reuse the cached prefix and return fast.
+     * a capped generation, and warm-aware limits.
+     *
+     * Cold (no completed planner call in this worker yet): the call may PAY the
+     * full manifest prefill (~130s on the CPU model) AND queue behind the boot
+     * warm-up on the single-slot runtime — 160s used to time out right there and
+     * refuse the user's first message. So the first call gets a 300s budget.
+     * Warm: the cached prefix returns in ~20s; 160s is generous. Either way one
+     * retry — a timed-out attempt still advanced the runtime's prefix cache, so
+     * the retry typically completes fast instead of the user seeing a refusal.
      */
     private function plannerProvider(): LlmProviderInterface
     {
         $provider = $this->provider();
         if ($provider instanceof RemoteOllamaProvider) {
-            return $provider->withLimits(160, 0, maxTokens: 320, thinking: false);
+            return $provider->withLimits($this->plannerWarm ? 160 : 300, 1, maxTokens: 320, thinking: false);
         }
 
         return $provider;
+    }
+
+    /**
+     * All planner completions go through here so warm-state tracking can't be
+     * forgotten at a call site.
+     */
+    private function completePlanner(LlmRequest $request): LlmResponse
+    {
+        $response = $this->plannerProvider()->complete($request);
+        if ($response->success) {
+            $this->plannerWarm = true;
+        }
+
+        return $response;
     }
 
     /**
@@ -516,7 +556,7 @@ final class SkillLoopRunner
     public function warmPlanner(): void
     {
         try {
-            $this->plannerProvider()->complete($this->plannerRequest('warm up', $this->manifest()));
+            $this->completePlanner($this->plannerRequest('warm up', $this->manifest()));
         } catch (\Throwable) {
             // Warming is opportunistic — a cold or unreachable model just means the
             // first real turn pays the prefill, exactly as it would without this.

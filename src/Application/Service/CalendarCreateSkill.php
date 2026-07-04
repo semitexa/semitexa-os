@@ -32,6 +32,12 @@ use Semitexa\PlatformUi\Application\Db\MySQL\Repository\CalendarEventDbRepositor
     confirmation: AiConfirmationMode::Never,
     argumentPolicy: AiArgumentPolicy::Allowlisted,
     exposeArguments: ['title', 'when', 'end', 'all_day'],
+    argumentHints: [
+        'title' => 'Short event title only (e.g. "Dentist").',
+        'when' => 'ABSOLUTE start "YYYY-MM-DD HH:MM" (24h), resolved from the current date — never "tomorrow"/"завтра".',
+        'end' => 'Optional ABSOLUTE end, same format as when.',
+        'all_day' => '"1" for an all-day event; omit otherwise.',
+    ],
     channels: ['web'],
 )]
 final class CalendarCreateSkill implements InvocableSkillInterface

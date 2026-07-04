@@ -26,6 +26,8 @@ final class PreferencesUpdatePayload implements ValidatablePayloadInterface
 
     private string $themeMode = '';
 
+    private string $timezone = '';
+
     /**
      * Both fields are optional so the same endpoint serves the onboarding ask
      * (user name only) and the Settings dialog (either/both). The handler
@@ -56,6 +58,16 @@ final class PreferencesUpdatePayload implements ValidatablePayloadInterface
     public function setUserName(string $userName): void
     {
         $this->userName = $userName;
+    }
+
+    public function getTimezone(): string
+    {
+        return $this->timezone;
+    }
+
+    public function setTimezone(string $timezone): void
+    {
+        $this->timezone = $timezone;
     }
 
     public function getThemeMode(): string

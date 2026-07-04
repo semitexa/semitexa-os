@@ -26,6 +26,9 @@ use Semitexa\PlatformUi\Application\Db\MySQL\Repository\CalendarEventDbRepositor
     confirmation: AiConfirmationMode::Never,
     argumentPolicy: AiArgumentPolicy::Allowlisted,
     exposeArguments: ['when'],
+    argumentHints: [
+        'when' => 'Day or range: "today", "tomorrow", "this week", or "YYYY-MM-DD".',
+    ],
     channels: ['web'],
 )]
 final class CalendarQuerySkill implements InvocableSkillInterface

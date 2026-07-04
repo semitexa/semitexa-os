@@ -25,6 +25,9 @@ use Semitexa\Llm\Domain\Enum\AiRiskLevel;
     confirmation: AiConfirmationMode::Never,
     argumentPolicy: AiArgumentPolicy::Allowlisted,
     exposeArguments: ['name'],
+    argumentHints: [
+        'name' => 'The user\'s name only (e.g. "Тарас") — a name, not a sentence.',
+    ],
     channels: ['web'],
 )]
 final class SetUserNameSkill implements InvocableSkillInterface

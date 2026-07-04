@@ -790,6 +790,14 @@
                 if (n !== S.weaveCount) { S.weaveCount = n; render(); } // refresh the coach hint
             } catch (e) {}
         }
+        // The graph changed server-side (a skill or the background weaver wrote
+        // to it). Visible Workspace → refetch NOW so the constellation grows in
+        // front of the user; hidden → just invalidate the cache, syncWorkspace
+        // refetches on the next entry.
+        function markWeaveStale() {
+            const visible = weaveGraph && !weaveLayer.hidden;
+            if (visible) { loadWeaveGraph(true); } else { weaveLoaded = false; }
+        }
         function syncWorkspace() {
             const show = (S.screen === 'os' && S.mode === 'ambient' && S.ambientView === 'workspace');
             weaveLayer.hidden = !show;
@@ -912,6 +920,7 @@
             S.run.decision = d; S.run.message = resp.message; S.run.reason = resp.reason; S.run.skill = resp.skill; S.run.policy = resp.risk_level; S.run.arguments = resp.arguments; S.run.pipeline = resp.pipeline || [];
             refreshSuggestions(); // the system just learned something — re-adapt the chips
             refreshPrefs();       // a rename intent may have changed the assistant's name
+            markWeaveStale();     // a skill (remember/…) may have grown the graph
 
             if (d === 'needs_confirmation') { S.run.stage = 'confirm'; log('planner · propose_skill · ' + (resp.skill||'')); render(); return; }
             if (d === 'dialog_exists') { S.run.stage = 'dialog_exists'; log('already open · ' + (resp.skill||''), 'accent'); fetchDialogs(); render(); return; }
@@ -966,6 +975,7 @@
             S.run = null; S.surfaces = [];
             S.queue.shift();
             refreshPrefs();
+            markWeaveStale();
             await refreshHistory();
             processQueue();
         }
@@ -1143,6 +1153,16 @@
                     applyThemeMode();
                     changed = true;
                 }
+                // Reconcile the wall-clock timezone once per session: the browser
+                // knows where the user actually is; time-aware skills and the
+                // planner's date anchor parse against this preference.
+                if (d && !S.tzSynced) {
+                    S.tzSynced = true;
+                    try {
+                        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                        if (tz && tz !== d.timezone) post('/os/preferences', { timezone: tz });
+                    } catch (e) {}
+                }
                 if (changed) render();
             } catch (e) {}
         }
@@ -1220,6 +1240,8 @@
                 const items = d.items || [];
                 if (!items.length) return;
                 await refreshHistory();                 // pull the new turn(s) into the thread
+                // The weaver spoke — the graph it narrates already changed; show it.
+                if (items.some(i => i.meta && i.meta.kind === 'woven')) markWeaveStale();
                 // ONE signal per context — never both (no bell, no double-notify):
                 //  • Ambient    → the conversation IS on screen; a brief toast pings it.
                 //  • other tab, chat folded → a badge on the chat-open icon (the FAB).
@@ -1437,6 +1459,10 @@
         // so re-sync from it whenever the shell window regains focus — e.g. after
         // the user finishes in a native Settings window and switches back.
         window.addEventListener('focus', () => { if (isOsMode()) refreshPrefs(); });
+
+        // Boot-time prefs sync — also reconciles the browser's timezone with the
+        // server preference (see refreshPrefs), independent of the first intent.
+        refreshPrefs();
 
         setInterval(() => { S.clock = new Date(); if (S.screen==='os') { const c = root.querySelector('.os-clock__time'); if (c) c.textContent = fmtTime(S.clock); const dt = root.querySelector('.os-clock__date'); if (dt) dt.textContent = fmtDate(S.clock); } if (S.themeMode === 'auto') applyThemeMode(); }, 1000);
 

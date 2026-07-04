@@ -42,6 +42,10 @@ final class PreferencesUpdateHandler implements TypedHandlerInterface
                 $this->prefs->setThemeMode($themeMode);
                 $applied = true;
             }
+            if (trim($payload->getTimezone()) !== '') {
+                $this->prefs->setTimezone($payload->getTimezone());
+                $applied = true;
+            }
         } catch (\InvalidArgumentException $e) {
             $error = $e->getMessage();
         }

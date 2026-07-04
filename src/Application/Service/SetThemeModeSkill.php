@@ -28,6 +28,9 @@ use Semitexa\Llm\Domain\Enum\AiRiskLevel;
     confirmation: AiConfirmationMode::Never,
     argumentPolicy: AiArgumentPolicy::Allowlisted,
     exposeArguments: ['mode'],
+    argumentHints: [
+        'mode' => 'One of: dark|light|auto.',
+    ],
     channels: ['web'],
 )]
 final class SetThemeModeSkill implements InvocableSkillInterface

@@ -24,6 +24,9 @@ use Semitexa\Llm\Domain\Enum\AiRiskLevel;
     confirmation: AiConfirmationMode::Never,
     argumentPolicy: AiArgumentPolicy::Allowlisted,
     exposeArguments: ['query'],
+    argumentHints: [
+        'query' => 'Optional focus term — the NAME of a thing/person; omit for a full overview.',
+    ],
     channels: ['web'],
 )]
 final class WeaveRecallSkill implements InvocableSkillInterface
