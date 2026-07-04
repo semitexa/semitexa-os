@@ -25,6 +25,9 @@ final class WeaveGraphPayload implements ValidatablePayloadInterface
     /** Hop radius for the contextual view (clamped server-side to 1..3). */
     private string $depth = '';
 
+    /** Entity NAME to resolve into a focus server-side ('' = none) — intent path. */
+    private string $focusQuery = '';
+
     /**
      * @return array<string, list<string>>
      */
@@ -41,6 +44,16 @@ final class WeaveGraphPayload implements ValidatablePayloadInterface
     public function setFocus(string $focus): void
     {
         $this->focus = $focus;
+    }
+
+    public function getFocusQuery(): string
+    {
+        return $this->focusQuery;
+    }
+
+    public function setFocusQuery(string $focusQuery): void
+    {
+        $this->focusQuery = $focusQuery;
     }
 
     public function getDepth(): int

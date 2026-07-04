@@ -807,9 +807,17 @@
             if (!weaveGraph || (weaveLoaded && !force)) return;
             try {
                 // Contextual (ego) view: when focused, ask only for the local world.
-                const focusQ = S.weaveFocus ? '&focus=' + encodeURIComponent(S.weaveFocus.id) + '&depth=1' : '';
+                // A pending focusQuery (intent path) resolves server-side and comes
+                // back as d.focus — one matcher for the skill, the feed and the UI.
+                const focusQ = S.weaveFocusQuery
+                    ? '&focusQuery=' + encodeURIComponent(S.weaveFocusQuery) + '&depth=1'
+                    : (S.weaveFocus ? '&focus=' + encodeURIComponent(S.weaveFocus.id) + '&depth=1' : '');
                 const r = await fetch('/os/weave/graph?t=' + Date.now() + focusQ, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
                 const d = await r.json();
+                if (S.weaveFocusQuery) {
+                    S.weaveFocusQuery = null;
+                    if (d.focus) { S.weaveFocus = { id: d.focus.id, label: d.focus.label }; }
+                }
                 weaveGraph.graphData({ nodes: d.nodes || [], links: d.links || [] });
                 weaveLoaded = true;
                 const n = (d.nodes || []).length;
@@ -823,6 +831,20 @@
             S.weaveFocus = { id: id, label: label };
             S.nodePop = null;
             render(); loadWeaveGraph(true);
+        }
+        // Intent-route: "покажи X у моєму світі" → the show-in-world skill ran;
+        // jump to the Workspace with the term pending — the feed resolves it.
+        function enterWorkspaceFocused(query) {
+            S.mode = 'ambient';
+            if (S.ambientView !== 'workspace') {
+                S.ambientView = 'workspace';
+                try { localStorage.setItem('semitexa_os_ambient_view', 'workspace'); } catch (e) {}
+            }
+            S.weaveFocus = null;
+            S.weaveFocusQuery = query;
+            weaveLoaded = false;
+            render(); // syncWorkspace() at the end of render inits + loads the graph
+            loadWeaveGraph(true);
         }
         function weaveFocusClear() {
             S.weaveFocus = null;
@@ -959,6 +981,9 @@
             refreshSuggestions(); // the system just learned something — re-adapt the chips
             refreshPrefs();       // a rename intent may have changed the assistant's name
             markWeaveStale();     // a skill (remember/…) may have grown the graph
+            if (d === 'executed' && resp.skill === 'show-in-world' && resp.arguments && resp.arguments.query) {
+                enterWorkspaceFocused(String(resp.arguments.query)); // visual navigation by intent
+            }
 
             if (d === 'needs_confirmation') { S.run.stage = 'confirm'; log('planner · propose_skill · ' + (resp.skill||'')); render(); return; }
             if (d === 'dialog_exists') { S.run.stage = 'dialog_exists'; log('already open · ' + (resp.skill||''), 'accent'); fetchDialogs(); render(); return; }

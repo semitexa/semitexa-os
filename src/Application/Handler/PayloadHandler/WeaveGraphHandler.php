@@ -33,6 +33,14 @@ final class WeaveGraphHandler implements TypedHandlerInterface
         // This is the concept's primary navigation as the graph grows — the
         // global constellation is the overview, the local view is where you work.
         $focus = trim($payload->getFocus());
+        // Intent path: resolve an entity NAME into a focus server-side, so the
+        // shell and the show-in-world skill share one matcher (GraphStore::search).
+        if ($focus === '' && trim($payload->getFocusQuery()) !== '') {
+            $hit = $this->graph->search(trim($payload->getFocusQuery()), 1)[0] ?? null;
+            $focus = $hit?->id ?? '';
+        }
+        $focusNode = $focus !== '' ? $this->graph->node($focus) : null;
+        $focus = $focusNode?->id ?? '';
         $data = $focus !== ''
             ? $this->graph->subgraph($focus, $payload->getDepth())
             : $this->graph->graph();
@@ -71,7 +79,12 @@ final class WeaveGraphHandler implements TypedHandlerInterface
 
         return $resource
             ->setContent((string) json_encode(
-                ['nodes' => $nodes, 'links' => $links, 'self' => $selfId],
+                [
+                    'nodes' => $nodes,
+                    'links' => $links,
+                    'self' => $selfId,
+                    'focus' => $focusNode !== null ? ['id' => $focusNode->id, 'label' => $focusNode->title] : null,
+                ],
                 JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
             ))
             ->setHeader('Content-Type', 'application/json');
