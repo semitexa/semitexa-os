@@ -11,6 +11,7 @@ use Semitexa\Core\Server\Lifecycle\ServerLifecycleListenerInterface;
 use Semitexa\Core\Server\Lifecycle\ServerLifecyclePhase;
 use Semitexa\Os\Application\Service\Weaver;
 use Semitexa\Core\Environment;
+use Semitexa\Core\Server\Lifecycle\WorkerTimerRegistry;
 use Swoole\Timer;
 
 /**
@@ -65,6 +66,9 @@ final class WeaveTimerListener implements ServerLifecycleListenerInterface
                 $weaver->tick();
             },
         );
+        // Group-clear on worker stop (core ClearWorkerTimersListener) — a tick must
+        // never fire into a tearing-down worker (coroutine-deadlock family).
+        WorkerTimerRegistry::register(self::$timerId);
     }
 
     /** Test/worker-stop hygiene: clear the per-worker timer. */
