@@ -46,10 +46,38 @@ final class CalendarAppHandler implements TypedHandlerInterface
     --ui-accent-brand: #37b7ff;
     --ui-state-danger: #ff6b82;
   }
-  html, body { margin: 0; height: 100%; background: #0c1020; }
+  html, body { margin: 0; height: 100%; background: var(--ui-surface-page); }
   body { padding: 14px; box-sizing: border-box; font-family: var(--ui-font-sans); }
   .uical { height: 100%; }
-</style></head>
+  :root[data-mode=light]{
+    color-scheme:light;
+    --ui-text-primary:#1d2a38; --ui-text-muted:#55677e;
+    --ui-surface-page:#f4f7fb; --ui-surface-panel:#ffffff; --ui-surface-raised:#e9eff7;
+    --ui-surface-sunken:rgba(100,116,139,.08); --ui-border-subtle:rgba(100,116,139,.28);
+    --ui-accent-brand:#1e7fb8; --ui-state-danger:#c2314b;
+  }
+</style><script>
+/* Follow the OS theme: pref lives server-side; 'auto' resolves with the shell's
+   exact rule (prefers-color-scheme, else dark 19:00-07:00). Self-resolution
+   works in web iframes AND OS-mode native windows. */
+(function(){
+  function applyMode(mode){
+    var eff=(mode==='light'||mode==='dark')?mode:(function(){
+      try{ if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'; }catch(e){}
+      var h=new Date().getHours(); return (h>=19||h<7)?'dark':'light';
+    })();
+    var el=document.documentElement;
+    if(el.getAttribute('data-mode')!==eff){ el.setAttribute('data-mode',eff); el.style.colorScheme=eff; }
+  }
+  function syncMode(){
+    fetch('/os/preferences',{headers:{'Accept':'application/json'}})
+      .then(function(r){return r.json();}).then(function(d){ applyMode((d&&d.theme_mode)||'auto'); })
+      .catch(function(){});
+  }
+  syncMode(); window.addEventListener('focus', syncMode); setInterval(syncMode, 15000);
+})();
+</script>
+</head>
 <body>
   <div
     data-ui-calendar="1"

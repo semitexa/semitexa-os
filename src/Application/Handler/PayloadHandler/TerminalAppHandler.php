@@ -41,17 +41,42 @@ final class TerminalAppHandler implements TypedHandlerInterface
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
 <style>
   *{box-sizing:border-box} html,body{margin:0;height:100%}
-  body{font-family:'IBM Plex Mono',ui-monospace,monospace;background:#0c1020;color:#cdd9ee;display:flex;flex-direction:column;font-size:13px}
-  .hint{padding:10px 14px;border-bottom:1px solid rgba(148,163,184,.16);color:#6f7d99;font-family:'IBM Plex Sans',sans-serif;font-size:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-  .hint b{color:#a8b4cc}
-  .chip{cursor:pointer;color:#37b7ff;border:1px solid rgba(55,183,255,.3);border-radius:6px;padding:2px 8px}
-  .chip:hover{background:rgba(55,183,255,.12)}
+  body{font-family:'IBM Plex Mono',ui-monospace,monospace;background:var(--bg);color:var(--text);display:flex;flex-direction:column;font-size:13px}
+  .hint{padding:10px 14px;border-bottom:1px solid rgba(var(--line-rgb),.16);color:var(--mute);font-family:'IBM Plex Sans',sans-serif;font-size:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .hint b{color:var(--text3)}
+  .chip{cursor:pointer;color:var(--accent);border:1px solid rgba(var(--accent-rgb),.3);border-radius:6px;padding:2px 8px}
+  .chip:hover{background:rgba(var(--accent-rgb),.12)}
   .out{flex:1;overflow:auto;padding:14px;white-space:pre-wrap;line-height:1.55}
-  .cmd{color:#5eead4} .err{color:#ff9aab} .muted{color:#6f7d99}
-  .row{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid rgba(148,163,184,.16);background:#0a0d18}
-  .row span{color:#37b7ff}
-  input{flex:1;background:transparent;border:none;outline:none;color:#eaf2ff;font-family:'IBM Plex Mono',monospace;font-size:13px}
-</style></head>
+  .cmd{color:var(--cmd)} .err{color:var(--err)} .muted{color:var(--mute)}
+  .row{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid rgba(var(--line-rgb),.16);background:var(--bg2)}
+  .row span{color:var(--accent)}
+  input{flex:1;background:transparent;border:none;outline:none;color:var(--strong);font-family:'IBM Plex Mono',monospace;font-size:13px}
+  :root{color-scheme:dark;--bg:#0c1020;--bg2:#0a0d18;--text:#cdd9ee;--strong:#eaf2ff;--mute:#6f7d99;--text3:#a8b4cc;
+    --accent:#37b7ff;--accent-rgb:55,183,255;--line-rgb:148,163,184;--cmd:#5eead4;--err:#ff9aab}
+  :root[data-mode=light]{color-scheme:light;--bg:#f4f7fb;--bg2:#e9eff7;--text:#243447;--strong:#16222e;--mute:#5b6c82;--text3:#3b4c61;
+    --accent:#1e7fb8;--accent-rgb:30,127,184;--line-rgb:100,116,139;--cmd:#0e8a72;--err:#b13a52}
+</style><script>
+/* Follow the OS theme: pref lives server-side; 'auto' resolves with the shell's
+   exact rule (prefers-color-scheme, else dark 19:00-07:00). Self-resolution
+   works in web iframes AND OS-mode native windows. */
+(function(){
+  function applyMode(mode){
+    var eff=(mode==='light'||mode==='dark')?mode:(function(){
+      try{ if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'; }catch(e){}
+      var h=new Date().getHours(); return (h>=19||h<7)?'dark':'light';
+    })();
+    var el=document.documentElement;
+    if(el.getAttribute('data-mode')!==eff){ el.setAttribute('data-mode',eff); el.style.colorScheme=eff; }
+  }
+  function syncMode(){
+    fetch('/os/preferences',{headers:{'Accept':'application/json'}})
+      .then(function(r){return r.json();}).then(function(d){ applyMode((d&&d.theme_mode)||'auto'); })
+      .catch(function(){});
+  }
+  syncMode(); window.addEventListener('focus', syncMode); setInterval(syncMode, 15000);
+})();
+</script>
+</head>
 <body>
   <div class="hint"><b>console skills:</b> <span id="chips"></span></div>
   <div class="out" id="out"><span class="muted">Type a skill name and press Enter. Console skills run here — out of the main UI.</span></div>
