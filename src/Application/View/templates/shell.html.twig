@@ -374,6 +374,22 @@
                 + '</div></div>';
         }
 
+        // Honest long-wait feedback: a cold model (first request after a worker
+        // restart) legitimately takes minutes. Instead of an unexplained spinner,
+        // escalate a status line at 25s and 90s. Cleared when the reply lands.
+        let busyHintTimers = [];
+        function startBusyHints() {
+            stopBusyHints();
+            busyHintTimers = [
+                setTimeout(() => { S.busyHint = 'Still thinking — this is slower than usual, the model may be warming up…'; render(); }, 25000),
+                setTimeout(() => { S.busyHint = boot.assistantName + ' is waking up: the first request after a restart warms the model and can take a few minutes. Not stuck — your message is queued and will be answered.'; render(); }, 90000),
+            ];
+        }
+        function stopBusyHints() {
+            busyHintTimers.forEach(clearTimeout);
+            busyHintTimers = [];
+            S.busyHint = null;
+        }
         function intentbarHTML() {
             const trim = (t) => (t && t.length > 54) ? t.slice(0, 52) + '…' : (t || '');
             // Adaptive chips from /os/suggestions (history + time-of-day). Until
@@ -390,6 +406,7 @@
             const idle = !((S.history && S.history.length) || (S.queue && S.queue.length) || S.run);
             return '<div class="os-intentbar">'
                 + (idle ? '<div class="os-suggest">' + sugg + '</div>' : '')
+                + (busy && S.busyHint ? '<div class="os-busyhint">' + ico('loader-circle', 13) + '<span>' + esc(S.busyHint) + '</span></div>' : '')
                 + '<div class="os-intentbar__field' + (busy ? ' is-busy' : '') + '"><span class="dot"></span>'
                 + '<input id="intent-input" placeholder="' + esc(placeholder) + '" value="' + esc(S.input) + '" autocomplete="off">'
                 + '<button class="os-intentbar__send" data-act="submit">' + ico('arrow-up', 20) + '</button>'
@@ -413,6 +430,7 @@
                 + '<div class="os-chatdock__bar"><span class="os-chatdock__title">' + ico('sparkles', 15) + ' ' + esc(boot.assistantName) + '</span>'
                 + '<button class="os-chatdock__min" data-act="chatdock-toggle" title="Collapse">' + ico('minus', 16) + '</button></div>'
                 + '<div class="os-chatdock__body" id="os-dock-scroll">' + body + '</div>'
+                + (S.busy && S.busyHint ? '<div class="os-busyhint os-busyhint--dock">' + ico('loader-circle', 12) + '<span>' + esc(S.busyHint) + '</span></div>' : '')
                 + '<div class="os-chatdock__input"><input id="intent-input" placeholder="Message ' + esc(boot.assistantName) + '…" value="' + esc(S.input) + '" autocomplete="off">'
                 + '<button class="os-chatdock__send" data-act="submit">' + ico('arrow-up', 18) + '</button></div>'
                 + '</div>';
@@ -911,10 +929,10 @@
             if (S.busy || S.run || S.queue.length === 0) return;
             const text = S.queue[0]; // peek — the message stays shown until answered
             if (S.mode !== 'chill') S.mode = 'ambient'; // stay in the zone the intent came from
-            S.run = { intent: text, stage: 'plan', decision: 'plan' }; S.units = []; S.busy = true;
+            S.run = { intent: text, stage: 'plan', decision: 'plan' }; S.units = []; S.busy = true; startBusyHints();
             log('intent · "' + text + '"', 'accent'); render();
             const resp = await post('/os/intent', { intent: text });
-            S.busy = false;
+            S.busy = false; stopBusyHints();
             S.units = unitsFromOutcome(resp);
             const d = resp.decision;
             S.run.decision = d; S.run.message = resp.message; S.run.reason = resp.reason; S.run.skill = resp.skill; S.run.policy = resp.risk_level; S.run.arguments = resp.arguments; S.run.pipeline = resp.pipeline || [];
@@ -961,13 +979,13 @@
         async function approve() {
             const r = S.run; if (!r) return;
             const isPipe = Array.isArray(r.pipeline) && r.pipeline.length > 1;
-            r.stage = 'execute'; S.busy = true;
+            r.stage = 'execute'; S.busy = true; startBusyHints();
             S.units = unitsFor(isPipe ? r.pipeline.map(s => s.skill) : (r.skill ? [r.skill] : []), 'running');
             log('execute · SkillExecutor · headless invoke'); render();
             const resp = isPipe
                 ? await post('/os/pipeline', { intent: r.intent, steps: r.pipeline })
                 : await post('/os/skill', { intent: r.intent, skill: r.skill, arguments: r.arguments || {} });
-            S.busy = false;
+            S.busy = false; stopBusyHints();
             S.units = unitsFromOutcome(resp);
             log('observe · ' + (resp.skill||r.skill));
             // Approved & executed — the result joins the persisted thread; drop
