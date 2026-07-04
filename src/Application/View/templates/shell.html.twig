@@ -320,7 +320,7 @@
             return '<div class="os-nodepop__backdrop" id="nodepop-backdrop"><div class="os-nodepop" style="left:' + p.x + 'px;top:' + p.y + 'px">'
                 + '<div class="os-nodepop__head">'
                 + '<span class="os-nodepop__dot" style="background:' + dot + '"></span>'
-                + '<span class="os-nodepop__title">' + esc(n.label) + '</span>'
+                + '<span class="os-nodepop__title">' + esc(n.label) + (function () { const t = nodeNeighborSummary(n.id); return t ? '<span class="os-nodepop__sub">' + esc(t) + '</span>' : ''; })() + '</span>'
                 + '<button class="os-nodepop__ic" data-act="pop-edit" title="Edit details">' + ico('pencil', 15) + '</button>'
                 + (n.self ? '' : '<button class="os-nodepop__ic" data-act="pop-focus" title="Focus: show only this node\u2019s world">' + ico('crosshair', 15) + '</button>')
                 + (n.self ? '' : '<button class="os-nodepop__ic" data-act="pop-remove" title="Remove">' + ico('trash-2', 15) + '</button>')
@@ -688,7 +688,7 @@
             weaveGraph = ForceGraph()(weaveLayer)
                 .backgroundColor('rgba(0,0,0,0)')          // let the shell's --os-bg show through
                 .nodeRelSize(5)
-                .nodeVal(function (n) { return n.self ? 7 : 2; })
+                .nodeVal(function (n) { return n.self ? 7 : (n.kind === 'project' ? 4.5 : 2); }) // projects = gravitational centres
                 .nodeColor(function (n) { return n.self ? accent : kindColor(n.kind); })
                 .nodeLabel(function (n) { return n.kind; }) // hover tooltip = kind (title is drawn below)
                 .nodeCanvasObjectMode(function () { return 'after'; })
@@ -741,6 +741,21 @@
         // Click a node → a compact contextual popover at the cursor: a focused
         // "add connected" field (growing is the primary act) + edit/remove. Fast
         // tap→type→Enter loop; the full editor is one click away (pencil).
+        // One-line info scent for the popover: "3 person · 1 folder · 2 topic".
+        function nodeNeighborSummary(id) {
+            if (!weaveGraph) return '';
+            const counts = {};
+            (weaveGraph.graphData().links || []).forEach(function (l) {
+                const s2 = l.source && l.source.id ? l.source.id : l.source;
+                const t2 = l.target && l.target.id ? l.target.id : l.target;
+                if (s2 !== id && t2 !== id) return;
+                const other = s2 === id ? l.target : l.source;
+                const k = other && other.kind ? other.kind : null;
+                if (k) counts[k] = (counts[k] || 0) + 1;
+            });
+            return Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; })
+                .slice(0, 3).map(function (k) { return counts[k] + ' ' + k; }).join(' · ');
+        }
         function openNodePop(n, e) {
             const w = 300;
             const cx = (e && e.clientX) || (window.innerWidth / 2);
@@ -870,6 +885,9 @@
             }
             if (!weaveGraph) {
                 initWeaveGraph();
+                // Dev affordance: ?debug exposes the graph instance — automated
+                // tests need exact node coords (the force sim drifts under them).
+                try { if (new URLSearchParams(location.search).has('debug')) window.__wg = weaveGraph; } catch (e) {}
             }
             weaveResize();
             loadWeaveGraph();

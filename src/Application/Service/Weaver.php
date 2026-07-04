@@ -200,6 +200,14 @@ final class Weaver
     private function systemPrompt(): string
     {
         $kinds = implode('|', array_map(static fn (NodeKind $k): string => $k->value, NodeKind::cases()));
+        // Projects are the graph's gravitational centres: when the model knows
+        // which projects exist, new work-items land under them, not under "self".
+        $projects = array_map(
+            static fn ($n): string => $n->title,
+            $this->graphStore()->nodesByKind(NodeKind::Project, 12),
+        );
+        $projectsLine = $projects === [] ? '' : "\n- Known projects: " . implode(', ', $projects)
+            . '. When something clearly belongs to one of these, relate it to that project (works_on, part_of, …) instead of "self".';
 
         return <<<PROMPT
             You maintain a personal knowledge graph for the user. From the conversation transcript, extract DURABLE real-world entities in the user's life and work, and the relationships between them.
@@ -214,7 +222,7 @@ final class Weaver
             - Titles: the NAME of the thing only, max 6 words, exactly as the user named it, in the user's language. Never a sentence or description.
             - relation: a short snake_case predicate (works_at, part_of, married_to, located_in, interested_in, owns, works_on, friend_of, ...). Invent one if none fits.
             - Every entity should appear in at least one relation when the transcript supports it.
-            - Nothing durable in the transcript? Reply {"entities":[],"relations":[]}.
+            - Nothing durable in the transcript? Reply {"entities":[],"relations":[]}.{$projectsLine}
 
             Examples:
             "user: мій колега Богдан допомагає мені з дизайном Semitexa"

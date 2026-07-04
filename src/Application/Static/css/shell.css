@@ -558,3 +558,6 @@ body {
 .os-weave-focusx { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin-left: 2px;
     border: none; border-radius: 50%; background: rgba(var(--accent-rgb),.14); color: var(--os-text); cursor: pointer; flex: 0 0 auto; }
 .os-weave-focusx:hover { background: rgba(var(--accent-rgb),.3); }
+
+/* Popover: neighbour summary under the node title */
+.os-nodepop__sub { display: block; font: 400 11px var(--font-mono); color: var(--os-text-dim); margin-top: 2px; letter-spacing: .02em; }
