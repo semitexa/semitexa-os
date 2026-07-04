@@ -80,6 +80,17 @@ final class Weaver
     protected SettingsStoreInterface $settings;
 
     /**
+     * A pass in flight. Timer::tick fires every 60s REGARDLESS of whether the
+     * previous callback finished — and a weave pass can easily outlast the
+     * interval (its LLM call queues behind whatever holds the single-slot CPU
+     * model, e.g. a cold planner prefill). Overlapping passes all read the
+     * cursor BEFORE any of them advances it, then weave the same batch and
+     * narrate it repeatedly (observed live: identical narrations 6s apart).
+     * The guard collapses the pile-up to one pass; skipped ticks retry later.
+     */
+    private bool $weaving = false;
+
+    /**
      * One weave pass. Cheap when idle: no unwoven turns (or not yet settled)
      * means no LLM call at all. Never throws — this runs on a timer.
      *
@@ -99,6 +110,24 @@ final class Weaver
     {
         $none = static fn (string $status): array => ['status' => $status, 'turns' => 0, 'nodes' => 0, 'edges' => 0, 'detail' => []];
 
+        if ($this->weaving) {
+            return $none('busy'); // a pass is already in flight — see the guard's docblock
+        }
+        $this->weaving = true;
+
+        try {
+            return $this->weavePass($ignoreIdleGate, $none);
+        } finally {
+            $this->weaving = false;
+        }
+    }
+
+    /**
+     * @param \Closure(string): array{status: string, turns: int, nodes: int, edges: int, detail: list<string>} $none
+     * @return array{status: string, turns: int, nodes: int, edges: int, detail: list<string>}
+     */
+    private function weavePass(bool $ignoreIdleGate, \Closure $none): array
+    {
         $cursor = $this->cursor();
         $turns = $this->conversationStore()->turnsAfter($cursor, self::MAX_TURNS);
         if ($turns === []) {
