@@ -77,6 +77,67 @@ final class OsGraph
     }
 
     /**
+     * Files-as-nodes: attach a real filesystem path to the user's world as a
+     * folder/file LEAF node. Linked to the best-matching existing entity — the
+     * path's basename (then its stem: "semitexa.dev" → "semitexa") is searched
+     * in the graph, preferring non-file entities so a folder lands under its
+     * project, not under another folder — else grounded to the owner. Clicking
+     * the node in the Workspace opens the Files app right there, so this is the
+     * closing of the loop: browse → attach → see in the world → open back.
+     * Idempotent: re-attaching the same path refreshes the node's `path`.
+     *
+     * @return array{node: Node, parent: Node}
+     */
+    public function attachPath(string $path, string $kind = 'folder', string $connectTo = ''): array
+    {
+        $path = rtrim(trim($path), '/');
+        if ($path === '' || $path[0] !== '/') {
+            throw new \InvalidArgumentException('An absolute path is required.');
+        }
+        $title = basename($path);
+        if ($title === '') {
+            throw new \InvalidArgumentException('The filesystem root cannot be attached.');
+        }
+
+        $nodeKind = $kind === 'file' ? NodeKind::File : NodeKind::Folder;
+        $node = $this->graph()->upsertNode($nodeKind, $title, ['path' => $path], 'os:files');
+
+        $parent = $this->resolveAttachParent($node, $title, trim($connectTo));
+        if ($parent->id !== $node->id) {
+            $this->graph()->addEdge($parent->id, $node->id, Relation::PART_OF, 100, 'os:files');
+        }
+
+        return ['node' => $node, 'parent' => $parent];
+    }
+
+    /** The entity a path should hang off (see attachPath) — never a file/folder unless named explicitly. */
+    private function resolveAttachParent(Node $node, string $title, string $connectTo): Node
+    {
+        $leafKinds = [NodeKind::File, NodeKind::Folder];
+
+        if ($connectTo !== '') {
+            $found = $this->graph()->search($connectTo, 1);
+            if (isset($found[0]) && $found[0]->id !== $node->id) {
+                return $found[0];
+            }
+        }
+
+        $stem = (string) preg_split('/[.\-_ ]+/', $title, 2)[0];
+        foreach (array_unique([$title, mb_strlen($stem) >= 3 ? $stem : '']) as $term) {
+            if ($term === '') {
+                continue;
+            }
+            foreach ($this->graph()->search($term, 5) as $hit) {
+                if ($hit->id !== $node->id && !in_array($hit->kind, $leafKinds, true)) {
+                    return $hit;
+                }
+            }
+        }
+
+        return $this->self();
+    }
+
+    /**
      * Recall from the graph: matches for a query term, or (no term) a summary of
      * what is connected to the owner. Returns assistant-ready prose.
      */

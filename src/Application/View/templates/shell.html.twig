@@ -1465,6 +1465,9 @@
         // fires there; the focus re-sync below covers that case instead.)
         window.addEventListener('message', (e) => {
             const m = e.data;
+            if (m && m.type === 'os:weave-changed') {
+                markWeaveStale(); // a Files-app attach (or other embedded surface) grew the graph
+            }
             if (m && m.type === 'os:prefs-changed') {
                 if (m.assistantName) boot.assistantName = m.assistantName;
                 if (m.userName) boot.userName = m.userName;
