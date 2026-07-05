@@ -6,6 +6,8 @@ namespace Semitexa\Os\Application\Service;
 
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Platform\Settings\Application\Service\SettingsStore;
+use Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface;
 use Semitexa\Weave\Application\Service\GraphStore;
 use Semitexa\Weave\Domain\Contract\GraphStoreInterface;
 use Semitexa\Weave\Domain\Enum\NodeKind;
@@ -23,11 +25,19 @@ use Semitexa\Weave\Domain\Model\Relation;
 #[AsService]
 final class OsGraph
 {
+    private const MODULE = 'os';
+
+    /** Settings key caching the owner node's id — see {@see self()}. */
+    private const SELF_ID_KEY = 'graph.self_node_id';
+
     #[InjectAsReadonly]
     protected GraphStoreInterface $graph;
 
     #[InjectAsReadonly]
     protected OsPreferences $prefs;
+
+    #[InjectAsReadonly]
+    protected SettingsStoreInterface $settings;
 
     /**
      * The owner node ("Я") — the centre of the graph. Created once (a Person
@@ -36,14 +46,44 @@ final class OsGraph
      */
     public function self(): Node
     {
-        foreach ($this->graph()->nodesByKind(NodeKind::Person) as $node) {
-            if (($node->properties['is_self'] ?? false) === true) {
+        // Fast path: the owner node's id is cached in settings, so this is a
+        // single PK lookup. self() is called on nearly every assistant turn
+        // (remember / recall / attach / weave-anchoring); the old
+        // nodesByKind(Person) scan loaded EVERY person and filtered is_self in
+        // PHP each time — unbounded and quadratic as the graph grows.
+        $cachedId = $this->settings()->get(self::MODULE, self::SELF_ID_KEY);
+        if (is_string($cachedId) && $cachedId !== '') {
+            $node = $this->graph()->node($cachedId);
+            if ($node !== null && ($node->properties['is_self'] ?? false) === true) {
                 return $node;
             }
         }
-        $name = $this->prefs()->userName();
 
-        return $this->graph()->upsertNode(NodeKind::Person, $name !== '' ? $name : 'You', ['is_self' => true], 'os:self');
+        // Self-healing fallback — first-ever resolution, or the cached node
+        // vanished. Scan once, cache the id so every later call is O(1).
+        foreach ($this->graph()->nodesByKind(NodeKind::Person) as $node) {
+            if (($node->properties['is_self'] ?? false) === true) {
+                $this->cacheSelfId($node->id);
+
+                return $node;
+            }
+        }
+
+        $name = $this->prefs()->userName();
+        $created = $this->graph()->upsertNode(NodeKind::Person, $name !== '' ? $name : 'You', ['is_self' => true], 'os:self');
+        $this->cacheSelfId($created->id);
+
+        return $created;
+    }
+
+    private function cacheSelfId(string $id): void
+    {
+        try {
+            $this->settings()->set(self::MODULE, self::SELF_ID_KEY, $id);
+        } catch (\Throwable) {
+            // Best-effort cache — a settings write failure only costs the next
+            // call another scan, never correctness.
+        }
     }
 
     /**
@@ -171,5 +211,10 @@ final class OsGraph
     private function prefs(): OsPreferences
     {
         return $this->prefs ??= new OsPreferences();
+    }
+
+    private function settings(): SettingsStoreInterface
+    {
+        return $this->settings ??= new SettingsStore();
     }
 }
