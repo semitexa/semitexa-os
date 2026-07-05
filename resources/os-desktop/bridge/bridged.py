@@ -47,22 +47,29 @@ def looks_like_code(path):
     return False
 
 def open_path(path, prefer=""):
-    """Open a real folder/file in the right navigator. Returns (ok, opened_with)."""
-    path = os.path.abspath(os.path.expanduser(path))
-    if not os.path.exists(path):
+    """Open a real folder/file in the right navigator, CONFINED to FILES_ROOT.
+
+    Without this confinement any web page could drive GET /open?path=/etc/... (or
+    a code project outside the sandbox, whose editor may auto-run workspace
+    tasks) since the endpoint is reachable cross-origin. Restrict it to the same
+    root the Files app browses. Returns (ok, opened_with)."""
+    p = _confined(path)
+    if not p:
+        return (False, "denied")
+    if not os.path.exists(p):
         return (False, "not-found")
-    mode = prefer if prefer in ("code", "files") else ("code" if looks_like_code(path) else "files")
+    mode = prefer if prefer in ("code", "files") else ("code" if looks_like_code(p) else "files")
     if mode == "code":
         for ed in EDITORS:
             exe = shutil.which(ed)
             if exe:
-                spawn([exe, path])
+                spawn([exe, p])
                 return (True, ed)
         # No editor installed → fall through to a generic opener.
     for op in OPENERS:
         exe = shutil.which(op)
         if exe:
-            spawn([exe, path])
+            spawn([exe, p])
             return (True, op)
     return (False, "no-opener")
 
@@ -90,11 +97,15 @@ def spawn(cmd):
                      start_new_session=True)
 
 # --- Files API (for the in-OS file manager), confined to a root -------------
-FILES_ROOT = os.path.abspath(os.path.expanduser(os.environ.get("SEMITEXA_FILES_ROOT", "~")))
+# realpath (not abspath) so the root itself can be a symlink and, crucially, so
+# a symlink *under* the root that points outside it is resolved and then
+# rejected by the prefix check below (abspath only collapses `..` lexically and
+# would let such a symlink escape).
+FILES_ROOT = os.path.realpath(os.path.expanduser(os.environ.get("SEMITEXA_FILES_ROOT", "~")))
 
 def _confined(path):
-    """Resolve a path and confine it to FILES_ROOT; None if it escapes."""
-    p = os.path.abspath(os.path.expanduser(path or FILES_ROOT))
+    """Resolve a path (following symlinks) and confine it to FILES_ROOT; None if it escapes."""
+    p = os.path.realpath(os.path.expanduser(path or FILES_ROOT))
     if p == FILES_ROOT or p.startswith(FILES_ROOT + os.sep):
         return p
     return None
@@ -149,7 +160,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
+    def _host_ok(self):
+        # DNS-rebinding guard: only serve requests addressed to the loopback
+        # bridge by its real host:port. A page that rebinds its own domain to
+        # 127.0.0.1 still sends `Host: attacker.example`, which we reject —
+        # closing the remote path to the file/app-launch endpoints below.
+        return self.headers.get("Host", "") in (f"{HOST}:{PORT}", f"localhost:{PORT}")
+
     def do_GET(self):
+        if not self._host_ok():
+            self.send_response(403)
+            self.end_headers()
+            return
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         if u.path == "/":
