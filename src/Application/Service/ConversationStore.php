@@ -36,6 +36,14 @@ final class ConversationStore
     public const ROLE_USER = 'user';
     public const ROLE_ASSISTANT = 'assistant';
 
+    /**
+     * Hard cap on turns returned by a single {@see turns()} call — the
+     * transcript is unbounded and this runs in a Swoole worker, so no request
+     * may load the whole history into memory. Generous enough for any UI
+     * transcript view; the true total is available via {@see count()}.
+     */
+    private const MAX_RETURNED = 500;
+
     #[InjectAsReadonly]
     protected OrmManager $orm;
 
@@ -77,27 +85,26 @@ final class ConversationStore
     }
 
     /**
-     * The transcript, oldest → newest. Pass a limit to get only the most recent
-     * turns (0 = all), still returned in chronological order.
+     * The most-recent turns, oldest → newest (chronological). The transcript
+     * grows without bound and this serves a request path inside a Swoole
+     * worker, so the fetch is ALWAYS bounded: `$limit` is clamped to
+     * {@see MAX_RETURNED}, and `0` (an unspecified request) means "the recent
+     * window", NOT "every turn ever" — an unbounded fetch would OOM the worker
+     * as the dialog grows. {@see count()} still reports the true total, so a
+     * caller can show "recent N of total".
      *
      * @return list<Turn>
      */
     public function turns(int $limit = 0): array
     {
-        $query = $this->repository()->query();
+        $effective = ($limit > 0 && $limit < self::MAX_RETURNED) ? $limit : self::MAX_RETURNED;
 
-        if ($limit > 0) {
-            // Most-recent N, then flip back to chronological.
-            $rows = $query
-                ->orderBy(ConversationTurnResource::column('id'), Direction::Desc)
-                ->limit($limit)
-                ->fetchAllAs(ConversationTurnResource::class, $this->orm()->getMapperRegistry());
-            $rows = array_reverse($rows);
-        } else {
-            $rows = $query
-                ->orderBy(ConversationTurnResource::column('id'), Direction::Asc)
-                ->fetchAllAs(ConversationTurnResource::class, $this->orm()->getMapperRegistry());
-        }
+        // Most-recent N via id DESC + limit, then flip back to chronological.
+        $rows = $this->repository()->query()
+            ->orderBy(ConversationTurnResource::column('id'), Direction::Desc)
+            ->limit($effective)
+            ->fetchAllAs(ConversationTurnResource::class, $this->orm()->getMapperRegistry());
+        $rows = array_reverse($rows);
 
         return array_map(
             static function (ConversationTurnResource $row): array {
@@ -201,15 +208,16 @@ final class ConversationStore
         return $out;
     }
 
-    /** Start a fresh conversation — remove every stored turn. */
+    /**
+     * Start a fresh conversation — remove every stored turn. One bulk DELETE,
+     * not a full fetch + a delete per row: the transcript is unbounded, so the
+     * old row-by-row path materialised the entire history and issued N delete
+     * queries. `os_conversation_turn` is not live-scope-bound (no
+     * `#[WatchScopes]`), so no invalidation is skipped by going direct.
+     */
     public function clear(): void
     {
-        /** @var list<ConversationTurnResource> $rows */
-        $rows = $this->repository()->query()
-            ->fetchAllAs(ConversationTurnResource::class, $this->orm()->getMapperRegistry());
-        foreach ($rows as $row) {
-            $this->repository()->delete($row);
-        }
+        $this->orm()->getAdapter()->execute('DELETE FROM `os_conversation_turn`');
     }
 
     private function repository(): DomainRepository
