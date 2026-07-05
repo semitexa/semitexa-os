@@ -153,15 +153,30 @@ final class Weaver
 
         $provider = $this->provider();
         if (!$provider->healthCheck()) {
-            return $none('llm-unreachable'); // cursor untouched — the batch retries later
+            return $none('llm-unreachable'); // cursor untouched, unclaimed — the batch retries later
+        }
+
+        // Cross-worker single-runner: every worker's 60s timer sees the same
+        // batch and, without this, all of them run the LLM extraction and
+        // narrate the same result (observed live: identical narrations 6s
+        // apart — the per-worker $weaving bool can't serialise across
+        // processes). Atomically claim the cursor advance BEFORE the LLM call,
+        // so exactly one worker proceeds and the rest bail. Claimed only after
+        // the health check passed, so the common outage still leaves the
+        // cursor untouched (retry preserved); a claim followed by an LLM
+        // failure rolls the cursor back below.
+        $batchEnd = $turns[array_key_last($turns)]['id'];
+        if (!$this->settings()->claim(self::MODULE, self::CURSOR_KEY, $cursor, $batchEnd)) {
+            return $none('busy'); // another worker claimed this batch
         }
 
         $response = $provider->complete($this->extractionRequest($substantive));
         if (!$response->success) {
-            return $none('llm-failed: ' . (string) $response->error); // cursor untouched — retry later
+            $this->setCursor($cursor); // roll back so the batch retries later
+            return $none('llm-failed: ' . (string) $response->error);
         }
-        // The pass ran — advance past this batch whatever the output (see class docblock).
-        $this->setCursor($turns[array_key_last($turns)]['id']);
+        // The claim already advanced the cursor past this batch (kept advanced
+        // whatever the parse outcome — see class docblock).
 
         $parsed = $this->parse($response->content);
         if ($parsed === null) {
