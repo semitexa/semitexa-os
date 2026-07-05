@@ -6,6 +6,7 @@ namespace Semitexa\Os\Application\Service;
 
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Core\Log\FallbackErrorLogger;
 use Semitexa\Orm\Application\Service\Uuid7;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Direction;
@@ -61,8 +62,17 @@ final class ConversationStore
                 meta_json: (string) json_encode($meta, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
                 created_at: new \DateTimeImmutable(),
             ));
-        } catch (\Throwable) {
-            // best-effort persistence
+        } catch (\Throwable $e) {
+            // Persistence stays best-effort — a DB hiccup must never break the
+            // conversation loop — but a dropped turn leaves a silent GAP in the
+            // transcript (a user intent or an assistant reply the record never
+            // shows). Log the drop so the gap is detectable; the loop proceeds.
+            FallbackErrorLogger::log('Conversation transcript turn dropped', [
+                'role' => $role,
+                'chars' => strlen($text),
+                'exception' => $e::class,
+                'message' => $e->getMessage(),
+            ]);
         }
     }
 
