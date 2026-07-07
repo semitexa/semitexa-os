@@ -201,11 +201,17 @@ final class FixedTenantContext implements TenantContextInterface
         return $this->id;
     }
 
+    /**
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+     */
     public function getLayer(TenantLayerInterface $layer): ?TenantLayerValueInterface
     {
         return null;
     }
 
+    /**
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+     */
     public function hasLayer(TenantLayerInterface $layer): bool
     {
         return false;

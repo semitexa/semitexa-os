@@ -29,7 +29,7 @@ use Semitexa\Orm\Metadata\HasRelationReferences;
  * `final readonly` + constructor-promoted columns per the current ORM contract.
  */
 #[FromTable(name: 'os_conversation_turn')]
-#[Index(columns: ['tenant_id', 'created_at'], name: 'idx_os_conversation_scope_created')]
+#[Index(columns: ['tenant_id', 'id'], name: 'idx_os_conversation_scope_id')]
 #[TenantScoped(strategy: 'same_storage', column: 'tenant_id')]
 final readonly class ConversationTurnResource
 {
