@@ -502,6 +502,18 @@ final class SkillLoopRunner
     private function plannerRequest(string $userMessage, SkillManifest $manifest): LlmRequest
     {
         $persona = (new PersonaRegistry())->framing('os');
+        // Pin the ASSISTANT's reply language to the OS locale — without an
+        // explicit instruction the model guesses from the user's phrasing and
+        // drifts (answering English to a Ukrainian OS, or vice versa). The
+        // explicit preference wins; '' = the request's resolved locale.
+        $locale = $this->prefs->locale();
+        if ($locale === '') {
+            $locale = \Semitexa\Locale\Context\LocaleContextStore::getLocale();
+        }
+        $language = self::LANGUAGE_NAMES[$locale] ?? null;
+        if ($language !== null && $persona !== '') {
+            $persona .= "\nAlways reply in {$language}, regardless of the language the user writes in — unless they explicitly ask you to switch (then use the set-locale skill).";
+        }
 
         return new LlmRequest(
             systemPrompt: (new Planner())->buildSystemPrompt(
@@ -522,6 +534,15 @@ final class SkillLoopRunner
      * whichever lands first).
      */
     private bool $plannerWarm = false;
+
+    /** Locale code → language name for the reply-language instruction. */
+    private const LANGUAGE_NAMES = [
+        'en' => 'English',
+        'uk' => 'Ukrainian (українська)',
+        'de' => 'German (Deutsch)',
+        'pl' => 'Polish (polski)',
+        'ru' => 'Russian',
+    ];
 
     /**
      * The provider used for routing: reasoning trace OFF (we only consume the

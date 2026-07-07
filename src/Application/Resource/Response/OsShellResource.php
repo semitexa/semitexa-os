@@ -46,6 +46,21 @@ final class OsShellResource extends HtmlResponse implements ResourceInterface
     }
 
     /**
+     * The OS interface locale and the resolved UI string bundle for it
+     * (key => translated text, keys without the os.shell. prefix) — the shell's
+     * t() helper reads these from the boot payload, with inline English
+     * literals as the fallback.
+     *
+     * @param array<string, string> $strings
+     */
+    public function withLocale(string $locale, array $strings): static
+    {
+        return $this
+            ->with('locale', $locale)
+            ->with('strings', $strings);
+    }
+
+    /**
      * The install's declared window-hosting mode ('web' | 'os') and the local
      * bridge URL used to raise real native windows in OS mode. The shell treats
      * these as a *capability gate*; it still probes at runtime before promoting.

@@ -16,6 +16,12 @@
         const boot = JSON.parse(document.getElementById('os-boot').textContent || '{}');
         if (!boot.assistantName) boot.assistantName = 'Semi'; // the name the user calls the assistant
 
+        // i18n: server-resolved UI strings for the OS locale ride in on the
+        // boot payload (#os-boot .strings); the inline English literal is the
+        // fallback so a missing key/pack can never blank the UI.
+        const STR = (boot.strings && typeof boot.strings === 'object') ? boot.strings : {};
+        function t(key, fallback) { return typeof STR[key] === 'string' ? STR[key] : fallback; }
+
         // ---------- window-hosting mode ----------
         // Two independent facts decide whether a Window-kind dialog is hosted
         // in-page (an iframe) or promoted to a REAL native window:
@@ -113,8 +119,8 @@
         // ---------- screens ----------
         function awakeningHTML() {
             let cap = '';
-            if (S.awake === 'idle') cap = '<div class="os-awaken__cap"><h1>"Hi, ' + esc(boot.assistantName) + '"</h1><p>Touch to begin.</p></div>';
-            else if (S.awake === 'auth') cap = '<div class="os-awaken__auth">Recognising voice biometrics…</div>';
+            if (S.awake === 'idle') cap = '<div class="os-awaken__cap"><h1>' + t('hi', '"Hi, ') + esc(boot.assistantName) + '"</h1><p>' + t('touch_to_begin', 'Touch to begin.') + '</p></div>';
+            else if (S.awake === 'auth') cap = '<div class="os-awaken__auth">' + t('recognising_voice', 'Recognising voice biometrics…') + '</div>';
             else if (S.awake === 'snapshot') cap = snapshotHTML();
             return '<div class="os-awaken">'
                 + '<div class="os-awaken__grid"></div>'
@@ -126,46 +132,46 @@
             const s = S.snapshot || {};
             const has = (s.count || 0) > 0;
             const trim = (t) => (t && t.length > 48) ? t.slice(0, 46) + '…' : (t || '');
-            let rows = '<div class="os-snapshot__row"><span class="dot"></span> Local LLM deployment · <span class="sub">' + esc(boot.providerName) + ' · ' + esc(boot.providerModel) + '</span></div>';
+            let rows = '<div class="os-snapshot__row"><span class="dot"></span> ' + t('local_llm_deployment', 'Local LLM deployment') + ' · <span class="sub">' + esc(boot.providerName) + ' · ' + esc(boot.providerModel) + '</span></div>';
             if (has) {
-                if (s.last_skill) rows += '<div class="os-snapshot__row"><span class="dot"></span> Last skill · <span class="sub">' + esc(s.last_skill) + '</span></div>';
-                if (s.last_intent) rows += '<div class="os-snapshot__row"><span class="dot"></span> Last intent · <span class="sub">"' + esc(trim(s.last_intent)) + '"</span></div>';
-                rows += '<div class="os-snapshot__row"><span class="dot mute"></span> os:session · <span class="sub">' + s.count + ' actions on this device</span></div>';
+                if (s.last_skill) rows += '<div class="os-snapshot__row"><span class="dot"></span> ' + t('last_skill', 'Last skill') + ' · <span class="sub">' + esc(s.last_skill) + '</span></div>';
+                if (s.last_intent) rows += '<div class="os-snapshot__row"><span class="dot"></span> ' + t('last_intent', 'Last intent') + ' · <span class="sub">"' + esc(trim(s.last_intent)) + '"</span></div>';
+                rows += '<div class="os-snapshot__row"><span class="dot mute"></span> os:session · <span class="sub">' + s.count + ' ' + t('actions_on_device', 'actions on this device') + '</span></div>';
             } else {
-                rows += '<div class="os-snapshot__row"><span class="dot mute"></span> os:session · <span class="sub">no prior actions yet</span></div>';
+                rows += '<div class="os-snapshot__row"><span class="dot mute"></span> os:session · <span class="sub">' + t('no_prior_actions', 'no prior actions yet') + '</span></div>';
             }
             return '<div class="os-snapshot">'
-                + '<div class="os-snapshot__eyebrow">' + ico('history') + ' State Snapshot · ' + (has ? 'restored from var/os/session' : 'new device') + '</div>'
-                + '<div class="os-snapshot__title">' + (has ? 'Continue where you were' : 'A clean slate') + '</div>'
+                + '<div class="os-snapshot__eyebrow">' + ico('history') + ' ' + t('state_snapshot', 'State Snapshot') + ' · ' + (has ? t('snapshot_restored', 'restored from var/os/session') : t('new_device', 'new device')) + '</div>'
+                + '<div class="os-snapshot__title">' + (has ? t('continue_where_you_were', 'Continue where you were') : t('a_clean_slate', 'A clean slate')) + '</div>'
                 + '<div class="os-snapshot__rows">' + rows + '</div>'
                 + '<div class="os-snapshot__actions">'
-                + '<button class="os-btn-primary grow" data-act="enter-continue">' + (has ? 'Continue session' : 'Enter') + ' ' + ico('arrow-right') + '</button>'
-                + '<button class="os-btn-ghost" data-act="enter-fresh">Fresh start</button>'
+                + '<button class="os-btn-primary grow" data-act="enter-continue">' + (has ? t('continue_session', 'Continue session') : t('enter', 'Enter')) + ' ' + ico('arrow-right') + '</button>'
+                + '<button class="os-btn-ghost" data-act="enter-fresh">' + t('fresh_start', 'Fresh start') + '</button>'
                 + '</div></div>';
         }
 
         // A three-way light/dark switch: Light · Dark · Auto (follows the system).
         function themeSwitchHTML() {
-            const opt = (m, icon, label) => '<button class="os-themebtn' + (S.themeMode === m ? ' active' : '') + '" data-act="theme-mode" data-mode="' + m + '" title="' + label + ' theme" aria-label="' + label + ' theme">' + ico(icon, 15) + '</button>';
+            const opt = (m, icon, label) => '<button class="os-themebtn' + (S.themeMode === m ? ' active' : '') + '" data-act="theme-mode" data-mode="' + m + '" title="' + label + t('theme_suffix', ' theme') + '" aria-label="' + label + t('theme_suffix', ' theme') + '">' + ico(icon, 15) + '</button>';
             return '<div class="os-themeswitch">'
-                + opt('light', 'sun', 'Light')
-                + opt('dark', 'moon', 'Dark')
-                + opt('auto', 'monitor', 'Auto')
+                + opt('light', 'sun', t('theme_light', 'Light'))
+                + opt('dark', 'moon', t('theme_dark', 'Dark'))
+                + opt('auto', 'monitor', t('theme_auto', 'Auto'))
                 + '</div>';
         }
         function topbarHTML() {
             const modes = ['ambient','focus','chill'];
-            const labels = { ambient: 'Ambient', focus: 'Focus', chill: 'Chill' };
+            const labels = { ambient: t('mode_ambient', 'Ambient'), focus: t('mode_focus', 'Focus'), chill: t('mode_chill', 'Chill') };
             const btns = modes.map(m => '<button class="os-modebtn' + (S.mode===m?' active':'') + '" data-act="mode" data-mode="' + m + '">' + labels[m] + '</button>').join('');
             return '<header class="os-topbar">'
-                + '<button class="os-topbar__clock" data-act="open-calendar" title="Open calendar">'
+                + '<button class="os-topbar__clock" data-act="open-calendar" title="' + t('open_calendar', 'Open calendar') + '">'
                 + '<span class="os-clock__ico">' + ico('calendar-days', 20) + '</span>'
                 + '<span class="os-clock__text"><span class="os-clock__time">' + fmtTime(S.clock) + '</span>'
                 + '<span class="os-clock__date">' + fmtDate(S.clock) + '</span></span>'
                 + '</button>'
                 + '<div class="os-modeswitch">' + btns + '</div>'
                 + '<div class="os-topbar__right">' + themeSwitchHTML()
-                + '<button class="os-xray-toggle' + (S.xray?' active':'') + '" data-act="xray">' + ico('scan-eye',16) + ' X-Ray</button>'
+                + '<button class="os-xray-toggle' + (S.xray?' active':'') + '" data-act="xray">' + ico('scan-eye',16) + t('xray_label', ' X-Ray') + '</button>'
                 + '</div></header>';
         }
 
@@ -173,10 +179,10 @@
         function stageCards() {
             const order = ['intent','plan','execute','observe'];
             const meta = {
-                intent: { label: 'Intent', sub: S.run ? '"' + S.run.intent + '"' : 'voice / text' },
-                plan:   { label: 'Plan', sub: 'Planner over the SkillManifest' },
-                execute:{ label: 'Execute', sub: 'SkillExecutor · headless' },
-                observe:{ label: 'Observe', sub: 'live state · surface on demand' },
+                intent: { label: t('stage_intent', 'Intent'), sub: S.run ? '"' + S.run.intent + '"' : t('stage_intent_sub', 'voice / text') },
+                plan:   { label: t('stage_plan', 'Plan'), sub: t('stage_plan_sub', 'Planner over the SkillManifest') },
+                execute:{ label: t('stage_execute', 'Execute'), sub: t('stage_execute_sub', 'SkillExecutor · headless') },
+                observe:{ label: t('stage_observe', 'Observe'), sub: t('stage_observe_sub', 'live state · surface on demand') },
             };
             const cur = S.run ? S.run.stage : null;
             const rank = { intent:0, plan:1, ask:1, refuse:1, confirm:1, execute:2, observe:3 };
@@ -195,30 +201,30 @@
             const d = S.run.decision || S.run.stage;
             const map = { answer:'answer', ask:'ask', refuse:'refuse', needs_confirmation:'skill', confirm:'skill', executed:'execute', execute:'execute', plan:'', skill:'skill', dialog_exists:'ask' };
             const cls = map[d] || '';
-            const label = ({ plan:'planning…', ask:'ask (clarify)', refuse:'refuse (safety stop)', needs_confirmation:'propose_skill', confirm:'propose_skill', answer:'answer', executed:'executed', execute:'executing…', dialog_exists:'already open' })[d] || d;
-            return '<div class="os-pill ' + cls + '"><span class="dot"></span>planner → ' + esc(label) + '</div>';
+            const label = ({ plan: t('decision_planning', 'planning…'), ask: t('decision_ask', 'ask (clarify)'), refuse: t('decision_refuse', 'refuse (safety stop)'), needs_confirmation: t('decision_propose', 'propose_skill'), confirm: t('decision_propose', 'propose_skill'), answer: t('decision_answer', 'answer'), executed: t('decision_executed', 'executed'), execute: t('executing', 'executing…'), dialog_exists: t('decision_already_open', 'already open') })[d] || d;
+            return '<div class="os-pill ' + cls + '"><span class="dot"></span>' + t('planner_arrow', 'planner → ') + esc(label) + '</div>';
         }
         function gateHTML() {
             const r = S.run; const st = r.stage;
-            if (st === 'ask') return '<div class="os-gate"><div class="os-ask"><div class="os-ask__q">' + esc(r.message || 'Could you clarify that?') + '</div><div style="margin-top:16px"><button class="os-btn-sm" data-act="dismiss">Dismiss</button></div></div></div>';
-            if (st === 'refuse') return '<div class="os-gate"><div class="os-refuse"><div class="os-refuse__eyebrow">' + ico('shield-x') + ' safety stop</div><div class="os-refuse__reason">' + esc(r.message || r.reason || 'This action was refused.') + '</div><div style="margin-top:16px"><button class="os-btn-sm" data-act="dismiss">Understood</button></div></div></div>';
-            if (st === 'dialog_exists') return '<div class="os-gate"><div class="os-ask"><div class="os-ask__q">' + esc(r.message || ((r.skill || 'That tool') + ' is already open.')) + '</div><div class="os-gate__actions" style="margin-top:16px"><button class="os-btn-go" data-act="dlg-switch" data-skill="' + esc(r.skill || '') + '">' + ico('arrow-right',16) + ' Switch to the open one</button><button class="os-btn-sm" data-act="dlg-open-another" data-skill="' + esc(r.skill || '') + '">Open another</button><button class="os-btn-sm" data-act="dismiss">Cancel</button></div></div></div>';
+            if (st === 'ask') return '<div class="os-gate"><div class="os-ask"><div class="os-ask__q">' + esc(r.message || t('could_you_clarify', 'Could you clarify that?')) + '</div><div style="margin-top:16px"><button class="os-btn-sm" data-act="dismiss">' + t('dismiss', 'Dismiss') + '</button></div></div></div>';
+            if (st === 'refuse') return '<div class="os-gate"><div class="os-refuse"><div class="os-refuse__eyebrow">' + ico('shield-x') + t('safety_stop', ' safety stop') + '</div><div class="os-refuse__reason">' + esc(r.message || r.reason || t('action_refused', 'This action was refused.')) + '</div><div style="margin-top:16px"><button class="os-btn-sm" data-act="dismiss">' + t('understood', 'Understood') + '</button></div></div></div>';
+            if (st === 'dialog_exists') return '<div class="os-gate"><div class="os-ask"><div class="os-ask__q">' + esc(r.message || ((r.skill || t('that_tool', 'That tool')) + t('already_open_suffix', ' is already open.'))) + '</div><div class="os-gate__actions" style="margin-top:16px"><button class="os-btn-go" data-act="dlg-switch" data-skill="' + esc(r.skill || '') + '">' + ico('arrow-right',16) + t('switch_to_open', ' Switch to the open one') + '</button><button class="os-btn-sm" data-act="dlg-open-another" data-skill="' + esc(r.skill || '') + '">' + t('open_another', 'Open another') + '</button><button class="os-btn-sm" data-act="dismiss">' + t('cancel', 'Cancel') + '</button></div></div></div>';
             if (st === 'confirm') {
                 const isPipe = Array.isArray(r.pipeline) && r.pipeline.length > 1;
                 const chipItems = isPipe ? r.pipeline.map(s => s.skill) : (r.skill ? [r.skill] : []);
                 const chips = chipItems.map((p, i) => '<span class="os-pipe__chip">' + (isPipe ? (i + 1) + '. ' : '') + esc(p) + '</span>').join(isPipe ? '<span style="color:#6f7d99">→</span>' : '');
-                const heading = isPipe ? ('Pipeline · ' + r.pipeline.length + ' skills') : (r.skill || 'Skill');
+                const heading = isPipe ? (t('pipeline_prefix', 'Pipeline · ') + r.pipeline.length + t('skills_suffix', ' skills')) : (r.skill || t('skill_label', 'Skill'));
                 return '<div class="os-gate" style="max-width:720px"><div class="os-confirm">'
                     + '<div class="os-confirm__head"><div class="os-confirm__skill">' + esc(heading) + '</div>'
-                    + '<div class="os-confirm__policy">' + esc('risk · ' + (r.policy || 'medium')) + '</div></div>'
-                    + '<div class="os-confirm__sum">' + esc(r.reason || r.message || 'Run this skill?') + '</div>'
+                    + '<div class="os-confirm__policy">' + esc(t('risk_prefix', 'risk · ') + (r.policy || 'medium')) + '</div></div>'
+                    + '<div class="os-confirm__sum">' + esc(r.reason || r.message || t('run_this_skill', 'Run this skill?')) + '</div>'
                     + (chips ? '<div class="os-pipe">' + chips + '</div>' : '')
-                    + '<div class="os-gate__actions"><button class="os-btn-go" data-act="approve">' + ico('check',17) + ' Approve &amp; run</button>'
-                    + '<button class="os-btn-sm" data-act="dismiss">Cancel</button></div></div></div>';
+                    + '<div class="os-gate__actions"><button class="os-btn-go" data-act="approve">' + ico('check',17) + t('approve_run', ' Approve &amp; run') + '</button>'
+                    + '<button class="os-btn-sm" data-act="dismiss">' + t('cancel', 'Cancel') + '</button></div></div></div>';
             }
             if (st === 'execute') {
                 const u = S.units.map(x => '<div class="os-unit' + (x.busy?' busy':'') + '"><div class="os-unit__head">' + ico('box',20) + '<span class="os-unit__name">' + esc(x.name) + '</span><span class="os-unit__dot"></span></div><div class="os-unit__status">' + esc(x.status) + (x.exit != null && x.status !== 'running' ? ' · exit ' + x.exit : '') + '</div></div>').join('');
-                return '<div class="os-units">' + (u || '<div class="os-unit"><div class="os-unit__status">executing…</div></div>') + '</div>';
+                return '<div class="os-units">' + (u || '<div class="os-unit"><div class="os-unit__status">' + t('executing', 'executing…') + '</div></div>') + '</div>';
             }
             return '';
         }
@@ -243,12 +249,12 @@
                 let greet, sub;
                 if (boot.userName) {
                     const hh = new Date().getHours();
-                    const t = hh < 5 ? 'Still up' : hh < 12 ? 'Good morning' : hh < 18 ? 'Good afternoon' : 'Good evening';
-                    greet = t + ', ' + esc(boot.userName) + '.';
-                    sub = 'Tell ' + esc(boot.assistantName) + ' what you want. A surface is raised only when the intent needs space.';
+                    const g = hh < 5 ? t('still_up', 'Still up') : hh < 12 ? t('good_morning', 'Good morning') : hh < 18 ? t('good_afternoon', 'Good afternoon') : t('good_evening', 'Good evening');
+                    greet = g + ', ' + esc(boot.userName) + '.';
+                    sub = t('tell_prefix', 'Tell ') + esc(boot.assistantName) + t('tell_suffix', ' what you want. A surface is raised only when the intent needs space.');
                 } else {
-                    greet = 'Hi, I\'m ' + esc(boot.assistantName) + '.';
-                    sub = 'What can I do for you?';
+                    greet = t('hi_im', 'Hi, I\'m ') + esc(boot.assistantName) + '.';
+                    sub = t('what_can_i_do', 'What can I do for you?');
                 }
                 inner = '<div class="os-calm"><div class="os-calm__greet">' + greet + '</div><div class="os-calm__sub">' + sub + '</div></div>';
             } else {
@@ -275,7 +281,7 @@
         function ambientViewToggleHTML() {
             const v = S.ambientView || 'chat';
             const opt = (m, icon, label) => '<button class="os-ambview__btn' + (v === m ? ' active' : '') + '" data-act="ambient-view" data-view="' + m + '">' + ico(icon, 15) + '<span>' + label + '</span></button>';
-            return '<div class="os-ambview">' + opt('chat', 'messages-square', 'Планування') + opt('workspace', 'orbit', 'Workspace') + '</div>';
+            return '<div class="os-ambview">' + opt('chat', 'messages-square', t('view_planning', 'Планування')) + opt('workspace', 'orbit', t('view_workspace', 'Workspace')) + '</div>';
         }
 
         // A coach hint so it's obvious how to grow the graph. Stronger call to
@@ -283,24 +289,24 @@
         function weaveHintHTML() {
             if (S.weaveFocus) {
                 return '<div class="os-weave-hint os-weave-focuschip">' + ico('crosshair', 15)
-                    + '<span>In focus: <b>' + esc(S.weaveFocus.label) + '</b> — its local world.</span>'
-                    + '<button class="os-weave-focusx" data-act="weave-unfocus" title="Back to everything">' + ico('x', 14) + '</button></div>';
+                    + '<span>' + t('in_focus', 'In focus: ') + '<b>' + esc(S.weaveFocus.label) + '</b>' + t('its_local_world', ' — its local world.') + '</span>'
+                    + '<button class="os-weave-focusx" data-act="weave-unfocus" title="' + t('back_to_everything', 'Back to everything') + '">' + ico('x', 14) + '</button></div>';
             }
             const n = S.weaveCount || 0;
             if (n <= 1) {
                 return '<div class="os-weave-hint os-weave-hint--start">' + ico('mouse-pointer-click', 16)
-                    + '<span>This is <b>you</b>. Tap your node, then just <b>type</b> to place your work, family and projects around you — each one links to you.</span></div>';
+                    + '<span>' + t('weave_hint_start', 'This is <b>you</b>. Tap your node, then just <b>type</b> to place your work, family and projects around you — each one links to you.') + '</span></div>';
             }
             return '<div class="os-weave-hint">' + ico('mouse-pointer-click', 15)
-                + '<span>Tap any node to add a connected item, edit it, or the pencil for details.</span></div>';
+                + '<span>' + t('weave_hint_more', 'Tap any node to add a connected item, edit it, or the pencil for details.') + '</span></div>';
         }
         // Zoom / fit controls for the graph (wheel + drag also work).
         function weaveCtrlsHTML() {
             const btn = (act, icon, label) => '<button class="os-weave-ctrl" data-act="' + act + '" title="' + label + '" aria-label="' + label + '">' + ico(icon, 17) + '</button>';
             return '<div class="os-weave-ctrls">'
-                + btn('weave-zoom-in', 'plus', 'Zoom in')
-                + btn('weave-zoom-out', 'minus', 'Zoom out')
-                + btn('weave-fit', 'maximize', 'Fit to view')
+                + btn('weave-zoom-in', 'plus', t('zoom_in', 'Zoom in'))
+                + btn('weave-zoom-out', 'minus', t('zoom_out', 'Zoom out'))
+                + btn('weave-fit', 'maximize', t('fit_to_view', 'Fit to view'))
                 + '</div>';
         }
 
@@ -310,20 +316,20 @@
             if (!p || !p.node) return '';
             const n = p.node;
             const kinds = ['project', 'person', 'topic', 'note', 'task', 'event', 'org', 'place', 'folder', 'file'];
-            const opts = kinds.map(function (k) { return '<option value="' + k + '">' + k + '</option>'; }).join('');
+            const opts = kinds.map(function (k) { return '<option value="' + k + '">' + t('kind_' + k, k) + '</option>'; }).join('');
             const dot = n.self ? cssVar('--accent', '#37b7ff') : kindColor(n.kind);
             return '<div class="os-nodepop__backdrop" id="nodepop-backdrop"><div class="os-nodepop" style="left:' + p.x + 'px;top:' + p.y + 'px">'
                 + '<div class="os-nodepop__head">'
                 + '<span class="os-nodepop__dot" style="background:' + dot + '"></span>'
                 + '<span class="os-nodepop__title">' + esc(n.label) + (function () { const t = nodeNeighborSummary(n.id); return t ? '<span class="os-nodepop__sub">' + esc(t) + '</span>' : ''; })() + '</span>'
-                + '<button class="os-nodepop__ic" data-act="pop-edit" title="Edit details">' + ico('pencil', 15) + '</button>'
-                + (n.self ? '' : '<button class="os-nodepop__ic" data-act="pop-focus" title="Focus: show only this node\u2019s world">' + ico('crosshair', 15) + '</button>')
-                + (n.self ? '' : '<button class="os-nodepop__ic" data-act="pop-remove" title="Remove">' + ico('trash-2', 15) + '</button>')
+                + '<button class="os-nodepop__ic" data-act="pop-edit" title="' + t('edit_details', 'Edit details') + '">' + ico('pencil', 15) + '</button>'
+                + (n.self ? '' : '<button class="os-nodepop__ic" data-act="pop-focus" title="' + t('pop_focus_title', 'Focus: show only this node\u2019s world') + '">' + ico('crosshair', 15) + '</button>')
+                + (n.self ? '' : '<button class="os-nodepop__ic" data-act="pop-remove" title="' + t('remove', 'Remove') + '">' + ico('trash-2', 15) + '</button>')
                 + '</div>'
                 + '<div class="os-nodepop__add">'
-                + '<select id="pop-kind" class="os-nodepop__kind" title="Type">' + opts + '</select>'
-                + '<input id="pop-title" placeholder="Add connected…" autocomplete="off">'
-                + '<button class="os-nodepop__go" data-act="pop-add-save" title="Add (Enter)">' + ico('plus', 17) + '</button>'
+                + '<select id="pop-kind" class="os-nodepop__kind" title="' + t('type_label', 'Type') + '">' + opts + '</select>'
+                + '<input id="pop-title" placeholder="' + t('add_connected_ph', 'Add connected…') + '" autocomplete="off">'
+                + '<button class="os-nodepop__go" data-act="pop-add-save" title="' + t('add_enter', 'Add (Enter)') + '">' + ico('plus', 17) + '</button>'
                 + '</div>'
                 + '</div></div>';
         }
@@ -339,31 +345,31 @@
             let title, body, footer;
             if (e.adding) {
                 const kinds = ['project', 'person', 'topic', 'note', 'task', 'event', 'org', 'place', 'folder', 'file'];
-                title = 'Add to “' + esc((e.parent || {}).label || '') + '”';
-                body = '<label class="os-nedit__field"><span>Type</span><select id="we-add-kind">' + kinds.map(k => '<option value="' + k + '">' + k + '</option>').join('') + '</select></label>'
-                    + field('Title', 'we-add-title', '', 'e.g. a project, a person…')
-                    + area('Description', 'we-add-desc', '', 'Optional');
-                footer = '<span style="flex:1"></span><button class="os-btn-sm" data-act="weave-cancel">Cancel</button><button class="os-btn-go" data-act="weave-add-save">' + ico('plus', 16) + ' Add</button>';
+                title = t('add_to_prefix', 'Add to “') + esc((e.parent || {}).label || '') + t('add_to_suffix', '”');
+                body = '<label class="os-nedit__field"><span>' + t('type_label', 'Type') + '</span><select id="we-add-kind">' + kinds.map(k => '<option value="' + k + '">' + t('kind_' + k, k) + '</option>').join('') + '</select></label>'
+                    + field(t('title_label', 'Title'), 'we-add-title', '', t('eg_project_person', 'e.g. a project, a person…'))
+                    + area(t('description_label', 'Description'), 'we-add-desc', '', t('optional_ph', 'Optional'));
+                footer = '<span style="flex:1"></span><button class="os-btn-sm" data-act="weave-cancel">' + t('cancel', 'Cancel') + '</button><button class="os-btn-go" data-act="weave-add-save">' + ico('plus', 16) + t('add', ' Add') + '</button>';
             } else if (e.node && e.node.self) {
                 const p = e.node.props || {};
-                title = 'You';
+                title = t('you', 'You');
                 const av = p.avatar ? '<div class="os-nedit__avatar"><img src="' + esc(p.avatar) + '" alt=""></div>' : '';
                 body = av
-                    + field('Name', 'we-name', e.node.label, 'Your name')
-                    + field('Avatar URL', 'we-avatar', p.avatar, 'https://…')
-                    + field('Role', 'we-role', p.role, 'What you do')
-                    + field('Email', 'we-email', p.email, 'you@example.com', 'email')
-                    + field('Phone', 'we-phone', p.phone, '')
-                    + area('About', 'we-about', p.about, 'A few words about you');
-                footer = '<button class="os-btn-add" data-act="weave-add-open">' + ico('plus', 15) + ' Add connected</button><span style="flex:1"></span><button class="os-btn-sm" data-act="weave-cancel">Cancel</button><button class="os-btn-go" data-act="weave-save">' + ico('check', 16) + ' Save</button>';
+                    + field(t('name_label', 'Name'), 'we-name', e.node.label, t('your_name', 'Your name'))
+                    + field(t('avatar_url', 'Avatar URL'), 'we-avatar', p.avatar, 'https://…')
+                    + field(t('role_label', 'Role'), 'we-role', p.role, t('what_you_do', 'What you do'))
+                    + field(t('email_label', 'Email'), 'we-email', p.email, 'you@example.com', 'email')
+                    + field(t('phone_label', 'Phone'), 'we-phone', p.phone, '')
+                    + area(t('about_label', 'About'), 'we-about', p.about, t('few_words_about_you', 'A few words about you'));
+                footer = '<button class="os-btn-add" data-act="weave-add-open">' + ico('plus', 15) + t('add_connected', ' Add connected') + '</button><span style="flex:1"></span><button class="os-btn-sm" data-act="weave-cancel">' + t('cancel', 'Cancel') + '</button><button class="os-btn-go" data-act="weave-save">' + ico('check', 16) + t('save', ' Save') + '</button>';
             } else if (e.node) {
                 const p = e.node.props || {};
-                title = e.node.kind || 'Node';
+                title = e.node.kind ? t('kind_' + e.node.kind, e.node.kind) : t('node', 'Node');
                 const isPath = (e.node.kind === 'folder' || e.node.kind === 'file');
-                body = field('Title', 'we-title', e.node.label, 'Title')
-                    + (isPath ? field('Path', 'we-path', p.path, e.node.kind === 'folder' ? '/path/to/folder' : '/path/to/file.ext') : '')
-                    + area('Description', 'we-desc', p.description, 'What is this?');
-                footer = '<button class="os-btn-add" data-act="weave-add-open">' + ico('plus', 15) + ' Add connected</button><span style="flex:1"></span><button class="os-btn-sm" data-act="weave-cancel">Cancel</button><button class="os-btn-go" data-act="weave-save">' + ico('check', 16) + ' Save</button>';
+                body = field(t('title_label', 'Title'), 'we-title', e.node.label, t('title_label', 'Title'))
+                    + (isPath ? field(t('path_label', 'Path'), 'we-path', p.path, e.node.kind === 'folder' ? '/path/to/folder' : '/path/to/file.ext') : '')
+                    + area(t('description_label', 'Description'), 'we-desc', p.description, t('what_is_this', 'What is this?'));
+                footer = '<button class="os-btn-add" data-act="weave-add-open">' + ico('plus', 15) + t('add_connected', ' Add connected') + '</button><span style="flex:1"></span><button class="os-btn-sm" data-act="weave-cancel">' + t('cancel', 'Cancel') + '</button><button class="os-btn-go" data-act="weave-save">' + ico('check', 16) + t('save', ' Save') + '</button>';
             } else {
                 return '';
             }
@@ -382,8 +388,8 @@
         function startBusyHints() {
             stopBusyHints();
             busyHintTimers = [
-                setTimeout(() => { S.busyHint = 'Still thinking — this is slower than usual, the model may be warming up…'; render(); }, 25000),
-                setTimeout(() => { S.busyHint = boot.assistantName + ' is waking up: the first request after a restart warms the model and can take a few minutes. Not stuck — your message is queued and will be answered.'; render(); }, 90000),
+                setTimeout(() => { S.busyHint = t('still_thinking', 'Still thinking — this is slower than usual, the model may be warming up…'); render(); }, 25000),
+                setTimeout(() => { S.busyHint = boot.assistantName + t('waking_up', ' is waking up: the first request after a restart warms the model and can take a few minutes. Not stuck — your message is queued and will be answered.'); render(); }, 90000),
             ];
         }
         function stopBusyHints() {
@@ -403,7 +409,7 @@
             const busy = S.busy;
             // The input is NEVER disabled — you can keep sending while the OS is
             // still thinking; messages queue and each appears instantly.
-            const placeholder = 'Tell ' + boot.assistantName + ' what you want…';
+            const placeholder = t('tell_prefix', 'Tell ') + boot.assistantName + t('what_you_want_ph', ' what you want…');
             const idle = !((S.history && S.history.length) || (S.queue && S.queue.length) || S.run);
             return '<div class="os-intentbar">'
                 + (idle ? '<div class="os-suggest">' + sugg + '</div>' : '')
@@ -421,18 +427,18 @@
         function chatDockHTML() {
             if (S.chatDock === 'collapsed') {
                 const badge = S.proactiveUnseen > 0 ? '<span class="os-chatdock-fab__badge">' + (S.proactiveUnseen > 9 ? '9+' : S.proactiveUnseen) + '</span>' : '';
-                return '<button class="os-chatdock-fab" data-act="chatdock-toggle" title="Chat with ' + esc(boot.assistantName) + '">' + ico('message-circle', 24) + badge + '</button>';
+                return '<button class="os-chatdock-fab" data-act="chatdock-toggle" title="' + t('chat_with', 'Chat with ') + esc(boot.assistantName) + '">' + ico('message-circle', 24) + badge + '</button>';
             }
             const hasThread = ((S.history && S.history.length) || (S.queue && S.queue.length) || S.run);
             const body = hasThread
                 ? conversationHTML() + ((!S.busy && S.run) ? '<div class="os-decision">' + decisionPill() + gateHTML() + '</div>' : '')
-                : '<div class="os-chatdock__empty">Ask ' + esc(boot.assistantName) + ' anything — it keeps working while you stay here.</div>';
+                : '<div class="os-chatdock__empty">' + t('ask_prefix', 'Ask ') + esc(boot.assistantName) + t('dock_anything', ' anything — it keeps working while you stay here.') + '</div>';
             return '<div class="os-chatdock">'
                 + '<div class="os-chatdock__bar"><span class="os-chatdock__title">' + ico('sparkles', 15) + ' ' + esc(boot.assistantName) + '</span>'
-                + '<button class="os-chatdock__min" data-act="chatdock-toggle" title="Collapse">' + ico('minus', 16) + '</button></div>'
+                + '<button class="os-chatdock__min" data-act="chatdock-toggle" title="' + t('collapse', 'Collapse') + '">' + ico('minus', 16) + '</button></div>'
                 + '<div class="os-chatdock__body" id="os-dock-scroll">' + body + '</div>'
                 + (S.busy && S.busyHint ? '<div class="os-busyhint os-busyhint--dock">' + ico('loader-circle', 12) + '<span>' + esc(S.busyHint) + '</span></div>' : '')
-                + '<div class="os-chatdock__input"><input id="intent-input" placeholder="Message ' + esc(boot.assistantName) + '…" value="' + esc(S.input) + '" autocomplete="off">'
+                + '<div class="os-chatdock__input"><input id="intent-input" placeholder="' + t('message_ph', 'Message ') + esc(boot.assistantName) + '…" value="' + esc(S.input) + '" autocomplete="off">'
                 + '<button class="os-chatdock__send" data-act="submit">' + ico('arrow-up', 18) + '</button></div>'
                 + '</div>';
         }
@@ -452,14 +458,14 @@
             const loopRun = !!S.run || S.units.length > 0;   // the foreground intent loop is a process too
             const live = running.length > 0 || loopRun;
 
-            const taskCard = (t) => {
-                const showBar = t.status === 'in_progress' || (t.automated && t.status !== 'done' && t.status !== 'cancelled');
+            const taskCard = (tk) => {
+                const showBar = tk.status === 'in_progress' || (tk.automated && tk.status !== 'done' && tk.status !== 'cancelled');
                 return '<div class="os-proc-task">'
-                    + '<div class="os-proc-task__head">' + ico(t.automated ? 'bot' : 'circle-dot', 17)
-                    + '<span class="os-proc-task__title">' + esc(t.title) + '</span>'
-                    + (t.automated ? '<span class="os-proc-task__auto">auto</span>' : '')
-                    + '<span class="os-proc-task__pct">' + (showBar ? (t.progress || 0) + '%' : esc(t.status_label)) + '</span></div>'
-                    + (showBar ? '<div class="os-proc-bar"><i style="width:' + (t.progress || 0) + '%"></i></div>' : '')
+                    + '<div class="os-proc-task__head">' + ico(tk.automated ? 'bot' : 'circle-dot', 17)
+                    + '<span class="os-proc-task__title">' + esc(tk.title) + '</span>'
+                    + (tk.automated ? '<span class="os-proc-task__auto">' + t('auto_badge', 'auto') + '</span>' : '')
+                    + '<span class="os-proc-task__pct">' + (showBar ? (tk.progress || 0) + '%' : esc(tk.status_label)) + '</span></div>'
+                    + (showBar ? '<div class="os-proc-bar"><i style="width:' + (tk.progress || 0) + '%"></i></div>' : '')
                     + '</div>';
             };
 
@@ -467,18 +473,18 @@
             if (loopRun) inner += '<div class="os-chill-loop">' + stageCards() + '</div>';
             if (running.length) inner += '<div class="os-proc-list">' + running.map(taskCard).join('') + '</div>';
             if (recentDone.length) {
-                inner += '<div class="os-proc-recent"><div class="os-proc-recent__h">Recently completed</div>'
+                inner += '<div class="os-proc-recent"><div class="os-proc-recent__h">' + t('recently_completed', 'Recently completed') + '</div>'
                     + recentDone.map(t => '<div class="os-proc-recent__row">' + ico('check', 14) + '<span>' + esc(t.title) + '</span></div>').join('') + '</div>';
             }
             if (inner === '') {
                 // No real tasks and no live loop → Phase-1 fallback (durable trace / idle).
                 const recent = ((S.snapshot && S.snapshot.recent) || []).slice().reverse().slice(0, 5);
                 inner = recent.length
-                    ? '<div class="os-chill-recent">' + recent.map(e => '<div class="os-chill-recent__row"><span class="os-chill-recent__k">' + esc(e.skill || e.intent || e.decision || 'activity') + '</span><span class="os-chill-recent__v">' + esc(e.decision || '') + '</span></div>').join('') + '</div>'
-                    : '<div class="os-chill-proc__idle">' + ico('moon', 22) + '<div>All quiet.</div><div class="os-chill-proc__hint">Nothing running right now. Ask ' + esc(boot.assistantName) + ' to run something — automated tasks show their progress here.</div></div>';
+                    ? '<div class="os-chill-recent">' + recent.map(e => '<div class="os-chill-recent__row"><span class="os-chill-recent__k">' + esc(e.skill || e.intent || e.decision || t('activity', 'activity')) + '</span><span class="os-chill-recent__v">' + esc(e.decision || '') + '</span></div>').join('') + '</div>'
+                    : '<div class="os-chill-proc__idle">' + ico('moon', 22) + '<div>' + t('all_quiet', 'All quiet.') + '</div><div class="os-chill-proc__hint">' + t('nothing_running_ask', 'Nothing running right now. Ask ') + esc(boot.assistantName) + t('to_run_something', ' to run something — automated tasks show their progress here.') + '</div></div>';
             }
             return '<div class="os-chill-proc">'
-                + '<div class="os-chill-proc__eyebrow">' + ico('activity', 16) + ' Processes · what\'s running' + (live ? ' <span class="os-chill-proc__live">live</span>' : '') + '</div>'
+                + '<div class="os-chill-proc__eyebrow">' + ico('activity', 16) + t('processes_running', ' Processes · what\'s running') + (live ? ' <span class="os-chill-proc__live">' + t('live', 'live') + '</span>' : '') + '</div>'
                 + inner + '</div>';
         }
 
@@ -492,7 +498,7 @@
         // live in the persistent #wm-layer (syncDialogs).
         function focusHTML() {
             return '<div class="os-scroll"><div class="os-focus-zone">'
-                + '<div class="os-focus__eyebrow"><span class="tag">Focus</span><span class="note">Open an app — or switch to a running one</span></div>'
+                + '<div class="os-focus__eyebrow"><span class="tag">' + t('mode_focus', 'Focus') + '</span><span class="note">' + t('open_or_switch', 'Open an app — or switch to a running one') + '</span></div>'
                 + launcherHTML()
                 + '</div></div>' + chatDockHTML();
         }
@@ -504,10 +510,10 @@
                 + '<span class="os-appicon__label">' + esc(s.name) + '</span></button>';
         }
         function webAppTile(a) {
-            return '<div class="os-appicon-wrap"><button class="os-appicon recent" data-act="open-webapp" data-id="' + esc(a.id) + '" title="Open ' + esc(a.name) + '">'
+            return '<div class="os-appicon-wrap"><button class="os-appicon recent" data-act="open-webapp" data-id="' + esc(a.id) + '" title="' + t('open_prefix', 'Open ') + esc(a.name) + '">'
                 + '<span class="os-appicon__sym">' + ico(a.icon || 'globe', 24) + '</span>'
                 + '<span class="os-appicon__label">' + esc(a.name) + '</span></button>'
-                + '<button class="os-appicon-x" data-act="remove-webapp" data-id="' + esc(a.id) + '" title="Remove ' + esc(a.name) + '">' + ico('x', 12) + '</button></div>';
+                + '<button class="os-appicon-x" data-act="remove-webapp" data-id="' + esc(a.id) + '" title="' + t('remove_prefix', 'Remove ') + esc(a.name) + '">' + ico('x', 12) + '</button></div>';
         }
         function launcherSection(title, inner, hint) {
             return '<div class="os-recents"><div class="os-recents__h">' + title + '</div><div class="os-iconrow">' + inner + '</div>'
@@ -524,7 +530,7 @@
             // ---- browse view (the preserved gradation) ----
             const running = dialogs.map(d => {
                 const active = d.id === S.focusedId && d.state !== 'minimized';
-                return '<button class="os-appicon' + (d.state === 'minimized' ? ' min' : '') + (active ? ' active' : '') + '" data-act="task-click" data-id="' + d.id + '" title="' + esc(d.title) + (d.state === 'minimized' ? ' (minimized)' : '') + '">'
+                return '<button class="os-appicon' + (d.state === 'minimized' ? ' min' : '') + (active ? ' active' : '') + '" data-act="task-click" data-id="' + d.id + '" title="' + esc(d.title) + (d.state === 'minimized' ? t('minimized_suffix', ' (minimized)') : '') + '">'
                     + '<span class="os-appicon__sym">' + ico(d.icon || 'app-window', 24) + '</span>'
                     + '<span class="os-appicon__label">' + esc(d.title) + '</span></button>';
             }).join('');
@@ -532,14 +538,14 @@
             const recents = (S.recents || []).filter(s => !runningSkills.includes(s.name));
 
             let browse = '';
-            if (dialogs.length) browse += launcherSection('Running · ' + dialogs.length, running);
-            if (recents.length) browse += launcherSection('Recently opened',
+            if (dialogs.length) browse += launcherSection(t('running_section', 'Running · ') + dialogs.length, running);
+            if (recents.length) browse += launcherSection(t('recently_opened', 'Recently opened'),
                 recents.map(s => skillBtn({ name: s.name, icon: s.icon }, 'recent')).join(''));
-            if (apps.length) browse += launcherSection('Your apps', apps.map(webAppTile).join(''),
-                'Ask ' + esc(boot.assistantName) + ' to “open …” any site to add one.');
+            if (apps.length) browse += launcherSection(t('your_apps', 'Your apps'), apps.map(webAppTile).join(''),
+                t('ask_open_prefix', 'Ask ') + esc(boot.assistantName) + t('open_any_site', ' to “open …” any site to add one.'));
             browse += skills.length
-                ? launcherSection('All apps', skills.map(s => skillBtn(s)).join(''))
-                : '<div class="os-launcher-empty">' + ico('layout-grid', 20) + ' <span>No apps yet. Ask ' + esc(boot.assistantName) + ' to open a site to add one.</span></div>';
+                ? launcherSection(t('all_apps', 'All apps'), skills.map(s => skillBtn(s)).join(''))
+                : '<div class="os-launcher-empty">' + ico('layout-grid', 20) + ' <span>' + t('no_apps_yet_ask', 'No apps yet. Ask ') + esc(boot.assistantName) + t('to_open_site', ' to open a site to add one.') + '</span></div>';
 
             // ---- results view (flat, filtered across everything) ----
             const tile = (dataName, inner) => {
@@ -552,13 +558,13 @@
 
             return '<div class="os-launcher">'
                 + '<div class="os-launcher__bar"><span class="os-launcher__ico">' + ico('search', 17) + '</span>'
-                + '<input id="launcher-input" placeholder="Search apps…" value="' + esc(S.launchQuery || '') + '" autocomplete="off" spellcheck="false">'
-                + '<button class="os-launcher__clear" data-act="launcher-clear" title="Clear" style="' + (q ? '' : 'display:none') + '">' + ico('x', 16) + '</button>'
+                + '<input id="launcher-input" placeholder="' + t('search_apps', 'Search apps…') + '" value="' + esc(S.launchQuery || '') + '" autocomplete="off" spellcheck="false">'
+                + '<button class="os-launcher__clear" data-act="launcher-clear" title="' + t('clear', 'Clear') + '" style="' + (q ? '' : 'display:none') + '">' + ico('x', 16) + '</button>'
                 + '</div>'
                 + '<div class="os-launcher-default"' + (q ? ' hidden' : '') + '>' + browse + '</div>'
                 + '<div class="os-launcher-results"' + (q ? '' : ' hidden') + '>'
                 + '<div class="os-iconrow os-launcher-grid">' + resultTiles + '</div>'
-                + '<div class="os-launcher-empty" hidden>' + ico('search-x', 20) + ' <span>No apps match “<b class="q"></b>”.</span></div>'
+                + '<div class="os-launcher-empty" hidden>' + ico('search-x', 20) + ' <span>' + t('no_apps_match_prefix', 'No apps match “') + '<b class="q"></b>' + t('no_apps_match_suffix', '”.') + '</span></div>'
                 + '</div></div>';
         }
 
@@ -575,14 +581,14 @@
             const name = boot.userName ? (', ' + esc(boot.userName)) : '';
             const chip = (icon, label, text) => '<button class="os-chill-chip" data-act="run-skill" data-text="' + esc(text) + '">' + ico(icon, 18) + '<span>' + esc(label) + '</span></button>';
             const chips = '<div class="os-chill-chips">'
-                + chip('gamepad-2', 'Tic-tac-toe with ' + boot.assistantName, "Let's play tic-tac-toe")
-                + chip('music', 'Music', 'Put on some relaxing music')
+                + chip('gamepad-2', t('tictactoe_with', 'Tic-tac-toe with ') + boot.assistantName, "Let's play tic-tac-toe")
+                + chip('music', t('music_label', 'Music'), 'Put on some relaxing music')
                 + chip('youtube', 'YouTube', 'Open YouTube to watch something')
-                + chip('dices', 'Surprise me', 'Surprise me with something fun to do')
+                + chip('dices', t('surprise_me', 'Surprise me'), 'Surprise me with something fun to do')
                 + '</div>';
             const leisure = '<div class="os-chill-leisure">'
-                + '<div class="os-chill-hero__greet">In the mood for something' + name + '?</div>'
-                + '<div class="os-chill-hero__sub">Watch, play, or just relax — pick something, or ask ' + esc(boot.assistantName) + ' in the chat.</div>'
+                + '<div class="os-chill-hero__greet">' + t('in_the_mood', 'In the mood for something') + name + '?</div>'
+                + '<div class="os-chill-hero__sub">' + t('watch_play_relax', 'Watch, play, or just relax — pick something, or ask ') + esc(boot.assistantName) + t('in_the_chat', ' in the chat.') + '</div>'
                 + chips + '</div>';
             const inner = chillProcessesHTML() + leisure;
             return '<div class="os-scroll" id="os-scroll"><div class="os-chill">' + inner + '</div></div>' + chatDockHTML();
@@ -597,14 +603,14 @@
                 const recent = ((S.snapshot && S.snapshot.recent) || []).slice().reverse().slice(0, 4);
                 units = recent.length
                     ? recent.map(e => unit(e.skill || e.intent || e.decision, e.decision, false)).join('')
-                    : '<div class="os-xray__hint">No activity yet.</div>';
+                    : '<div class="os-xray__hint">' + t('no_activity_yet', 'No activity yet.') + '</div>';
             }
             const sessionCount = (S.snapshot && S.snapshot.count) || 0;
             const tr = S.log.map(e => '<div class="os-trace-line ' + (e.tone||'') + '">' + esc(e.t) + '</div>').join('');
-            return '<aside class="os-xray"><div class="os-xray__eyebrow">' + ico('scan-eye',16) + ' X-Ray · observability</div>'
-                + '<div class="os-xray__hint">' + (S.units.length ? 'Skills in flight, live.' : 'Recent loop activity (durable session).') + '</div>'
+            return '<aside class="os-xray"><div class="os-xray__eyebrow">' + ico('scan-eye',16) + t('xray_observability', ' X-Ray · observability') + '</div>'
+                + '<div class="os-xray__hint">' + (S.units.length ? t('skills_in_flight', 'Skills in flight, live.') : t('recent_loop_activity', 'Recent loop activity (durable session).')) + '</div>'
                 + '<div class="os-xray__units">' + units + '</div>'
-                + '<div class="os-xray__meters"><div class="os-meter"><div class="os-meter__k">PROVIDER ' + (boot.providerHealthy?'· up':'· down') + '</div><div class="os-meter__v accent" style="font-size:14px">' + esc(boot.providerModel) + '</div></div><div class="os-meter"><div class="os-meter__k">SESSION</div><div class="os-meter__v plain">' + sessionCount + ' <span style="font-size:11px;color:#6f7d99">actions</span></div></div></div>'
+                + '<div class="os-xray__meters"><div class="os-meter"><div class="os-meter__k">' + t('provider_label', 'PROVIDER ') + (boot.providerHealthy? t('provider_up', '· up') : t('provider_down', '· down')) + '</div><div class="os-meter__v accent" style="font-size:14px">' + esc(boot.providerModel) + '</div></div><div class="os-meter"><div class="os-meter__k">' + t('session_label', 'SESSION') + '</div><div class="os-meter__v plain">' + sessionCount + ' <span style="font-size:11px;color:#6f7d99">' + t('actions_word', 'actions') + '</span></div></div></div>'
                 + '<div class="os-xray__trace-h">os:trace · live</div><div class="os-xray__trace">' + tr + '</div></aside>';
         }
 
@@ -685,7 +691,7 @@
                 .nodeRelSize(5)
                 .nodeVal(function (n) { return n.self ? 7 : (n.kind === 'project' ? 4.5 : 2); }) // projects = gravitational centres
                 .nodeColor(function (n) { return n.self ? accent : kindColor(n.kind); })
-                .nodeLabel(function (n) { return n.kind; }) // hover tooltip = kind (title is drawn below)
+                .nodeLabel(function (n) { return t('kind_' + n.kind, n.kind); }) // hover tooltip = kind (title is drawn below)
                 .nodeCanvasObjectMode(function () { return 'after'; })
                 .nodeCanvasObject(function (n, ctx, scale) {
                     const r = Math.sqrt(n.self ? 7 : 2) * 5;
@@ -871,12 +877,12 @@
                 const hit = dirs.find(e => e.name.toLowerCase() === q)
                     || dirs.find(e => e.name.toLowerCase().startsWith(q))
                     || dirs.find(e => e.name.toLowerCase().includes(q));
-                if (!hit) { fail('I couldn\u2019t find a "' + folder + '" folder under ' + d.root + '.'); return; }
+                if (!hit) { fail(t('cant_find_folder_prefix', 'I couldn\u2019t find a "') + folder + t('folder_under', '" folder under ') + d.root + '.'); return; }
                 const path = d.path.replace(/\/$/, '') + '/' + hit.name;
                 await post('/os/weave/attach', { path: path, kind: 'folder', connect_to: connectTo || '', narrate: '1' });
                 markWeaveStale();
             } catch (e) {
-                fail('I can\u2019t reach your files \u2014 the desktop bridge isn\u2019t running.');
+                fail(t('cant_reach_files', 'I can\u2019t reach your files \u2014 the desktop bridge isn\u2019t running.'));
             }
         }
         function weaveFocusClear() {
@@ -954,8 +960,8 @@
             try {
                 const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(body) });
                 const txt = await res.text();
-                try { return JSON.parse(txt); } catch(e) { return { decision:'error', message:'Bad response (' + res.status + ')' }; }
-            } catch (e) { return { decision:'error', message:'Network error: ' + e.message }; }
+                try { return JSON.parse(txt); } catch(e) { return { decision:'error', message: t('bad_response', 'Bad response (') + res.status + ')' }; }
+            } catch (e) { return { decision:'error', message: t('network_error', 'Network error: ') + e.message }; }
         }
         function pushSurface(sf) { sf.id = 's' + (sid++); S.surfaces = [sf, ...S.surfaces].slice(0, 4); }
         // Real per-skill execution units (replaces the metaphor units).
@@ -976,10 +982,10 @@
             const body = ((resp.output && resp.output.trim()) ? resp.output : (resp.message || '')) || '';
             const meta = (typeof resp.exit_code === 'number') ? 'exit ' + resp.exit_code : '';
             if (surf === 'none') return;
-            if (surf === 'cue') { S.cue = { title, body: body || 'Done.' }; setTimeout(() => { S.cue = null; render(); }, 4200); return; }
-            if (surf === 'inline') { pushSurface({ kind: 'inline', title, taxo: 'inline card', body, meta }); return; }
-            if (surf === 'readout') { pushSurface({ kind: 'inline', title, taxo: 'readout', body, meta }); return; }
-            pushSurface({ kind: 'window', title, taxo: 'full window', body, meta });
+            if (surf === 'cue') { S.cue = { title, body: body || t('done_cue', 'Done.') }; setTimeout(() => { S.cue = null; render(); }, 4200); return; }
+            if (surf === 'inline') { pushSurface({ kind: 'inline', title, taxo: t('taxo_inline', 'inline card'), body, meta }); return; }
+            if (surf === 'readout') { pushSurface({ kind: 'inline', title, taxo: t('taxo_readout', 'readout'), body, meta }); return; }
+            pushSurface({ kind: 'window', title, taxo: t('taxo_window', 'full window'), body, meta });
         }
 
         function submit() {
@@ -1255,6 +1261,14 @@
                     applyThemeMode();
                     changed = true;
                 }
+                // A chat command ("перейди на українську") changed the OS
+                // language server-side: the string bundle rides on the BOOT
+                // payload, so a full reload is the one honest way to re-render
+                // every surface in the new language.
+                if (d && typeof d.locale === 'string' && d.locale !== '' && d.locale !== boot.locale) {
+                    location.reload();
+                    return;
+                }
                 // Reconcile the wall-clock timezone once per session: the browser
                 // knows where the user actually is; time-aware skills and the
                 // planner's date anchor parse against this preference.
@@ -1276,16 +1290,16 @@
                 (S.queue || []).map(function (text) { return { role: 'user', text: text, meta: {} }; })
             );
             const calendarSkills = ['calendar-create', 'calendar-lookup', 'Calendar'];
-            const rows = turns.map(function (t) {
-                const who = t.role === 'user' ? 'user' : 'assistant';
-                const tag = (who === 'assistant' && t.meta && t.meta.skill)
-                    ? '<span class="os-msg__tag">' + esc(t.meta.skill) + '</span>' : '';
+            const rows = turns.map(function (turn) {
+                const who = turn.role === 'user' ? 'user' : 'assistant';
+                const tag = (who === 'assistant' && turn.meta && turn.meta.skill)
+                    ? '<span class="os-msg__tag">' + esc(turn.meta.skill) + '</span>' : '';
                 // A clickable affordance to open the calendar dialog in Focus,
                 // shown under calendar-related answers.
-                const cta = (who === 'assistant' && t.meta && calendarSkills.indexOf(t.meta.skill) !== -1)
-                    ? '<button type="button" class="os-msg__cta" data-act="open-calendar">' + ico('calendar', 15) + ' Open calendar</button>'
+                const cta = (who === 'assistant' && turn.meta && calendarSkills.indexOf(turn.meta.skill) !== -1)
+                    ? '<button type="button" class="os-msg__cta" data-act="open-calendar">' + ico('calendar', 15) + ' ' + t('open_calendar', 'Open calendar') + '</button>'
                     : '';
-                return '<div class="os-msg os-msg--' + who + '"><div class="os-msg__bubble">' + esc(t.text) + tag + '</div>' + cta + '</div>';
+                return '<div class="os-msg os-msg--' + who + '"><div class="os-msg__bubble">' + esc(turn.text) + tag + '</div>' + cta + '</div>';
             }).join('');
             // The "typing" indicator is a row INSIDE the chat container, so it
             // aligns with the message bubbles instead of sliding to the far left.
@@ -1385,9 +1399,9 @@
             node.innerHTML =
                 '<div class="os-win__bar"><span class="os-win__title">' + ico(d.icon || 'app-window', 15) + ' ' + esc(d.title) + '</span>'
                 + '<span class="os-win__ctl">'
-                + '<button data-act="dlg-min" data-id="' + d.id + '" title="Minimize">' + ico('minus', 15) + '</button>'
-                + '<button data-maxbtn data-act="dlg-max" data-id="' + d.id + '" title="Maximize">' + ico('square', 14) + '</button>'
-                + '<button class="close" data-act="dlg-close" data-id="' + d.id + '" title="Close">' + ico('x', 15) + '</button></span></div>'
+                + '<button data-act="dlg-min" data-id="' + d.id + '" title="' + t('minimize', 'Minimize') + '">' + ico('minus', 15) + '</button>'
+                + '<button data-maxbtn data-act="dlg-max" data-id="' + d.id + '" title="' + t('maximize', 'Maximize') + '">' + ico('square', 14) + '</button>'
+                + '<button class="close" data-act="dlg-close" data-id="' + d.id + '" title="' + t('close', 'Close') + '">' + ico('x', 15) + '</button></span></div>'
                 + '<div class="os-win__body"><iframe src="' + esc(d.entry || 'about:blank') + '" title="' + esc(d.title) + '"></iframe></div>';
             node.addEventListener('mousedown', () => focusDialog(d.id));
             bindWindowDrag(node, d.id);
@@ -1435,7 +1449,7 @@
                 node.style.display = (d.state === 'minimized') ? 'none' : 'flex';
                 node.style.zIndex = winZ[d.id] || (100 + (d.order || 0));
                 const mb = node.querySelector('[data-maxbtn]');
-                if (mb) { mb.dataset.act = max ? 'dlg-restore' : 'dlg-max'; mb.title = max ? 'Restore' : 'Maximize'; mb.innerHTML = ico(max ? 'minimize-2' : 'square', 14); }
+                if (mb) { mb.dataset.act = max ? 'dlg-restore' : 'dlg-max'; mb.title = max ? t('restore', 'Restore') : t('maximize', 'Maximize'); mb.innerHTML = ico(max ? 'minimize-2' : 'square', 14); }
                 if (max) {
                     node.style.left = ''; node.style.top = ''; // let .max inset:0 fill the viewport
                 } else {

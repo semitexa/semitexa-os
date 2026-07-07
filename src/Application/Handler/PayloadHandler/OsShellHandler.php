@@ -65,11 +65,46 @@ final class OsShellHandler implements TypedHandlerInterface
             $healthy = false;
         }
 
+        [$locale, $strings] = $this->localeBundle();
+
         return $resource
             ->withSkills($skills)
             ->withProvider($provider->name(), $provider->model(), $healthy)
             ->withAssistantName($this->prefs->assistantName())
             ->withUserName($this->prefs->userName())
+            ->withLocale($locale, $strings)
             ->withWindowMode($this->windowMode->value, $this->bridgeUrl);
+    }
+
+    /**
+     * The OS locale + its resolved shell string bundle for the boot payload.
+     *
+     * Locale: the explicit OS preference wins; '' = follow the request's own
+     * resolution (the locale phase already set the context). Strings: every
+     * `os.shell.*` catalog key resolved through TranslationService — so
+     * per-tenant translation overrides apply — keyed WITHOUT the prefix (the
+     * shell's t() keys). English key set is the canonical enumeration.
+     *
+     * @return array{string, array<string, string>}
+     */
+    private function localeBundle(): array
+    {
+        $locale = $this->prefs->locale();
+        if ($locale === '') {
+            $locale = \Semitexa\Locale\Context\LocaleContextStore::getLocale();
+        }
+
+        $strings = [];
+        try {
+            $service = \Semitexa\Ssr\Application\Service\I18n\Translator::getService();
+            $catalog = \Semitexa\Ssr\Application\Service\I18n\Translator::getCatalog();
+            foreach ($catalog->keys('en', 'os.shell.') as $key) {
+                $strings[substr($key, \strlen('os.shell.'))] = $service->trans($key, [], $locale);
+            }
+        } catch (\Throwable) {
+            // Best-effort: the shell's inline English fallbacks render the UI.
+        }
+
+        return [$locale, $strings];
     }
 }

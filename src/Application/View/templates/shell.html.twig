@@ -15,7 +15,7 @@
     <div id="wm-layer" hidden></div>
     <div id="weave-layer" hidden></div>
 
-    <script type="application/json" id="os-boot">{{ { providerName: providerName|default('llm'), providerModel: providerModel|default('?'), providerHealthy: providerHealthy, skills: skills|default([]), assistantName: assistantName|default('Semi'), userName: userName|default(''), windowMode: windowMode|default('web'), bridgeUrl: bridgeUrl|default('http://127.0.0.1:8777') }|json_encode|raw }}</script>
+    <script type="application/json" id="os-boot">{{ { providerName: providerName|default('llm'), providerModel: providerModel|default('?'), providerHealthy: providerHealthy, skills: skills|default([]), assistantName: assistantName|default('Semi'), userName: userName|default(''), windowMode: windowMode|default('web'), bridgeUrl: bridgeUrl|default('http://127.0.0.1:8777'), locale: locale|default('en'), strings: strings|default({}) }|json_encode|raw }}</script>
     <script src="{{ asset('js/shell.js', 'os') }}" defer></script>
 </body>
 </html>

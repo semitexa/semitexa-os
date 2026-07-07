@@ -39,6 +39,7 @@ final class OsPreferences
     /** Light/dark preference. 'auto' follows the OS (with a time-of-day fallback client-side). */
     private const THEME_MODES = ['auto', 'dark', 'light'];
     private const DEFAULT_THEME_MODE = 'auto';
+    private const KEY_LOCALE = 'locale';
 
     #[InjectAsReadonly]
     protected SettingsStoreInterface $settings;
@@ -56,7 +57,55 @@ final class OsPreferences
             'user_name' => $this->cleanName($this->rawString(self::KEY_USER_NAME)) ?? '',
             'theme_mode' => $this->themeMode(),
             'timezone' => $this->timezone()->getName(),
+            'locale' => $this->locale(),
         ];
+    }
+
+    /**
+     * The OS interface/assistant language, or '' = follow the request's own
+     * locale resolution (path/header/cookie). Validated against the EFFECTIVE
+     * (per-tenant) supported set when one is published for this request, else
+     * the global pack — a stored locale the tenant no longer offers falls back
+     * to '' rather than serving an unavailable language.
+     */
+    public function locale(): string
+    {
+        $raw = $this->rawString(self::KEY_LOCALE);
+        if ($raw === '') {
+            return '';
+        }
+
+        return in_array($raw, $this->supportedLocales(), true) ? $raw : '';
+    }
+
+    /**
+     * Set the OS language ('' clears back to request-driven resolution).
+     *
+     * @return Preferences the applied preferences
+     *
+     * @throws \InvalidArgumentException on a locale outside the supported set
+     */
+    public function setLocale(string $locale): array
+    {
+        $locale = strtolower(trim($locale));
+        if ($locale !== '' && !in_array($locale, $this->supportedLocales(), true)) {
+            throw new \InvalidArgumentException(
+                'Locale must be one of: ' . implode(', ', $this->supportedLocales()) . ' (or empty to follow the request).',
+            );
+        }
+        $this->settings()->set(self::MODULE, self::KEY_LOCALE, $locale);
+
+        return $this->all();
+    }
+
+    /** @return string[] the effective (tenant) supported set, else the global pack. */
+    private function supportedLocales(): array
+    {
+        $supported = \Semitexa\Locale\Context\LocaleContextStore::getSupportedLocales();
+
+        return $supported !== []
+            ? $supported
+            : \Semitexa\Locale\Configuration\LocaleConfig::fromEnvironment()->supportedLocales;
     }
 
     /** The light/dark preference — one of auto|dark|light (default auto). */
