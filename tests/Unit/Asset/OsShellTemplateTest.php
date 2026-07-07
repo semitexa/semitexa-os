@@ -84,8 +84,10 @@ final class OsShellTemplateTest extends TestCase
     #[Test]
     public function the_shell_never_loads_from_an_external_host(): void
     {
+        // Covers both quote styles and protocol-relative (//host) URLs — any
+        // of them would reintroduce an external-host dependency.
         self::assertDoesNotMatchRegularExpression(
-            '/<(script|link)[^>]*(src|href)="https?:\/\//i',
+            '/<(script|link)[^>]*(src|href)\s*=\s*["\'](https?:)?\/\//i',
             self::template(),
             'The OS desktop must boot with zero external hosts — vendor libraries under Static/js/vendor/.',
         );
@@ -93,6 +95,11 @@ final class OsShellTemplateTest extends TestCase
         self::assertFileExists(
             self::LUCIDE_PATH,
             'Lucide must be vendored (it used to load unpinned from a CDN).',
+        );
+        self::assertStringContainsString(
+            "asset('js/vendor/lucide.min.js', 'os')",
+            self::template(),
+            'shell.html.twig must actually load the vendored Lucide copy — a stale vendor file alone does not satisfy the contract.',
         );
     }
 }
