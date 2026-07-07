@@ -47,9 +47,9 @@ final class OsShellTemplateTest extends TestCase
         $template = self::template();
 
         self::assertStringContainsString(
-            '/assets/os/js/shell.js',
+            "asset('js/shell.js', 'os')",
             $template,
-            'shell.html.twig must include the extracted shell runtime.',
+            'shell.html.twig must include the extracted shell runtime via the fingerprinted asset() helper.',
         );
 
         // The only <script> without src allowed in the template is the
