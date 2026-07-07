@@ -9,6 +9,7 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Server\Lifecycle\ServerLifecycleContext;
 use Semitexa\Core\Server\Lifecycle\ServerLifecycleListenerInterface;
 use Semitexa\Core\Server\Lifecycle\ServerLifecyclePhase;
+use Semitexa\Core\Tenant\TenantFanoutInterface;
 use Semitexa\Os\Application\Service\Weaver;
 use Semitexa\Core\Environment;
 use Semitexa\Core\Server\Lifecycle\WorkerTimerRegistry;
@@ -44,6 +45,14 @@ final class WeaveTimerListener implements ServerLifecycleListenerInterface
     #[InjectAsReadonly]
     protected Weaver $weaver;
 
+    /**
+     * Per-tenant fan-out: the timer is context-less, so a bare tick would weave
+     * only the 'default' partition. Running the tick under each tenant's context
+     * lets every tenant's transcript grow its own (TenantScoped) graph.
+     */
+    #[InjectAsReadonly]
+    protected TenantFanoutInterface $tenants;
+
     public function handle(ServerLifecycleContext $context): void
     {
         if (!class_exists(Timer::class, false)) {
@@ -60,10 +69,15 @@ final class WeaveTimerListener implements ServerLifecycleListenerInterface
         }
 
         $weaver = $this->weaver;
+        $tenants = $this->tenants;
         self::$timerId = Timer::tick(
             self::TICK_INTERVAL_MS,
-            static function () use ($weaver): void {
-                $weaver->tick();
+            static function () use ($weaver, $tenants): void {
+                // One weave pass per tenant, each under its own bound context —
+                // so tenant-scoped conversation reads + graph writes stay isolated.
+                $tenants->eachTenant(static function () use ($weaver): void {
+                    $weaver->tick();
+                });
             },
         );
         // Group-clear on worker stop (core ClearWorkerTimersListener) — a tick must
