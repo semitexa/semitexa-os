@@ -8,6 +8,7 @@ use Semitexa\Core\Attribute\AsPayloadHandler;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Os\Application\Payload\Request\CalendarAppPayload;
+use Semitexa\Ssr\Application\Service\Asset\AssetManager;
 
 /**
  * Renders the Calendar dialog body — hosts the real `platform.calendar`
@@ -25,7 +26,7 @@ final class CalendarAppHandler implements TypedHandlerInterface
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Calendar</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/platform-ui/css/calendar.css">
+<link rel="stylesheet" href="__CALENDAR_CSS__">
 <style>
   /* Tint the platform calendar to the OS dark palette. */
   :root {
@@ -87,10 +88,29 @@ final class CalendarAppHandler implements TypedHandlerInterface
     data-ui-calendar-view="month"
     data-ui-calendar-live="0"
     class="uical"></div>
-  <script src="/assets/platform-ui/js/calendar-dates.js"></script>
-  <script src="/assets/platform-ui/js/calendar-runtime.js"></script>
+  <script type="importmap">__IMPORT_MAP__</script>
+  <script type="module" src="__CALENDAR_RUNTIME_JS__"></script>
 </body></html>
 HTML;
+
+        // Fingerprinted URLs so StaticAssetHandler can serve the platform-ui
+        // assets with immutable caching (raw /assets/ URLs forfeit that).
+        // calendar-runtime is an ES module importing 'platform-ui/core' and
+        // 'platform-ui/dates' — the import map (which must precede the module
+        // tag) resolves those to fingerprinted URLs; the import graph loads
+        // them, so only the runtime needs a script tag.
+        $importMap = json_encode([
+            'imports' => [
+                'platform-ui/core' => AssetManager::getUrl('js/ui-core.js', 'platform-ui'),
+                'platform-ui/dates' => AssetManager::getUrl('js/calendar-dates.js', 'platform-ui'),
+            ],
+        ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+
+        $html = strtr($html, [
+            '__CALENDAR_CSS__' => AssetManager::getUrl('css/calendar.css', 'platform-ui'),
+            '__IMPORT_MAP__' => $importMap,
+            '__CALENDAR_RUNTIME_JS__' => AssetManager::getUrl('js/calendar-runtime.js', 'platform-ui'),
+        ]);
 
         return $resource
             ->setContent($html)

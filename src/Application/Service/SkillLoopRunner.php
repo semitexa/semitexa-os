@@ -7,6 +7,8 @@ namespace Semitexa\Os\Application\Service;
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Console\Application as ConsoleApplication;
+use Psr\Container\ContainerInterface;
+use Semitexa\Core\Container\SemitexaContainer;
 use Semitexa\Llm\Application\Service\LlmProviderResolver;
 use Semitexa\Llm\Application\Service\PersonaRegistry;
 use Semitexa\Llm\Application\Service\RemoteOllamaProvider;
@@ -67,6 +69,15 @@ final class SkillLoopRunner
     /** Supplies the user's wall-clock timezone for the planner's date anchor. */
     #[InjectAsReadonly]
     protected OsPreferences $prefs;
+
+    /**
+     * The worker container, used to resolve invocable skills WITH property
+     * injection so tenant-aware stores reach them (see executor()). Injected
+     * rather than reached via ContainerFactory:: (the staticContainerAccess
+     * rule) — the container is itself an injectable readonly service.
+     */
+    #[InjectAsReadonly]
+    protected ContainerInterface $container;
 
     /**
      * Built once and cached for the lifetime of this (worker-scoped) service:
@@ -491,6 +502,18 @@ final class SkillLoopRunner
     private function plannerRequest(string $userMessage, SkillManifest $manifest): LlmRequest
     {
         $persona = (new PersonaRegistry())->framing('os');
+        // Pin the ASSISTANT's reply language to the OS locale — without an
+        // explicit instruction the model guesses from the user's phrasing and
+        // drifts (answering English to a Ukrainian OS, or vice versa). The
+        // explicit preference wins; '' = the request's resolved locale.
+        $locale = $this->prefs->locale();
+        if ($locale === '') {
+            $locale = \Semitexa\Locale\Context\LocaleContextStore::getLocale();
+        }
+        $language = self::LANGUAGE_NAMES[$locale] ?? null;
+        if ($language !== null && $persona !== '') {
+            $persona .= "\nAlways reply in {$language}, regardless of the language the user writes in — unless they explicitly ask you to switch (then use the set-locale skill).";
+        }
 
         return new LlmRequest(
             systemPrompt: (new Planner())->buildSystemPrompt(
@@ -511,6 +534,15 @@ final class SkillLoopRunner
      * whichever lands first).
      */
     private bool $plannerWarm = false;
+
+    /** Locale code → language name for the reply-language instruction. */
+    private const LANGUAGE_NAMES = [
+        'en' => 'English',
+        'uk' => 'Ukrainian (українська)',
+        'de' => 'German (Deutsch)',
+        'pl' => 'Polish (polski)',
+        'ru' => 'Russian',
+    ];
 
     /**
      * The provider used for routing: reasoning trace OFF (we only consume the
@@ -589,7 +621,30 @@ final class SkillLoopRunner
     {
         if ($this->executor === null) {
             $this->consoleApp ??= new ConsoleApplication();
-            $this->executor = new SkillExecutor($this->consoleApp);
+            // DI-backed skill resolution: without a resolver SkillExecutor
+            // does `new $class()`, so a skill that touches tenant data (weave
+            // recall/show/remember) would construct its store bare — with NO
+            // injected coroutine-local tenant context — and silently read/write
+            // the 'default' partition regardless of the request's tenant. The
+            // resolver constructs the skill through the container and applies
+            // #[InjectAsReadonly], so injected stores carry the request tenant.
+            $container = $this->container;
+            $this->executor = new SkillExecutor(
+                $this->consoleApp,
+                static function (string $class) use ($container): object {
+                    // resolve() auto-wires the skill; injectInto() applies its
+                    // #[InjectAsReadonly] (the tenant-aware stores). Both live on
+                    // the concrete container; the bound type is the PSR interface.
+                    if ($container instanceof SemitexaContainer) {
+                        $skill = $container->resolve($class);
+                        $container->injectInto($skill);
+
+                        return $skill;
+                    }
+
+                    return new $class();
+                },
+            );
         }
 
         return $this->executor;

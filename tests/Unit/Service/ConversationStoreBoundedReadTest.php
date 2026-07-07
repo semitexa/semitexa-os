@@ -30,6 +30,7 @@ final class ConversationStoreBoundedReadTest extends TestCase
         $this->db->execute(
             'CREATE TABLE os_conversation_turn (
                 id TEXT PRIMARY KEY,
+                tenant_id TEXT,
                 role TEXT NOT NULL,
                 text TEXT NOT NULL,
                 meta_json TEXT NOT NULL DEFAULT "[]",
@@ -94,10 +95,11 @@ final class ConversationStoreBoundedReadTest extends TestCase
         // details: id order == insertion order == turn number.
         for ($i = 1; $i <= $n; $i++) {
             $this->db->execute(
-                'INSERT INTO os_conversation_turn (id, role, text, meta_json, created_at)
-                 VALUES (:id, :role, :text, :meta, :created)',
+                'INSERT INTO os_conversation_turn (id, tenant_id, role, text, meta_json, created_at)
+                 VALUES (:id, :tenant, :role, :text, :meta, :created)',
                 [
                     'id' => sprintf('turn-%08d', $i),
+                    'tenant' => 'default',
                     'role' => ConversationStore::ROLE_USER,
                     'text' => 'turn-' . $i,
                     'meta' => '[]',

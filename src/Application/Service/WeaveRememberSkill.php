@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Service;
 
+use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Llm\Attribute\AsAiSkill;
 use Semitexa\Llm\Domain\Contract\InvocableSkillInterface;
 use Semitexa\Llm\Domain\Enum\AiArgumentPolicy;
@@ -34,6 +35,10 @@ use Semitexa\Llm\Domain\Enum\AiRiskLevel;
 )]
 final class WeaveRememberSkill implements InvocableSkillInterface
 {
+    /** Tenant-aware via container injection (SkillLoopRunner's DI resolver). */
+    #[InjectAsReadonly]
+    protected OsGraph $graph;
+
     public function invoke(array $arguments): string
     {
         $what = trim((string) ($arguments['what'] ?? ''));
@@ -42,7 +47,7 @@ final class WeaveRememberSkill implements InvocableSkillInterface
         }
 
         try {
-            $result = (new OsGraph())->remember(
+            $result = $this->graph->remember(
                 $what,
                 (string) ($arguments['kind'] ?? ''),
                 (string) ($arguments['connect_to'] ?? ''),
