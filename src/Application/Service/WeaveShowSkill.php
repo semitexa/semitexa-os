@@ -9,7 +9,8 @@ use Semitexa\Llm\Domain\Contract\InvocableSkillInterface;
 use Semitexa\Llm\Domain\Enum\AiArgumentPolicy;
 use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
 use Semitexa\Llm\Domain\Enum\AiRiskLevel;
-use Semitexa\Weave\Application\Service\GraphStore;
+use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Weave\Domain\Contract\GraphStoreInterface;
 
 /**
  * Intent-route into the contextual Workspace: "покажи Semitexa у моєму світі"
@@ -34,6 +35,10 @@ use Semitexa\Weave\Application\Service\GraphStore;
 )]
 final class WeaveShowSkill implements InvocableSkillInterface
 {
+    /** Tenant-aware via container injection (SkillLoopRunner's DI resolver). */
+    #[InjectAsReadonly]
+    protected GraphStoreInterface $graph;
+
     public function invoke(array $arguments): string
     {
         $query = trim((string) ($arguments['query'] ?? ''));
@@ -41,7 +46,7 @@ final class WeaveShowSkill implements InvocableSkillInterface
             return 'What should I focus your world on?';
         }
 
-        $found = (new GraphStore())->search($query, 1);
+        $found = $this->graph->search($query, 1);
         if (!isset($found[0])) {
             return 'I don\'t have "' . $query . '" in your world yet — tell me about it and I\'ll remember.';
         }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Service;
 
+use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Llm\Attribute\AsAiSkill;
 use Semitexa\Llm\Domain\Contract\InvocableSkillInterface;
 use Semitexa\Llm\Domain\Enum\AiArgumentPolicy;
@@ -31,8 +32,12 @@ use Semitexa\Llm\Domain\Enum\AiRiskLevel;
 )]
 final class WeaveRecallSkill implements InvocableSkillInterface
 {
+    /** Tenant-aware via container injection (SkillLoopRunner's DI resolver). */
+    #[InjectAsReadonly]
+    protected OsGraph $graph;
+
     public function invoke(array $arguments): string
     {
-        return (new OsGraph())->recall((string) ($arguments['query'] ?? ''));
+        return $this->graph->recall((string) ($arguments['query'] ?? ''));
     }
 }

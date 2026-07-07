@@ -18,7 +18,8 @@
         "semitexa/platform-settings": "*",
         "semitexa/platform-ui": "*",
         "semitexa/theme": "*",
-        "semitexa/weave": "*"
+        "semitexa/weave": "*",
+        "semitexa/update": "*"
     },
     "require-dev": {
         "phpunit/phpunit": "^10.0"
