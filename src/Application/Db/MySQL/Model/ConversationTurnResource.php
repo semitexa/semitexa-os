@@ -9,6 +9,7 @@ use Semitexa\Orm\Attribute\Column;
 use Semitexa\Orm\Attribute\FromTable;
 use Semitexa\Orm\Attribute\Index;
 use Semitexa\Orm\Attribute\PrimaryKey;
+use Semitexa\Orm\Attribute\TenantScoped;
 use Semitexa\Orm\Metadata\HasColumnReferences;
 use Semitexa\Orm\Metadata\HasRelationReferences;
 
@@ -19,10 +20,17 @@ use Semitexa\Orm\Metadata\HasRelationReferences;
  * timestamp prefix means lexicographic id order IS chronological order, so the
  * transcript reads back in sequence without a separate ordering column.
  *
+ * Tenant-scoped (`same_storage` column strategy, mirroring
+ * `CalendarEventResource`): every read runs under the ambient tenant and every
+ * write is stamped with it, so one tenant's OS can never read or clear
+ * another's transcript. Rows carry the literal `'default'` sentinel for the
+ * default/single-tenant context.
+ *
  * `final readonly` + constructor-promoted columns per the current ORM contract.
  */
 #[FromTable(name: 'os_conversation_turn')]
-#[Index(columns: ['created_at'], name: 'idx_os_conversation_created')]
+#[Index(columns: ['tenant_id', 'created_at'], name: 'idx_os_conversation_scope_created')]
+#[TenantScoped(strategy: 'same_storage', column: 'tenant_id')]
 final readonly class ConversationTurnResource
 {
     use HasColumnReferences;
@@ -32,6 +40,10 @@ final readonly class ConversationTurnResource
         #[PrimaryKey(strategy: 'manual')]
         #[Column(type: MySqlType::Varchar, length: 36)]
         public string $id,
+
+        /** Owning tenant; the ORM tenant gate filters every query by this. */
+        #[Column(type: MySqlType::Varchar, length: 64, nullable: true)]
+        public ?string $tenant_id,
 
         #[Column(type: MySqlType::Varchar, length: 16)]
         public string $role,

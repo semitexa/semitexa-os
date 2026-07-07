@@ -7,6 +7,8 @@ namespace Semitexa\Os\Application\Service;
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Log\FallbackErrorLogger;
+use Semitexa\Core\Tenant\TenantContextAccess;
+use Semitexa\Core\Tenant\TenantContextStoreInterface;
 use Semitexa\Orm\Application\Service\Uuid7;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Direction;
@@ -47,7 +49,32 @@ final class ConversationStore
     #[InjectAsReadonly]
     protected OrmManager $orm;
 
+    /**
+     * Ambient-tenant seam (coroutine-local): resolved AT CALL TIME so this
+     * worker-scoped singleton stays per-request-correct without becoming
+     * execution-scoped. Mirrors CalendarEventDbRepository.
+     */
+    #[InjectAsReadonly]
+    protected TenantContextStoreInterface $tenantContextStore;
+
     private ?DomainRepository $repository = null;
+
+    /** Test seam — production path uses property injection. */
+    public function withTenantContextStore(TenantContextStoreInterface $store): self
+    {
+        $this->tenantContextStore = $store;
+
+        return $this;
+    }
+
+    /** Test seam — production path uses property injection. */
+    public function withOrmManager(OrmManager $orm): self
+    {
+        $this->orm = $orm;
+        $this->repository = null;
+
+        return $this;
+    }
 
     /**
      * Append one turn. Empty text is ignored. Best-effort — persistence must
@@ -63,8 +90,9 @@ final class ConversationStore
         }
 
         try {
-            $this->repository()->insert(new ConversationTurnResource(
+            $this->scoped()->insert(new ConversationTurnResource(
                 id: Uuid7::generate(),
+                tenant_id: $this->currentTenantId(),
                 role: $role === self::ROLE_USER ? self::ROLE_USER : self::ROLE_ASSISTANT,
                 text: $text,
                 meta_json: (string) json_encode($meta, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
@@ -100,7 +128,7 @@ final class ConversationStore
         $effective = ($limit > 0 && $limit < self::MAX_RETURNED) ? $limit : self::MAX_RETURNED;
 
         // Most-recent N via id DESC + limit, then flip back to chronological.
-        $rows = $this->repository()->query()
+        $rows = $this->scoped()->query()
             ->orderBy(ConversationTurnResource::column('id'), Direction::Desc)
             ->limit($effective)
             ->fetchAllAs(ConversationTurnResource::class, $this->orm()->getMapperRegistry());
@@ -123,7 +151,7 @@ final class ConversationStore
 
     public function count(): int
     {
-        return $this->repository()->query()->count();
+        return $this->scoped()->query()->count();
     }
 
     /**
@@ -134,7 +162,7 @@ final class ConversationStore
     public function latestId(): string
     {
         /** @var list<ConversationTurnResource> $rows */
-        $rows = $this->repository()->query()
+        $rows = $this->scoped()->query()
             ->orderBy(ConversationTurnResource::column('id'), Direction::Desc)
             ->limit(1)
             ->fetchAllAs(ConversationTurnResource::class, $this->orm()->getMapperRegistry());
@@ -151,7 +179,7 @@ final class ConversationStore
      */
     public function turnsAfter(string $afterId, int $limit = 20): array
     {
-        $query = $this->repository()->query();
+        $query = $this->scoped()->query();
         if ($afterId !== '') {
             $query = $query->where(ConversationTurnResource::column('id'), Operator::GreaterThan, $afterId);
         }
@@ -188,7 +216,7 @@ final class ConversationStore
     public function proactiveAfter(string $afterId, int $scan = 40): array
     {
         /** @var list<ConversationTurnResource> $rows */
-        $rows = $this->repository()->query()
+        $rows = $this->scoped()->query()
             ->orderBy(ConversationTurnResource::column('id'), Direction::Desc)
             ->limit($scan)
             ->fetchAllAs(ConversationTurnResource::class, $this->orm()->getMapperRegistry());
@@ -217,7 +245,31 @@ final class ConversationStore
      */
     public function clear(): void
     {
-        $this->orm()->getAdapter()->execute('DELETE FROM `os_conversation_turn`');
+        // Tenant-filtered bulk DELETE — a raw unscoped DELETE would wipe EVERY
+        // tenant's transcript. `os_conversation_turn` is not live-scope-bound
+        // (no #[WatchScopes]), so no invalidation is skipped by going direct.
+        $this->orm()->getAdapter()->execute(
+            'DELETE FROM `os_conversation_turn` WHERE `tenant_id` = :tenant_id',
+            ['tenant_id' => $this->currentTenantId()],
+        );
+    }
+
+    /** Repository bound to the ambient tenant — the ORM gate filters every query. */
+    private function scoped(): DomainRepository
+    {
+        return $this->repository()->forTenant($this->currentTenantId());
+    }
+
+    /**
+     * The current tenant id, or the 'default' sentinel for the
+     * default/single-tenant context — never null, so the fail-closed tenant
+     * filter always binds a concrete value (CalendarEventDbRepository convention).
+     */
+    private function currentTenantId(): string
+    {
+        $context = isset($this->tenantContextStore) ? $this->tenantContextStore->tryGet() : null;
+
+        return TenantContextAccess::tenantIdOrDefault($context);
     }
 
     private function repository(): DomainRepository
