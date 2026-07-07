@@ -88,18 +88,27 @@ final class CalendarAppHandler implements TypedHandlerInterface
     data-ui-calendar-view="month"
     data-ui-calendar-live="0"
     class="uical"></div>
-  <script type="module" src="__UI_CORE_JS__"></script>
-  <script defer src="__CALENDAR_DATES_JS__"></script>
-  <script defer src="__CALENDAR_RUNTIME_JS__"></script>
+  <script type="importmap">__IMPORT_MAP__</script>
+  <script type="module" src="__CALENDAR_RUNTIME_JS__"></script>
 </body></html>
 HTML;
 
         // Fingerprinted URLs so StaticAssetHandler can serve the platform-ui
         // assets with immutable caching (raw /assets/ URLs forfeit that).
+        // calendar-runtime is an ES module importing 'platform-ui/core' and
+        // 'platform-ui/dates' — the import map (which must precede the module
+        // tag) resolves those to fingerprinted URLs; the import graph loads
+        // them, so only the runtime needs a script tag.
+        $importMap = json_encode([
+            'imports' => [
+                'platform-ui/core' => AssetManager::getUrl('js/ui-core.js', 'platform-ui'),
+                'platform-ui/dates' => AssetManager::getUrl('js/calendar-dates.js', 'platform-ui'),
+            ],
+        ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+
         $html = strtr($html, [
             '__CALENDAR_CSS__' => AssetManager::getUrl('css/calendar.css', 'platform-ui'),
-            '__UI_CORE_JS__' => AssetManager::getUrl('js/ui-core.js', 'platform-ui'),
-            '__CALENDAR_DATES_JS__' => AssetManager::getUrl('js/calendar-dates.js', 'platform-ui'),
+            '__IMPORT_MAP__' => $importMap,
             '__CALENDAR_RUNTIME_JS__' => AssetManager::getUrl('js/calendar-runtime.js', 'platform-ui'),
         ]);
 
