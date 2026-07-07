@@ -88,9 +88,9 @@ final class CalendarAppHandler implements TypedHandlerInterface
     data-ui-calendar-view="month"
     data-ui-calendar-live="0"
     class="uical"></div>
-  <script src="__UI_CORE_JS__"></script>
-  <script src="__CALENDAR_DATES_JS__"></script>
-  <script src="__CALENDAR_RUNTIME_JS__"></script>
+  <script type="module" src="__UI_CORE_JS__"></script>
+  <script defer src="__CALENDAR_DATES_JS__"></script>
+  <script defer src="__CALENDAR_RUNTIME_JS__"></script>
 </body></html>
 HTML;
 
