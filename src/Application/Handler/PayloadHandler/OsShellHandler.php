@@ -11,6 +11,7 @@ use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Llm\Application\Service\SkillRegistry;
 use Semitexa\Os\Application\Payload\Request\OsShellPayload;
 use Semitexa\Os\Application\Resource\Response\OsShellResource;
+use Semitexa\Os\Application\Service\InputLayoutStore;
 use Semitexa\Os\Application\Service\OsPreferences;
 use Semitexa\Os\Application\Service\SkillLoopRunner;
 use Semitexa\Os\Domain\Enum\WindowMode;
@@ -27,6 +28,9 @@ final class OsShellHandler implements TypedHandlerInterface
 
     #[InjectAsReadonly]
     protected OsPreferences $prefs;
+
+    #[InjectAsReadonly]
+    protected InputLayoutStore $inputLayouts;
 
     /**
      * The window-hosting mode this install is *permitted* to use. The shell
@@ -73,6 +77,7 @@ final class OsShellHandler implements TypedHandlerInterface
             ->withAssistantName($this->prefs->assistantName())
             ->withUserName($this->prefs->userName())
             ->withLocale($locale, $strings)
+            ->withInputLayouts($this->inputLayouts->state())
             ->withWindowMode($this->windowMode->value, $this->bridgeUrl);
     }
 

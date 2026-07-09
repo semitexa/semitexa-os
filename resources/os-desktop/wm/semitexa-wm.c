@@ -15,6 +15,7 @@
 #include <X11/keysym.h>
 #include <X11/Xft/Xft.h>
 #include <X11/extensions/shape.h>
+#include <X11/cursorfont.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,9 +47,22 @@
 #define C_ACCENT       0x37b7ff
 #define C_DESKTOP_BG   0x0a1a2f
 
+/* Edge-resize grips: invisible InputOnly strips over the frame's edges and
+   corners (the client window covers everything below the titlebar, so plain
+   border clicks never reach the frame). Mirrors the web shell's .os-win__rs
+   handles: 6px strips, 14px corners, directional cursors. */
+#define GRIP_EDGE   6
+#define GRIP_CORNER 14
+#define GRIP_N 1
+#define GRIP_S 2
+#define GRIP_E 4
+#define GRIP_W 8
+#define NGRIPS 8
+
 typedef struct {
     Window client;
     Window frame;
+    Window grip[NGRIPS];
     int x, y;            /* frame position */
     int cw, ch;          /* client (content) size */
     int minimized;
@@ -56,6 +70,17 @@ typedef struct {
     int sx, sy, scw, sch; /* saved geom for un-maximize */
     int used;
 } Client;
+
+static const int grip_dir[NGRIPS] = {
+    GRIP_N, GRIP_S, GRIP_E, GRIP_W,
+    GRIP_N | GRIP_E, GRIP_N | GRIP_W, GRIP_S | GRIP_E, GRIP_S | GRIP_W,
+};
+static const unsigned int grip_cursor_shape[NGRIPS] = {
+    XC_top_side, XC_bottom_side, XC_right_side, XC_left_side,
+    XC_top_right_corner, XC_top_left_corner,
+    XC_bottom_right_corner, XC_bottom_left_corner,
+};
+static Cursor grip_cursor[NGRIPS];
 
 static Display *dpy;
 static Window   root;
@@ -68,7 +93,8 @@ static Window   focused = None;
 static Window   desktop_win = None;   /* frameless full-screen shell/launcher */
 
 static struct {
-    int mode;            /* 0 none, 1 move, 2 resize */
+    int mode;            /* 0 none, 1 move, 2 resize (Alt+B3), 3 edge resize */
+    int edge;            /* GRIP_* mask for mode 3 */
     Client *c;
     int start_px, start_py;
     int start_x, start_y, start_w, start_h;
@@ -113,6 +139,51 @@ static Client *alloc_client(void) {
     for (int i = 0; i < MAX_CLIENTS; i++)
         if (!clients[i].used) { memset(&clients[i], 0, sizeof(Client)); clients[i].used = 1; return &clients[i]; }
     return NULL;
+}
+static Client *find_by_grip(Window w, int *dir) {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (!clients[i].used) continue;
+        for (int g = 0; g < NGRIPS; g++)
+            if (clients[i].grip[g] == w) { *dir = grip_dir[g]; return &clients[i]; }
+    }
+    return NULL;
+}
+
+/* Keep the grips glued to the frame's current edges; hide them while
+   maximized (parity with .os-win.max hiding .os-win__rs). */
+static void place_grips(Client *c) {
+    int fw = c->cw, fh = c->ch + TITLE_H;
+    for (int g = 0; g < NGRIPS; g++) {
+        if (!c->grip[g]) continue;
+        if (c->maximized) { XUnmapWindow(dpy, c->grip[g]); continue; }
+        int x = 0, y = 0, w = GRIP_CORNER, h = GRIP_CORNER;
+        switch (grip_dir[g]) {
+            case GRIP_N: x = GRIP_CORNER; y = 0;              w = fw - 2 * GRIP_CORNER; h = 4; break;
+            case GRIP_S: x = GRIP_CORNER; y = fh - GRIP_EDGE; w = fw - 2 * GRIP_CORNER; h = GRIP_EDGE; break;
+            case GRIP_E: x = fw - GRIP_EDGE; y = GRIP_CORNER; w = GRIP_EDGE; h = fh - 2 * GRIP_CORNER; break;
+            case GRIP_W: x = 0;              y = GRIP_CORNER; w = GRIP_EDGE; h = fh - 2 * GRIP_CORNER; break;
+            case GRIP_N | GRIP_E: x = fw - GRIP_CORNER; y = 0; break;
+            case GRIP_N | GRIP_W: x = 0;                y = 0; break;
+            case GRIP_S | GRIP_E: x = fw - GRIP_CORNER; y = fh - GRIP_CORNER; break;
+            case GRIP_S | GRIP_W: x = 0;                y = fh - GRIP_CORNER; break;
+        }
+        if (w < 1) w = 1;
+        if (h < 1) h = 1;
+        XMoveResizeWindow(dpy, c->grip[g], x, y, w, h);
+        XMapWindow(dpy, c->grip[g]);
+        XRaiseWindow(dpy, c->grip[g]);   /* above the client, or it never sees clicks */
+    }
+}
+
+static void create_grips(Client *c) {
+    XSetWindowAttributes a;
+    for (int g = 0; g < NGRIPS; g++) {
+        a.event_mask = ButtonPressMask;
+        a.cursor = grip_cursor[g];
+        c->grip[g] = XCreateWindow(dpy, c->frame, 0, 0, 1, 1, 0, 0, InputOnly,
+                                   CopyFromParent, CWEventMask | CWCursor, &a);
+    }
+    place_grips(c);
 }
 
 static void get_title(Window w, char *buf, int n) {
@@ -210,6 +281,7 @@ static void draw_frame(Client *c) {
     XftColorFree(dpy, DefaultVisual(dpy, screen), DefaultColormap(dpy, screen), &tc);
 
     shape_frame(c);   /* keep the rounded-corner mask in sync with the current size */
+    place_grips(c);   /* grips track every size change (drag, configure, maximize) */
 }
 
 static void set_border(Client *c) {
@@ -301,6 +373,7 @@ static void manage(Window w) {
 
     c->client = w; c->frame = frame;
     c->x = fx; c->y = fy; c->cw = cw; c->ch = ch;
+    create_grips(c);
     focus_client(c);
 }
 
@@ -397,7 +470,23 @@ static void on_configurerequest(XConfigureRequestEvent *e) {
 }
 
 static void on_buttonpress(XButtonEvent *e) {
-    Client *c = find_by_frame(e->window);
+    int dir = 0;
+    Client *c = find_by_grip(e->window, &dir);
+    if (c) {
+        focus_client(c);
+        drag.mode = 3; drag.edge = dir; drag.c = c;
+        drag.start_px = e->x_root; drag.start_py = e->y_root;
+        drag.start_x = c->x; drag.start_y = c->y;
+        drag.start_w = c->cw; drag.start_h = c->ch;
+        /* explicit grab: motion keeps flowing to us with the edge cursor even
+           when the pointer crosses into the client (chromium) mid-drag */
+        int g = 0; for (int i = 0; i < NGRIPS; i++) if (grip_dir[i] == dir) g = i;
+        XGrabPointer(dpy, e->window, False,
+                     PointerMotionMask | ButtonReleaseMask,
+                     GrabModeAsync, GrabModeAsync, None, grip_cursor[g], CurrentTime);
+        return;
+    }
+    c = find_by_frame(e->window);
     if (c) {
         focus_client(c);
         int fw = c->cw, by = (TITLE_H - BTN_SZ) / 2;
@@ -434,6 +523,20 @@ static void on_motion(XMotionEvent *e) {
         c->x = drag.start_x + dx; c->y = drag.start_y + dy;
         c->maximized = 0;
         XMoveWindow(dpy, c->frame, c->x, c->y);
+    } else if (drag.mode == 3) {
+        /* edge/corner resize: opposite edge stays anchored */
+        int nx = drag.start_x, ny = drag.start_y;
+        int nw = drag.start_w, nh = drag.start_h;
+        if (drag.edge & GRIP_E) nw = drag.start_w + dx;
+        if (drag.edge & GRIP_S) nh = drag.start_h + dy;
+        if (drag.edge & GRIP_W) { nw = drag.start_w - dx; nx = drag.start_x + dx; }
+        if (drag.edge & GRIP_N) { nh = drag.start_h - dy; ny = drag.start_y + dy; }
+        if (nw < MIN_W) { if (drag.edge & GRIP_W) nx -= MIN_W - nw; nw = MIN_W; }
+        if (nh < MIN_H) { if (drag.edge & GRIP_N) ny -= MIN_H - nh; nh = MIN_H; }
+        c->x = nx; c->y = ny; c->cw = nw; c->ch = nh; c->maximized = 0;
+        XMoveResizeWindow(dpy, c->frame, c->x, c->y, c->cw, c->ch + TITLE_H);
+        XResizeWindow(dpy, c->client, c->cw, c->ch);
+        draw_frame(c);
     } else {
         int nw = drag.start_w + dx, nh = drag.start_h + dy;
         if (nw < MIN_W) nw = MIN_W;
@@ -445,7 +548,11 @@ static void on_motion(XMotionEvent *e) {
     }
 }
 
-static void on_buttonrelease(XButtonEvent *e) { (void)e; drag.mode = 0; drag.c = NULL; }
+static void on_buttonrelease(XButtonEvent *e) {
+    (void)e;
+    if (drag.mode == 3) XUngrabPointer(dpy, CurrentTime);
+    drag.mode = 0; drag.c = NULL;
+}
 
 static void on_expose(XExposeEvent *e) {
     if (e->count) return;
@@ -541,6 +648,9 @@ int main(void) {
 
     WM_PROTOCOLS     = XInternAtom(dpy, "WM_PROTOCOLS", False);
     WM_DELETE_WINDOW = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
+
+    for (int g = 0; g < NGRIPS; g++)
+        grip_cursor[g] = XCreateFontCursor(dpy, grip_cursor_shape[g]);
 
     XSetWindowBackground(dpy, root, pixel(C_DESKTOP_BG));
     XClearWindow(dpy, root);

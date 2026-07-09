@@ -178,6 +178,50 @@ final class OsGraph
     }
 
     /**
+     * The project-first view the Files app boots from: every Project node with
+     * its resolved root folder and a per-kind census of what hangs off it.
+     * Projects are the gravitational centre of the Weave (see NodeKind), so
+     * this IS the OS's project list — no filesystem scanning involved.
+     *
+     * Root resolution: the project's own `path` property (an explicit root)
+     * wins; else the first attached Folder neighbour that carries a path
+     * (attachPath hangs folders off projects with one PART_OF hop); else null
+     * — the project exists in the world but has no files yet.
+     *
+     * @return list<array{id: string, title: string, path: string|null, folders: list<array{title: string, path: string}>, counts: array<string, int>, updated_at: string|null}>
+     */
+    public function projects(): array
+    {
+        $projects = [];
+        foreach ($this->graph()->nodesByKind(NodeKind::Project) as $project) {
+            $folders = [];
+            $counts = [];
+            foreach ($this->graph()->neighborhood($project->id)['neighbors'] as $neighbor) {
+                if (($neighbor->properties['is_self'] ?? false) === true) {
+                    continue; // the owner is the graph's root, not project content
+                }
+                $counts[$neighbor->kind->value] = ($counts[$neighbor->kind->value] ?? 0) + 1;
+                $path = $neighbor->properties['path'] ?? null;
+                if ($neighbor->kind === NodeKind::Folder && is_string($path) && $path !== '') {
+                    $folders[] = ['title' => $neighbor->title, 'path' => $path];
+                }
+            }
+
+            $ownPath = $project->properties['path'] ?? null;
+            $projects[] = [
+                'id' => $project->id,
+                'title' => $project->title,
+                'path' => is_string($ownPath) && $ownPath !== '' ? $ownPath : ($folders[0]['path'] ?? null),
+                'folders' => $folders,
+                'counts' => $counts,
+                'updated_at' => $project->updatedAt,
+            ];
+        }
+
+        return $projects;
+    }
+
+    /**
      * Recall from the graph: matches for a query term, or (no term) a summary of
      * what is connected to the owner. Returns assistant-ready prose.
      */

@@ -61,6 +61,18 @@ final class OsShellResource extends HtmlResponse implements ResourceInterface
     }
 
     /**
+     * The input-layout state: enabled layouts (with keymaps), the active code,
+     * and the switch hotkey — the shell's layout switcher and keydown remapper
+     * boot from this and stay in sync via the preferences poll.
+     *
+     * @param array<string, mixed> $state see InputLayoutStore::state()
+     */
+    public function withInputLayouts(array $state): static
+    {
+        return $this->with('inputLayouts', $state);
+    }
+
+    /**
      * The install's declared window-hosting mode ('web' | 'os') and the local
      * bridge URL used to raise real native windows in OS mode. The shell treats
      * these as a *capability gate*; it still probes at runtime before promoting.

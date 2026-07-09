@@ -61,6 +61,18 @@
         // assistant announces each unprompted message (e.g. a task auto-completed) once.
         let PROACTIVE_CURSOR = (() => { try { return localStorage.getItem('semitexa_os_proactive') || ''; } catch (e) { return ''; } })();
         const setProactiveCursor = (v) => { PROACTIVE_CURSOR = v; try { localStorage.setItem('semitexa_os_proactive', v); } catch (e) {} };
+        // Input layouts: enabled layouts (with keymaps), active code, switch
+        // hotkey — server-owned (chat skills mutate it), shape from
+        // InputLayoutStore::state(). Normalise defensively so a missing/partial
+        // boot payload still leaves a working pass-through layout.
+        function normalizeInputLayouts(raw) {
+            const d = (raw && typeof raw === 'object') ? raw : {};
+            let layouts = Array.isArray(d.layouts) ? d.layouts.filter(l => l && l.code && l.keymap) : [];
+            if (!layouts.length) layouts = [{ code: 'en', label: 'English', short: 'EN', keymap: { normal: {}, shift: {}, altgr: {} } }];
+            const active = layouts.some(l => l.code === d.active) ? d.active : layouts[0].code;
+            const hk = (d.hotkey && Array.isArray(d.hotkey.modifiers) && d.hotkey.modifiers.length) ? d.hotkey : { modifiers: ['alt', 'shift'], key: null };
+            return { layouts, active, hotkey: { modifiers: hk.modifiers, key: hk.key || null }, hotkeyLabel: d.hotkey_label || 'Alt+Shift' };
+        }
 
         const S = {
             screen: RESUMED ? 'os' : 'awakening', awake: RESUMED ? 'snapshot' : 'idle',
@@ -70,11 +82,14 @@
             units: [],            // real skills in flight for the current/last run: {name,status,busy,exit}
             log: [{ t: 'os:session · ready', tone: 'mute' }],
             cue: null, busy: false, dialogs: [], pos: {}, recents: [], webApps: [],
+            inputLayouts: normalizeInputLayouts(boot.inputLayouts), // see normalizeInputLayouts
+            layoutMenu: false, // the topbar layout dropdown
+            chillApps: {}, // remembered leisure apps: activity => skill (synced from /os/preferences)
             launchQuery: '',      // Focus launcher type-to-filter text
             windowMode: 'web', // resolved live: 'os' only once the bridge answers (see probeBridge)
             chatDock: CHATDOCK, // 'open' | 'collapsed' — the Focus/Chill side chat
             proactiveUnseen: 0, // proactive messages arrived while the dock was collapsed
-            tasks: [], // real tasks (os_task) shown as "processes" in Chill; empty if the tasks package is absent
+            processes: [], // the OS process registry (/os/process/list) — anything reporting work, any origin
             input: '', clock: new Date(), snapshot: null,
             history: [],          // persisted dialog transcript (both sides) shown as the Ambient chat
             queue: [],            // messages sent but not yet answered — shown instantly, processed one at a time
@@ -114,6 +129,112 @@
             try { localStorage.setItem('semitexa_os_theme_mode', mode); } catch (e) {}
             applyThemeMode();
             post('/os/preferences', { theme_mode: mode });
+        }
+
+        // ---------- input layouts ----------
+        // The active layout remaps physical keys (KeyboardEvent.code) to the
+        // language's characters while typing in shell inputs — on the VM the
+        // browser IS the desktop, so this is the OS's layout mechanism. Layouts
+        // are enabled via chat ("додай німецьку розкладку"); switching is the
+        // topbar badge (mouse) or the configurable hotkey (set-layout-hotkey).
+        const activeLayout = () => S.inputLayouts.layouts.find(l => l.code === S.inputLayouts.active) || S.inputLayouts.layouts[0];
+        function setInputLayout(code) {
+            if (!S.inputLayouts.layouts.some(l => l.code === code) || code === S.inputLayouts.active) return;
+            S.inputLayouts.active = code;
+            post('/os/preferences', { input_layout: code });
+        }
+        function cycleInputLayout() {
+            const ls = S.inputLayouts.layouts;
+            if (ls.length < 2) return;
+            const i = ls.findIndex(l => l.code === S.inputLayouts.active);
+            setInputLayout(ls[(i + 1) % ls.length].code);
+            blip(700);
+            // Re-render only outside a text field: a re-render would steal focus
+            // mid-typing. The badge is patched in place instead.
+            const el = document.activeElement;
+            const typing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+            if (typing) { const b = root.querySelector('.os-layoutbtn__code'); if (b) b.textContent = activeLayout().short; }
+            else render();
+        }
+        // Does this keydown complete the switch hotkey? Modifier-only combos
+        // (Alt+Shift) fire when the last modifier goes down; key combos
+        // (Ctrl+Space) fire on the trigger key with exactly those modifiers.
+        function isLayoutHotkey(e) {
+            const hk = S.inputLayouts.hotkey;
+            const want = { ctrl: hk.modifiers.indexOf('ctrl') !== -1, alt: hk.modifiers.indexOf('alt') !== -1, shift: hk.modifiers.indexOf('shift') !== -1, meta: hk.modifiers.indexOf('meta') !== -1 };
+            const have = { ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey };
+            if (hk.key) {
+                if (e.code !== hk.key) return false;
+                return want.ctrl === have.ctrl && want.alt === have.alt && want.shift === have.shift && want.meta === have.meta;
+            }
+            const MOD = { Control: 'ctrl', Alt: 'alt', Shift: 'shift', Meta: 'meta' };
+            const pressed = MOD[e.key];
+            if (!pressed || !want[pressed]) return false;
+            return want.ctrl === have.ctrl && want.alt === have.alt && want.shift === have.shift && want.meta === have.meta;
+        }
+        // Remap a printable keydown through the active layout's keymap. Returns
+        // the mapped character or null (pass through untouched).
+        function mapKey(e) {
+            const km = activeLayout().keymap;
+            if (!km) return null;
+            const altgr = (e.getModifierState && e.getModifierState('AltGraph')) || (e.altKey && !e.ctrlKey);
+            let ch = null, letterBase = false;
+            if (altgr) {
+                ch = (km.altgr || {})[e.code] || null;
+                if (ch && e.shiftKey) letterBase = true;
+            } else if (e.ctrlKey || e.metaKey) {
+                return null; // never eat shortcuts
+            } else if (e.shiftKey) {
+                ch = (km.shift || {})[e.code] || null;
+                if (!ch) { ch = (km.normal || {})[e.code] || null; letterBase = !!ch; }
+            } else {
+                ch = (km.normal || {})[e.code] || null;
+            }
+            if (!ch) return null;
+            // Case: shift uppercases a letter taken from a lower level; CapsLock
+            // inverts letter case on top of that.
+            let upper = letterBase;
+            try { if (e.getModifierState && e.getModifierState('CapsLock') && ch.toLocaleLowerCase() !== ch.toLocaleUpperCase()) upper = !upper; } catch (err) {}
+            return upper ? ch.toLocaleUpperCase() : ch;
+        }
+        // One global keydown does both jobs: switch on the hotkey, remap
+        // printable keys while focus is in an editable field. Capture phase so
+        // the remap wins before any scoped Enter/Escape handlers see the event
+        // (those keys are never remapped, so they are unaffected).
+        document.addEventListener('keydown', (e) => {
+            if (isLayoutHotkey(e)) { e.preventDefault(); cycleInputLayout(); return; }
+            const el = e.target;
+            const editable = el && (((el.tagName === 'INPUT' && /^(text|search|url|email|password)?$/.test(el.type || 'text')) || el.tagName === 'TEXTAREA') || el.isContentEditable);
+            if (!editable) return;
+            const ch = mapKey(e);
+            if (ch == null) return;
+            e.preventDefault();
+            if (el.isContentEditable) {
+                try { document.execCommand('insertText', false, ch); } catch (err) {}
+                return;
+            }
+            const s = el.selectionStart == null ? el.value.length : el.selectionStart;
+            const en = el.selectionEnd == null ? s : el.selectionEnd;
+            el.setRangeText(ch, s, en, 'end');
+            el.dispatchEvent(new Event('input', { bubbles: true })); // setRangeText fires no input event
+        }, true);
+        // The topbar layout badge — hidden with a single layout, a dropdown of
+        // enabled layouts when clicked (the mouse path to switching).
+        function layoutSwitchHTML() {
+            const ls = S.inputLayouts.layouts;
+            if (ls.length < 2) return '';
+            const cur = activeLayout();
+            const items = ls.map(l => '<button class="os-layoutitem' + (l.code === cur.code ? ' active' : '') + '" data-act="set-layout" data-code="' + esc(l.code) + '">'
+                + '<span class="os-layoutitem__code">' + esc(l.short) + '</span>' + esc(l.label)
+                + (l.code === cur.code ? ico('check', 14) : '') + '</button>').join('');
+            return '<div class="os-layoutswitch">'
+                + '<button class="os-layoutbtn" data-act="layout-menu" title="' + t('switch_layout', 'Switch input layout') + ' · ' + esc(S.inputLayouts.hotkeyLabel) + '">'
+                + ico('keyboard', 15) + '<span class="os-layoutbtn__code">' + esc(cur.short) + '</span></button>'
+                + (S.layoutMenu
+                    ? '<div class="os-layoutmenu">' + items
+                        + '<div class="os-layoutmenu__hint">' + esc(S.inputLayouts.hotkeyLabel) + '</div></div>'
+                    : '')
+                + '</div>';
         }
 
         // ---------- screens ----------
@@ -170,7 +291,7 @@
                 + '<span class="os-clock__date">' + fmtDate(S.clock) + '</span></span>'
                 + '</button>'
                 + '<div class="os-modeswitch">' + btns + '</div>'
-                + '<div class="os-topbar__right">' + themeSwitchHTML()
+                + '<div class="os-topbar__right">' + layoutSwitchHTML() + themeSwitchHTML()
                 + '<button class="os-xray-toggle' + (S.xray?' active':'') + '" data-act="xray">' + ico('scan-eye',16) + t('xray_label', ' X-Ray') + '</button>'
                 + '</div></header>';
         }
@@ -448,33 +569,41 @@
         // Phase 1 is built on what exists (the foreground intent loop); a backend
         // registry for background tasks (copies, downloads) is a later phase.
         function chillProcessesHTML() {
-            // Phase 2: real tasks (os_task) ARE the processes. A task in flight —
-            // especially an automated one advancing on its own — is exactly "what's
-            // running". Tasks list newest-first from /os/app/tasks/list.
-            const tasks = S.tasks || [];
-            const isActive = (t) => t.status === 'in_progress' || (t.automated && t.status !== 'done' && t.status !== 'cancelled');
-            const running = tasks.filter(isActive);
-            const recentDone = tasks.filter(t => t.status === 'done').slice(0, 3);
+            // Phase 3: the OS process registry IS the source. Anything doing
+            // work — PHP packages, iframe apps, the native VM bridge — reports
+            // into /os/process/report; this panel just renders the registry
+            // (/os/process/list) and knows nothing about the producers.
+            const procs = S.processes || [];
+            const running = procs.filter(p => p.status === 'running');
+            const stalled = procs.filter(p => p.status === 'stalled');
+            const recentDone = procs.filter(p => p.status === 'done' || p.status === 'failed').slice(0, 3);
             const loopRun = !!S.run || S.units.length > 0;   // the foreground intent loop is a process too
             const live = running.length > 0 || loopRun;
 
-            const taskCard = (tk) => {
-                const showBar = tk.status === 'in_progress' || (tk.automated && tk.status !== 'done' && tk.status !== 'cancelled');
-                return '<div class="os-proc-task">'
-                    + '<div class="os-proc-task__head">' + ico(tk.automated ? 'bot' : 'circle-dot', 17)
-                    + '<span class="os-proc-task__title">' + esc(tk.title) + '</span>'
-                    + (tk.automated ? '<span class="os-proc-task__auto">' + t('auto_badge', 'auto') + '</span>' : '')
-                    + '<span class="os-proc-task__pct">' + (showBar ? (tk.progress || 0) + '%' : esc(tk.status_label)) + '</span></div>'
-                    + (showBar ? '<div class="os-proc-bar"><i style="width:' + (tk.progress || 0) + '%"></i></div>' : '')
+            const originIcon = { internal: 'cpu', external: 'app-window', native: 'monitor' };
+            const procCard = (p) => {
+                const pct = (p.progress === null || p.progress === undefined) ? null : p.progress;
+                const isStalled = p.status === 'stalled';
+                return '<div class="os-proc-task' + (isStalled ? ' stalled' : '') + '">'
+                    + '<div class="os-proc-task__head">' + ico(originIcon[p.origin] || 'circle-dot', 17)
+                    + '<span class="os-proc-task__title">' + esc(p.title) + '</span>'
+                    + '<span class="os-proc-task__auto">' + esc(p.source) + '</span>'
+                    + '<span class="os-proc-task__pct">' + (isStalled ? esc(p.status_label) : (pct === null ? '…' : pct + '%')) + '</span></div>'
+                    + (isStalled
+                        ? ''
+                        : (pct === null
+                            ? '<div class="os-proc-bar indet"><i></i></div>'
+                            : '<div class="os-proc-bar"><i style="width:' + pct + '%"></i></div>'))
+                    + (p.detail ? '<div class="os-proc-task__detail">' + esc(p.detail) + '</div>' : '')
                     + '</div>';
             };
 
             let inner = '';
             if (loopRun) inner += '<div class="os-chill-loop">' + stageCards() + '</div>';
-            if (running.length) inner += '<div class="os-proc-list">' + running.map(taskCard).join('') + '</div>';
+            if (running.length || stalled.length) inner += '<div class="os-proc-list">' + running.concat(stalled).map(procCard).join('') + '</div>';
             if (recentDone.length) {
                 inner += '<div class="os-proc-recent"><div class="os-proc-recent__h">' + t('recently_completed', 'Recently completed') + '</div>'
-                    + recentDone.map(t => '<div class="os-proc-recent__row">' + ico('check', 14) + '<span>' + esc(t.title) + '</span></div>').join('') + '</div>';
+                    + recentDone.map(p => '<div class="os-proc-recent__row">' + ico(p.status === 'failed' ? 'x' : 'check', 14) + '<span>' + esc(p.title) + '</span></div>').join('') + '</div>';
             }
             if (inner === '') {
                 // No real tasks and no live loop → Phase-1 fallback (durable trace / idle).
@@ -579,11 +708,15 @@
         // chips route through the LLM (run-skill → /os/intent); apps open as windows.
         function chillHTML() {
             const name = boot.userName ? (', ' + esc(boot.userName)) : '';
-            const chip = (icon, label, text) => '<button class="os-chill-chip" data-act="run-skill" data-text="' + esc(text) + '">' + ico(icon, 18) + '<span>' + esc(label) + '</span></button>';
+            // A chip with a REMEMBERED app (data-chill in S.chillApps) opens it
+            // directly — no planner round-trip. First use (or after "change the
+            // music app") routes through the LLM and the opened app sticks.
+            const chip = (icon, label, text, activity) => '<button class="os-chill-chip" data-act="run-skill" data-text="' + esc(text) + '"'
+                + (activity ? ' data-chill="' + activity + '"' : '') + '>' + ico(icon, 18) + '<span>' + esc(label) + '</span></button>';
             const chips = '<div class="os-chill-chips">'
-                + chip('gamepad-2', t('tictactoe_with', 'Tic-tac-toe with ') + boot.assistantName, "Let's play tic-tac-toe")
-                + chip('music', t('music_label', 'Music'), 'Put on some relaxing music')
-                + chip('youtube', 'YouTube', 'Open YouTube to watch something')
+                + chip('gamepad-2', t('tictactoe_with', 'Tic-tac-toe with ') + boot.assistantName, "Let's play tic-tac-toe", 'game')
+                + chip('music', t('music_label', 'Music'), 'Put on some relaxing music', 'music')
+                + chip('youtube', 'YouTube', 'Open YouTube to watch something', 'video')
                 + chip('dices', t('surprise_me', 'Surprise me'), 'Surprise me with something fun to do')
                 + '</div>';
             const leisure = '<div class="os-chill-leisure">'
@@ -1037,6 +1170,9 @@
             S.queue.shift();
             if (d === 'open_dialog') {
                 log('open dialog · ' + (resp.skill||''), 'accent');
+                // A Chill chip's first pick sticks: later presses open directly.
+                if (S._chillPending && resp.skill) { saveChillApp(S._chillPending, resp.skill); }
+                S._chillPending = null;
                 S.run = null; S.surfaces = [];
                 await refreshHistory();
                 // Chill-launched leisure apps (game/music/video) open right in Chill;
@@ -1056,14 +1192,19 @@
             // A skill may have opened a window as a side effect (e.g. open-web-app
             // wraps a site as a dialog). If a new dialog appeared, reveal it.
             if (d === 'executed') {
-                const before = (S.dialogs || []).length;
+                const beforeIds = (S.dialogs || []).map(x => x.id);
                 await fetchDialogs();
                 fetchWebApps(); // an open-web-app may have registered a new app
-                if ((S.dialogs || []).length > before) {
+                const fresh = (S.dialogs || []).filter(x => beforeIds.indexOf(x.id) === -1);
+                if (fresh.length) {
+                    // A leisure intent that opened a window as a side effect (e.g.
+                    // YouTube via open-web-app) also settles the chip's choice.
+                    if (S._chillPending) { saveChillApp(S._chillPending, fresh[0].skill); }
                     if (S.mode !== 'chill') S.mode = 'focus';
                     render();
                 }
             }
+            S._chillPending = null; // any terminal outcome ends the pending chip pick
             processQueue(); // next queued message, if any
         }
         async function approve() {
@@ -1269,6 +1410,15 @@
                     location.reload();
                     return;
                 }
+                // Chill chips: a chat skill may have changed/reset a remembered
+                // leisure app — the map is server-owned, mirror it verbatim.
+                if (d && d.chill_apps && typeof d.chill_apps === 'object') S.chillApps = d.chill_apps;
+                // A chat skill added/removed a layout or changed the hotkey;
+                // swap the whole state in and re-arm the switcher/remapper.
+                if (d && d.input_layouts) {
+                    const next = normalizeInputLayouts(d.input_layouts);
+                    if (JSON.stringify(next) !== JSON.stringify(S.inputLayouts)) { S.inputLayouts = next; changed = true; }
+                }
                 // Reconcile the wall-clock timezone once per session: the browser
                 // knows where the user actually is; time-aware skills and the
                 // planner's date anchor parse against this preference.
@@ -1318,16 +1468,41 @@
                 render();
             } catch (e) {}
         }
-        // Real tasks (os_task) power the Chill "Processes" panel. Soft dependency:
-        // if the tasks package isn't installed the endpoint 404s, S.tasks stays
-        // empty, and Chill falls back to the foreground loop / trace view.
-        async function refreshTasks() {
+        // The OS process registry powers the Chill "Processes" panel — every
+        // producer (PHP packages, iframe apps, the native bridge) reports into
+        // it, so one fetch shows internal AND external work.
+        async function refreshProcesses() {
             try {
-                const r = await fetch('/os/app/tasks/list', { headers: { 'Accept': 'application/json' } });
-                if (!r.ok) { S.tasks = []; return; }
+                const r = await fetch('/os/process/list', { headers: { 'Accept': 'application/json' } });
+                if (!r.ok) { S.processes = []; return; }
                 const d = await r.json();
-                S.tasks = Array.isArray(d.tasks) ? d.tasks : [];
-            } catch (e) { S.tasks = []; }
+                S.processes = Array.isArray(d.processes) ? d.processes : [];
+            } catch (e) { S.processes = []; }
+        }
+        // Phase 2: push, not poll. /os/process/feed re-runs on every os_process
+        // write (registry reports), delivered over the page's shared KISS SSE
+        // connection via ui-core's openFeedChannel. The 3.5s poll below stays
+        // armed but only fires while the feed is NOT live — first paint before
+        // the stream connects, no ui-core on the page, or permanent degrade.
+        let procChannel = null, procFeedLive = false;
+        function startProcessFeed() {
+            if (procChannel || typeof window.EventSource === 'undefined') return;
+            const core = window.SemitexaUi && window.SemitexaUi.core;
+            if (!core || !core.openFeedChannel) return;
+            procChannel = core.openFeedChannel({
+                url: '/os/process/feed',
+                dataEvent: 'ui.collection.data',
+                errorEvent: 'ui.collection.error',
+                onData: (envelope) => {
+                    procFeedLive = true;
+                    S.processes = (envelope && Array.isArray(envelope.data)) ? envelope.data : [];
+                    if (S.screen === 'os' && S.mode === 'chill') render();
+                },
+                onError: () => {},
+                onConnecting: () => { procFeedLive = false; }, // dead stream → poll covers the gap
+                permanentPullDegrade: true,
+                onPermanentDegrade: () => { procFeedLive = false; procChannel = null; },
+            });
         }
         // Live skinning: the LLM skin generator writes a small `:root{}` override
         // (5 themable shell vars) to the server; the shell injects it so the WHOLE
@@ -1374,6 +1549,34 @@
             } catch (e) {}
         }
         async function openDialog(skill) { await post('/os/dialog/open', { skill }); await fetchDialogs(); render(); }
+        // Open a REMEMBERED Chill app without the planner. Web apps go through
+        // their own opener (webapp/open, or a native window in OS mode); UI
+        // skills through dialog/open. If the app has vanished (uninstalled,
+        // removed from the registry), forget the stale choice and fall back to
+        // the normal intent flow so the assistant proposes options again.
+        async function openChillApp(activity, skill, intentText) {
+            blip(700);
+            if (skill.indexOf('webapp:') === 0) {
+                await openWebApp(skill.slice('webapp:'.length));
+                if (isOsMode()) return; // native window raised — no dialog to check
+                const ok = (S.dialogs || []).some(d => d.skill === skill);
+                if (ok) { render(); return; }
+            } else {
+                await post('/os/dialog/open', { skill });
+                await fetchDialogs();
+                const opened = (S.dialogs || []).find(d => d.skill === skill);
+                if (opened) { render(); focusDialog(opened.id); return; }
+            }
+            saveChillApp(activity, ''); // stale — forget it
+            S._chillPending = activity;
+            S.queue.push(intentText); render(); processQueue();
+        }
+        // Persist a chip's app choice (empty skill = forget) — shared source of
+        // truth with the set-chill-app chat skill via /os/preferences.
+        function saveChillApp(activity, skill) {
+            if (skill) S.chillApps[activity] = skill; else delete S.chillApps[activity];
+            post('/os/preferences', { chill_activity: activity, chill_skill: skill || '' });
+        }
         async function dialogState(id, state) { await post('/os/dialog/state', { id, state }); await fetchDialogs(); render(); }
         async function dialogClose(id) { delete S.pos[id]; delete winZ[id]; await post('/os/dialog/close', { id }); await fetchDialogs(); render(); }
 
@@ -1402,9 +1605,11 @@
                 + '<button data-act="dlg-min" data-id="' + d.id + '" title="' + t('minimize', 'Minimize') + '">' + ico('minus', 15) + '</button>'
                 + '<button data-maxbtn data-act="dlg-max" data-id="' + d.id + '" title="' + t('maximize', 'Maximize') + '">' + ico('square', 14) + '</button>'
                 + '<button class="close" data-act="dlg-close" data-id="' + d.id + '" title="' + t('close', 'Close') + '">' + ico('x', 15) + '</button></span></div>'
-                + '<div class="os-win__body"><iframe src="' + esc(d.entry || 'about:blank') + '" title="' + esc(d.title) + '"></iframe></div>';
+                + '<div class="os-win__body"><iframe src="' + esc(d.entry || 'about:blank') + '" title="' + esc(d.title) + '"></iframe></div>'
+                + ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map(dir => '<div class="os-win__rs" data-dir="' + dir + '"></div>').join('');
             node.addEventListener('mousedown', () => focusDialog(d.id));
             bindWindowDrag(node, d.id);
+            bindWindowResize(node, d.id);
             winZ[d.id] = ++zTop;
             return node;
         }
@@ -1422,12 +1627,49 @@
                 const ov = document.createElement('div'); ov.className = 'os-drag-ov'; document.body.appendChild(ov);
                 const move = (ev) => {
                     const nx = Math.max(0, ox + (ev.clientX - startX)), ny = Math.max(0, oy + (ev.clientY - startY));
-                    node.style.left = nx + 'px'; node.style.top = ny + 'px'; S.pos[id] = { x: nx, y: ny };
+                    node.style.left = nx + 'px'; node.style.top = ny + 'px';
+                    S.pos[id] = Object.assign({}, S.pos[id], { x: nx, y: ny }); // keep resized w/h
                 };
                 const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); ov.remove(); };
                 window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
                 e.preventDefault();
             });
+        }
+
+        // Drag any edge/corner to resize (mirrors the native WM's border hit
+        // zones). Size joins x/y in S.pos so syncDialogs re-applies it; the
+        // overlay shields the iframe from eating mousemove, like window drag.
+        function bindWindowResize(node, id) {
+            const MIN_W = 260, MIN_H = 160; // keep in sync with .os-win min-width/min-height
+            node.querySelectorAll('.os-win__rs').forEach(h => h.addEventListener('mousedown', (e) => {
+                const d = (S.dialogs || []).find(x => x.id === id);
+                if (d && d.state === 'maximized') return;
+                focusDialog(id);
+                const dir = h.dataset.dir;
+                const startX = e.clientX, startY = e.clientY;
+                const ox = node.offsetLeft, oy = node.offsetTop;
+                const ow = node.offsetWidth, oh = node.offsetHeight;
+                const ov = document.createElement('div'); ov.className = 'os-drag-ov';
+                ov.style.cursor = getComputedStyle(h).cursor; document.body.appendChild(ov);
+                const move = (ev) => {
+                    const dx = ev.clientX - startX, dy = ev.clientY - startY;
+                    let x = ox, y = oy, w = ow, hh = oh;
+                    if (dir.includes('e')) w = ow + dx;
+                    if (dir.includes('s')) hh = oh + dy;
+                    if (dir.includes('w')) { w = ow - dx; x = ox + dx; }
+                    if (dir.includes('n')) { hh = oh - dy; y = oy + dy; }
+                    if (w < MIN_W) { if (dir.includes('w')) x -= MIN_W - w; w = MIN_W; }
+                    if (hh < MIN_H) { if (dir.includes('n')) y -= MIN_H - hh; hh = MIN_H; }
+                    if (x < 0) { w += x; x = 0; }
+                    if (y < 0) { hh += y; y = 0; }
+                    node.style.left = x + 'px'; node.style.top = y + 'px';
+                    node.style.width = w + 'px'; node.style.height = hh + 'px';
+                    S.pos[id] = { x, y, w, h: hh };
+                };
+                const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); ov.remove(); };
+                window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+                e.preventDefault(); e.stopPropagation();
+            }));
         }
 
         // Reconcile #wm-layer with S.dialogs without recreating iframes (preserves state).
@@ -1451,10 +1693,13 @@
                 const mb = node.querySelector('[data-maxbtn]');
                 if (mb) { mb.dataset.act = max ? 'dlg-restore' : 'dlg-max'; mb.title = max ? t('restore', 'Restore') : t('maximize', 'Maximize'); mb.innerHTML = ico(max ? 'minimize-2' : 'square', 14); }
                 if (max) {
-                    node.style.left = ''; node.style.top = ''; // let .max inset:0 fill the viewport
+                    // Clear ALL inline geometry: inline styles would beat .max's inset:0/auto.
+                    node.style.left = ''; node.style.top = ''; node.style.width = ''; node.style.height = '';
                 } else {
                     if (!S.pos[d.id]) S.pos[d.id] = { x: 90 + cascade * 30, y: 90 + cascade * 30 };
-                    node.style.left = S.pos[d.id].x + 'px'; node.style.top = S.pos[d.id].y + 'px';
+                    const p = S.pos[d.id];
+                    node.style.left = p.x + 'px'; node.style.top = p.y + 'px';
+                    node.style.width = p.w ? p.w + 'px' : ''; node.style.height = p.h ? p.h + 'px' : '';
                 }
                 cascade++;
             });
@@ -1472,6 +1717,8 @@
 
         // ---------- events ----------
         root.addEventListener('click', (e) => {
+            // A click anywhere outside the layout switch closes its dropdown.
+            if (S.layoutMenu && !e.target.closest('.os-layoutswitch')) { S.layoutMenu = false; render(); }
             // Click the modal backdrop (not its panel) closes the node editor.
             if (e.target.id === 'we-backdrop') { S.nodeEditor = null; render(); return; }
             if (e.target.id === 'nodepop-backdrop') { S.nodePop = null; render(); return; }
@@ -1480,9 +1727,11 @@
             if (act === 'awaken') { if (S.awake!=='idle') return; S.awake='auth'; blip(540); render(); setTimeout(()=>{ S.awake='snapshot'; render(); }, 1500); }
             else if (act === 'enter-continue') { markSession(); S.screen='os'; S.mode='ambient'; blip(720); log('continued · local LLM deployment · fixture','accent'); render(); refreshSuggestions(); refreshHistory(); }
             else if (act === 'enter-fresh') { markSession(); S.screen='os'; S.mode='ambient'; blip(720); render(); refreshSuggestions(); refreshHistory(); }
-            else if (act === 'mode') { S.mode = t.dataset.mode; blip(620); if (S.mode === 'ambient') S.proactiveUnseen = 0; if (S.mode === 'focus') S._focusLauncher = true; render(); if (S.mode === 'focus' || S.mode === 'chill') { fetchDialogs().then(render); if (S.mode === 'focus') fetchWebApps().then(render); if (S.mode === 'chill') refreshTasks().then(render); } if (S.mode === 'ambient') refreshHistory(); }
+            else if (act === 'mode') { S.mode = t.dataset.mode; blip(620); if (S.mode === 'ambient') S.proactiveUnseen = 0; if (S.mode === 'focus') S._focusLauncher = true; render(); if (S.mode === 'focus' || S.mode === 'chill') { fetchDialogs().then(render); if (S.mode === 'focus') fetchWebApps().then(render); if (S.mode === 'chill') { startProcessFeed(); refreshProcesses().then(render); } } if (S.mode === 'ambient') refreshHistory(); }
             else if (act === 'xray') { S.xray = !S.xray; blip(700); render(); }
             else if (act === 'theme-mode') { setThemeMode(t.dataset.mode); blip(640); render(); }
+            else if (act === 'layout-menu') { S.layoutMenu = !S.layoutMenu; blip(620); render(); }
+            else if (act === 'set-layout') { S.layoutMenu = false; setInputLayout(t.dataset.code); blip(700); render(); }
             else if (act === 'ambient-view') {
                 const v = t.dataset.view === 'workspace' ? 'workspace' : 'chat';
                 if (v !== S.ambientView) { S.ambientView = v; try { localStorage.setItem('semitexa_os_ambient_view', v); } catch (e) {} if (v === 'workspace') weaveLoaded = false; }
@@ -1503,7 +1752,18 @@
             else if (act === 'chatdock-toggle') { setChatDock(S.chatDock === 'open' ? 'collapsed' : 'open'); if (S.chatDock === 'open') { S._focusInput = true; S.proactiveUnseen = 0; } blip(600); render(); }
             else if (act === 'submit') { S._focusInput = true; submit(); }
             else if (act === 'suggest') { S.input = t.dataset.text; S._focusInput = true; render(); }
-            else if (act === 'run-skill') { if (S.mode !== 'ambient' && S.chatDock === 'collapsed') setChatDock('open'); S.queue.push(t.dataset.text); S._focusInput = true; render(); processQueue(); }
+            else if (act === 'run-skill') {
+                // A Chill chip with a remembered app opens it DIRECTLY — the
+                // planner only runs on first use or after a "change it" reset.
+                const activity = t.dataset.chill || '';
+                const remembered = activity && S.chillApps[activity];
+                if (remembered) { openChillApp(activity, remembered, t.dataset.text); }
+                else {
+                    if (activity) S._chillPending = activity; // remember what this intent was for
+                    if (S.mode !== 'ambient' && S.chatDock === 'collapsed') setChatDock('open');
+                    S.queue.push(t.dataset.text); S._focusInput = true; render(); processQueue();
+                }
+            }
             else if (act === 'open-dialog') { openDialog(t.dataset.skill); }
             else if (act === 'open-webapp') { openWebApp(t.dataset.id); }
             else if (act === 'remove-webapp') { removeWebApp(t.dataset.id); }
@@ -1615,5 +1875,5 @@
         applySkin();
         setInterval(applySkin, 4000);
         // Keep the Chill processes panel live while it's open (task progress ticks).
-        setInterval(() => { if (S.screen === 'os' && S.mode === 'chill') refreshTasks().then(render); }, 3500);
+        setInterval(() => { if (S.screen === 'os' && S.mode === 'chill' && !procFeedLive) refreshProcesses().then(render); }, 3500);
     })();
