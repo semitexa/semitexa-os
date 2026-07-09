@@ -174,5 +174,6 @@
     "shell.minimize": "Згорнути",
     "shell.maximize": "Розгорнути",
     "shell.close": "Закрити",
-    "shell.restore": "Відновити"
+    "shell.restore": "Відновити",
+    "shell.switch_layout": "Перемкнути розкладку"
 }

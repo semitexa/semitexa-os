@@ -28,6 +28,15 @@ final class PreferencesUpdatePayload implements ValidatablePayloadInterface
 
     private string $timezone = '';
 
+    /** Active input-layout code the shell switched to ('' = not in this update). */
+    private string $inputLayout = '';
+
+    /** Chill chip activity whose remembered app changes ('' = not in this update). */
+    private string $chillActivity = '';
+
+    /** The skill to remember for that activity ('' with an activity = forget it). */
+    private string $chillSkill = '';
+
     /**
      * Both fields are optional so the same endpoint serves the onboarding ask
      * (user name only) and the Settings dialog (either/both). The handler
@@ -78,5 +87,35 @@ final class PreferencesUpdatePayload implements ValidatablePayloadInterface
     public function setThemeMode(string $themeMode): void
     {
         $this->themeMode = $themeMode;
+    }
+
+    public function getInputLayout(): string
+    {
+        return $this->inputLayout;
+    }
+
+    public function setInputLayout(string $inputLayout): void
+    {
+        $this->inputLayout = $inputLayout;
+    }
+
+    public function getChillActivity(): string
+    {
+        return $this->chillActivity;
+    }
+
+    public function setChillActivity(string $chillActivity): void
+    {
+        $this->chillActivity = $chillActivity;
+    }
+
+    public function getChillSkill(): string
+    {
+        return $this->chillSkill;
+    }
+
+    public function setChillSkill(string $chillSkill): void
+    {
+        $this->chillSkill = $chillSkill;
     }
 }

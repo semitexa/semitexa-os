@@ -9,6 +9,7 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Os\Application\Payload\Request\PreferencesUpdatePayload;
+use Semitexa\Os\Application\Service\InputLayoutStore;
 use Semitexa\Os\Application\Service\OsPreferences;
 
 /**
@@ -20,6 +21,9 @@ final class PreferencesUpdateHandler implements TypedHandlerInterface
 {
     #[InjectAsReadonly]
     protected OsPreferences $prefs;
+
+    #[InjectAsReadonly]
+    protected InputLayoutStore $inputLayouts;
 
     public function handle(PreferencesUpdatePayload $payload, ResourceResponse $resource): ResourceResponse
     {
@@ -44,6 +48,15 @@ final class PreferencesUpdateHandler implements TypedHandlerInterface
             }
             if (trim($payload->getTimezone()) !== '') {
                 $this->prefs->setTimezone($payload->getTimezone());
+                $applied = true;
+            }
+            if (trim($payload->getInputLayout()) !== '') {
+                $this->inputLayouts->setActive(trim($payload->getInputLayout()));
+                $applied = true;
+            }
+            if (trim($payload->getChillActivity()) !== '') {
+                // Empty skill = forget the remembered app for that activity.
+                $this->prefs->setChillApp($payload->getChillActivity(), $payload->getChillSkill());
                 $applied = true;
             }
         } catch (\InvalidArgumentException $e) {

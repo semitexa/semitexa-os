@@ -174,5 +174,6 @@
     "shell.minimize": "Minimize",
     "shell.maximize": "Maximize",
     "shell.close": "Close",
-    "shell.restore": "Restore"
+    "shell.restore": "Restore",
+    "shell.switch_layout": "Switch input layout"
 }

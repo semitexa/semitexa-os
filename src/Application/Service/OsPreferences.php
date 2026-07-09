@@ -22,7 +22,7 @@ use Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface;
  * lazily constructed for the skills that `new` this class outside DI
  * ({@see RenameAssistantSkill}, {@see SetUserNameSkill}).
  *
- * @phpstan-type Preferences array{assistant_name: string, user_name: string, theme_mode: string, timezone: string}
+ * @phpstan-type Preferences array{assistant_name: string, user_name: string, theme_mode: string, timezone: string, locale: string, chill_apps: array<string, string>}
  */
 #[AsService]
 final class OsPreferences
@@ -41,6 +41,14 @@ final class OsPreferences
     private const DEFAULT_THEME_MODE = 'auto';
     private const KEY_LOCALE = 'locale';
 
+    /**
+     * Remembered leisure-app choices for the Chill chips (activity => skill
+     * name). First use routes through the planner; once an app opened, the
+     * chip opens it directly — until the user asks to change it.
+     */
+    private const KEY_CHILL_APPS = 'chill_apps';
+    private const CHILL_ACTIVITIES = ['music', 'video', 'game'];
+
     #[InjectAsReadonly]
     protected SettingsStoreInterface $settings;
 
@@ -58,7 +66,49 @@ final class OsPreferences
             'theme_mode' => $this->themeMode(),
             'timezone' => $this->timezone()->getName(),
             'locale' => $this->locale(),
+            'chill_apps' => $this->chillApps(),
         ];
+    }
+
+    /**
+     * The remembered Chill leisure apps: activity => skill name (missing
+     * activity = not chosen yet, the chip routes through the planner).
+     *
+     * @return array<string, string>
+     */
+    public function chillApps(): array
+    {
+        $raw = json_decode($this->rawString(self::KEY_CHILL_APPS), true);
+        $apps = [];
+        foreach (self::CHILL_ACTIVITIES as $activity) {
+            $skill = is_array($raw) ? ($raw[$activity] ?? null) : null;
+            if (is_string($skill) && $skill !== '') {
+                $apps[$activity] = $skill;
+            }
+        }
+
+        return $apps;
+    }
+
+    /**
+     * Remember (or, with an empty $skill, forget) the app behind a Chill chip.
+     *
+     * @throws \InvalidArgumentException on an unknown activity
+     */
+    public function setChillApp(string $activity, string $skill): void
+    {
+        $activity = strtolower(trim($activity));
+        if (!in_array($activity, self::CHILL_ACTIVITIES, true)) {
+            throw new \InvalidArgumentException('Activity must be one of: ' . implode(', ', self::CHILL_ACTIVITIES) . '.');
+        }
+        $apps = $this->chillApps();
+        $skill = trim($skill);
+        if ($skill === '') {
+            unset($apps[$activity]);
+        } else {
+            $apps[$activity] = mb_substr($skill, 0, 80);
+        }
+        $this->settings()->set(self::MODULE, self::KEY_CHILL_APPS, (string) json_encode($apps, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     }
 
     /**
