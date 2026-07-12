@@ -426,10 +426,13 @@ final class SkillLoopRunner
 
             // Loop guard: an identical re-proposal means the model is spinning —
             // stop and finalize with what we have rather than burning the budget.
-            // Strict array comparison, NOT a JSON-encoded string key: json_encode
-            // on an associative array is insertion-order-sensitive, and nothing
-            // guarantees the model emits argument keys in the same order twice.
-            $call = ['skill' => $skill, 'arguments' => $response->arguments];
+            // Compared via a recursively key-sorted copy of the arguments, NOT the
+            // raw array: PHP's strict array comparison (`===`, via `in_array(...,
+            // true)`) is itself key-ORDER sensitive, so two semantically identical
+            // argument sets emitted with keys in a different order would still
+            // defeat a bare `===` check. The ORIGINAL (unsorted) arguments are
+            // still what gets executed below — only the dedup key is normalized.
+            $call = ['skill' => $skill, 'arguments' => $this->canonicalArguments($response->arguments)];
             if (in_array($call, $executedCalls, true)) {
                 break;
             }
@@ -504,6 +507,28 @@ final class SkillLoopRunner
     }
 
     /**
+     * A recursively key-sorted copy of a skill-call argument array, used ONLY by
+     * the orchestration loop's spin guard ({@see orchestrate()}) — never for
+     * execution, where argument order is irrelevant anyway. PHP's `===` on arrays
+     * compares keys IN ORDER, so without this normalization two calls with the
+     * same arguments in a different key order would be treated as distinct.
+     *
+     * @param array<string, mixed> $arguments
+     * @return array<string, mixed>
+     */
+    private function canonicalArguments(array $arguments): array
+    {
+        ksort($arguments);
+        foreach ($arguments as $key => $value) {
+            if (is_array($value)) {
+                $arguments[$key] = $this->canonicalArguments($value);
+            }
+        }
+
+        return $arguments;
+    }
+
+    /**
      * The executed skill chain as the {@see IntentOutcome::$pipeline} trail.
      *
      * @param list<array{skill: string, arguments: array<string, mixed>, result: ExecutionResult}> $steps
@@ -556,8 +581,11 @@ final class SkillLoopRunner
 
         $last = $steps[count($steps) - 1]['result'];
         $single = count($steps) === 1;
+        // A failed step's contribution shows its error, not its (likely empty or
+        // irrelevant) output — otherwise a mid-chain failure is silently omitted
+        // from the combined trail, making the pipeline read as if it fully succeeded.
         $combined = implode("\n\n", array_map(
-            static fn (array $step): string => '» ' . $step['skill'] . "\n" . trim($step['result']->output),
+            fn (array $step): string => '» ' . $step['skill'] . "\n" . $this->stepDisplayText($step['result']),
             $steps,
         ));
 
@@ -574,6 +602,23 @@ final class SkillLoopRunner
             providerModel: $this->provider()->model(),
             pipeline: $this->pipelineOf($steps),
         );
+    }
+
+    /**
+     * One step's contribution to {@see finalize()}'s combined multi-step text: the
+     * step's output on success, or its error on failure — mirrors
+     * {@see observationLine()}'s success/failure branching so a mid-chain failure
+     * is visible in the pipeline trail instead of silently reading as blank output.
+     */
+    private function stepDisplayText(ExecutionResult $result): string
+    {
+        if ($result->exitCode !== 0) {
+            $error = trim((string) $result->error);
+
+            return '(failed) ' . ($error !== '' ? $error : 'unknown error');
+        }
+
+        return trim($result->output);
     }
 
     /**
@@ -755,7 +800,12 @@ final class SkillLoopRunner
                 break;
             }
 
-            $batch = array_slice($uncovered, 0, $overflow);
+            // Fold exactly FOLD_BATCH turns per round, not the full overflow — a
+            // predictable, bounded summarizer-call size matching the documented
+            // hysteresis (verbatim tail between LIVE_WINDOW and LIVE_WINDOW +
+            // FOLD_BATCH). A larger overflow still catches up via more rounds
+            // (bounded by MAX_FOLD_ROUNDS), not one oversized summarization call.
+            $batch = array_slice($uncovered, 0, min($overflow, self::FOLD_BATCH));
             $folded = $this->foldIntoSummary($summary, $batch);
             if (!$folded['changed']) {
                 // Summarization failed (transient provider error) — do NOT
