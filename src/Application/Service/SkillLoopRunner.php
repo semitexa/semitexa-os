@@ -9,15 +9,19 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Console\Application as ConsoleApplication;
 use Psr\Container\ContainerInterface;
 use Semitexa\Core\Container\SemitexaContainer;
+use Semitexa\Llm\Application\Service\ConversationSummarizer;
+use Semitexa\Llm\Application\Service\GeminiProvider;
 use Semitexa\Llm\Application\Service\LlmProviderResolver;
 use Semitexa\Llm\Application\Service\PersonaRegistry;
 use Semitexa\Llm\Application\Service\RemoteOllamaProvider;
 use Semitexa\Llm\Application\Service\Planner;
+use Semitexa\Llm\Application\Service\PlannerToolSchema;
 use Semitexa\Llm\Application\Service\SkillExecutor;
 use Semitexa\Llm\Application\Service\SkillRegistry;
 use Semitexa\Llm\Domain\Contract\LlmProviderInterface;
 use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
 use Semitexa\Llm\Domain\Enum\PlannerResponseType;
+use Semitexa\Llm\Domain\Model\ExecutionResult;
 use Semitexa\Llm\Domain\Model\LlmRequest;
 use Semitexa\Llm\Domain\Model\LlmResponse;
 use Semitexa\Llm\Domain\Model\PlannerResponse;
@@ -40,7 +44,11 @@ use Semitexa\Os\Domain\Model\IntentOutcome;
  * `ep-os-skill-loop-web-shell-v0 / tk-os-spike-llm-under-swoole`.
  *
  * v0 scope: single skill per intent (no orchestration), skills run on the
- * `console` channel, no conversation history.
+ * `console` channel. The planner now also receives a bounded window of recent
+ * transcript turns as conversation history ({@see plannerHistory()}), so it keeps
+ * focus across turns instead of treating each message as first contact
+ * (`ep-llm-orchestrator-v1 / tk-llm-mem-wire`); rolling-summary + a real
+ * observe-act loop are the remaining tasks under that epic.
  */
 #[AsService]
 final class SkillLoopRunner
@@ -65,6 +73,10 @@ final class SkillLoopRunner
     /** The full dialog transcript (both sides, every turn). */
     #[InjectAsReadonly]
     protected ConversationStore $conversation;
+
+    /** Rolling summary of everything older than the verbatim window. */
+    #[InjectAsReadonly]
+    protected ConversationSummaryStore $summaries;
 
     /** Supplies the user's wall-clock timezone for the planner's date anchor. */
     #[InjectAsReadonly]
@@ -131,20 +143,8 @@ final class SkillLoopRunner
         }
 
         $manifest = $this->manifest();
-        $planner = new Planner();
 
-        $plannerResponse = $planner->parseResponse(
-            $this->completePlanner($this->plannerRequest($intent, $manifest)),
-            manifest: $manifest, // lets the parser salvage `{"type":"<skill-name>"}` model drift
-        );
-
-        $outcome = match ($plannerResponse->type) {
-            PlannerResponseType::Answer => $this->observe($intent, IntentDecision::Answer, $plannerResponse),
-            PlannerResponseType::Ask => $this->observe($intent, IntentDecision::Ask, $plannerResponse),
-            PlannerResponseType::Refuse => $this->observe($intent, IntentDecision::Refuse, $plannerResponse),
-            PlannerResponseType::ProposeSkill => $this->handleProposal($intent, $plannerResponse, $manifest),
-            PlannerResponseType::ProposePipeline => $this->handlePipeline($intent, $plannerResponse, $manifest),
-        };
+        $outcome = $this->orchestrate($intent, $manifest);
 
         $this->session->record($outcome);
         // User turn already persisted at the top of the loop (crash-safe); append the reply.
@@ -326,64 +326,229 @@ final class SkillLoopRunner
         return $outcome;
     }
 
-    private function handleProposal(
-        string $intent,
-        PlannerResponse $response,
-        SkillManifest $manifest,
-    ): IntentOutcome {
-        $skill = $response->skill;
-        if ($skill === null) {
+    /**
+     * Bounded observe→act orchestration — the successor to the single-shot router.
+     *
+     * Instead of "plan once, execute once", the planner is LOOPED: after an
+     * auto-executable skill runs, its output is fed back as an observation and the
+     * planner decides the next step — run another skill, answer the user FROM the
+     * results, ask, or stop — until it reaches a terminal decision or the step
+     * budget is spent. This is what turns "guess one skill" into orchestration:
+     * the model can chain skills adaptively and phrase a final reply from what they
+     * returned, rather than dumping a single skill's raw output.
+     *
+     * Terminal at any step (returned immediately, never continued): answer / ask /
+     * refuse, a UI-skill (opens a dialog and hands off to Focus), a confirmation-
+     * gated skill (needs the human — resumed later via {@see approveAndExecute()}),
+     * or a proposed pipeline. Only an auto-executable (`confirmation: never`)
+     * non-UI skill advances the loop.
+     *
+     * Depth is gated by backend ({@see maxAgentSteps()}): a capable model gets a
+     * real chain; the weak local model stays effectively single-shot — degraded,
+     * but never worse than the pre-loop behavior.
+     */
+    private function orchestrate(string $intent, SkillManifest $manifest): IntentOutcome
+    {
+        $maxSteps = $this->maxAgentSteps();
+
+        $working = $this->plannerHistory($intent); // summary + verbatim window
+        $userMessage = $intent;
+
+        /** @var list<array{skill: string, arguments: array<string, mixed>, result: ExecutionResult}> $steps */
+        $steps = [];
+        $executedKeys = [];
+        $observations = [];
+        $lastConfidence = null;
+
+        for ($step = 1; $step <= $maxSteps; $step++) {
+            $response = $this->plan($userMessage, $manifest, $working);
+            $lastConfidence = $response->confidence ?? $lastConfidence;
+
+            // Terminal replies — return the assistant's decision as the final outcome,
+            // carrying the skills already run this turn so the shell shows the trail.
+            if ($response->type === PlannerResponseType::Answer) {
+                return $this->observe($intent, IntentDecision::Answer, $response, $this->pipelineOf($steps));
+            }
+            if ($response->type === PlannerResponseType::Ask) {
+                return $this->observe($intent, IntentDecision::Ask, $response, $this->pipelineOf($steps));
+            }
+            if ($response->type === PlannerResponseType::Refuse) {
+                return $this->observe($intent, IntentDecision::Refuse, $response, $this->pipelineOf($steps));
+            }
+            if ($response->type === PlannerResponseType::ProposePipeline) {
+                return $this->handlePipeline($intent, $response, $manifest);
+            }
+
+            // ProposeSkill.
+            $skill = $response->skill;
+            if ($skill === null) {
+                return $this->finalize($intent, $steps, $lastConfidence, 'Planner proposed a skill but did not name one.');
+            }
+            $entry = $manifest->findSkill($skill);
+            if ($entry === null) {
+                return new IntentOutcome(
+                    intent: $intent,
+                    decision: IntentDecision::Error,
+                    skill: $skill,
+                    arguments: $response->arguments,
+                    reason: $response->reason,
+                    pipeline: $this->pipelineOf($steps),
+                    error: "Planner proposed unknown skill '{$skill}' — rejected.",
+                );
+            }
+            // Canonicalize: findSkill() tolerates model drift ('attach_folder' for
+            // 'attach-folder'), but everything downstream must see ONE canonical name.
+            $skill = $entry->name;
+
+            // UI + confirmation skills hand off to the user, so they can't be
+            // auto-continued — return them as terminal outcomes (single-shot parity).
+            if ($entry->isUi()) {
+                return $this->handleUiSkill($intent, $entry, $response->reason, $response->confidence);
+            }
+            if ($entry->confirmation !== AiConfirmationMode::Never) {
+                return new IntentOutcome(
+                    intent: $intent,
+                    decision: IntentDecision::NeedsConfirmation,
+                    reason: $response->reason,
+                    skill: $skill,
+                    arguments: $response->arguments,
+                    riskLevel: $entry->riskLevel->value,
+                    confidence: $response->confidence,
+                    pipeline: $this->pipelineOf($steps),
+                    providerName: $this->provider()->name(),
+                    providerModel: $this->provider()->model(),
+                );
+            }
+
+            // Loop guard: an identical re-proposal means the model is spinning —
+            // stop and finalize with what we have rather than burning the budget.
+            $key = $skill . '|' . (string) json_encode($response->arguments, JSON_UNESCAPED_SLASHES);
+            if (in_array($key, $executedKeys, true)) {
+                break;
+            }
+            $executedKeys[] = $key;
+
+            $result = $this->executor()->execute($skill, $response->arguments, $manifest, $this->channelFor($entry));
+            $steps[] = ['skill' => $skill, 'arguments' => $response->arguments, 'result' => $result];
+
+            // Keep the original intent visible once the userMessage slot becomes the
+            // running progress note.
+            if ($step === 1) {
+                $working[] = ['role' => ConversationStore::ROLE_USER, 'content' => $intent];
+            }
+
+            // Thread results as a USER-role progress note — NOT a synthetic
+            // assistant/model turn. Under native function-calling a fabricated model
+            // text turn between calls corrupts the tool protocol and Gemini answers
+            // with an empty STOP; a plain user note keeps both paths well-formed.
+            $observations[] = $this->observationLine($skill, $result);
+            $userMessage = "Results so far:\n" . implode("\n\n", $observations) . "\n\n" . self::CONTINUE_NUDGE;
+        }
+
+        return $this->finalize($intent, $steps, $lastConfidence);
+    }
+
+    /**
+     * Max planner round-trips per intent, gated by backend capability. A capable
+     * model orchestrates a real chain; the slow local model stays single-shot
+     * (`1` == the exact pre-loop behavior), so the weak backend is never made worse.
+     */
+    private function maxAgentSteps(): int
+    {
+        $provider = $this->provider();
+        if ($provider instanceof GeminiProvider) {
+            return 5;
+        }
+        if ($provider instanceof RemoteOllamaProvider) {
+            return 2;
+        }
+
+        return 1;
+    }
+
+    /** Cap on how much of a skill's output is fed back as an observation. */
+    private const OBSERVATION_MAX_CHARS = 1500;
+
+    private const CONTINUE_NUDGE = "Continue fulfilling the user's original request using this result."
+        . " If the request is now fully satisfied, respond with an \"answer\" that gives the user the result directly."
+        . ' Otherwise propose the next skill.';
+
+    /**
+     * One skill's contribution to the running progress note fed back to the
+     * planner: the skill's (bounded) output, or its error. The continue-or-answer
+     * nudge is appended once by the caller around the joined lines.
+     */
+    private function observationLine(string $skill, ExecutionResult $result): string
+    {
+        if ($result->exitCode !== 0) {
+            $error = trim((string) $result->error);
+
+            return "The skill `{$skill}` failed with: " . ($error !== '' ? $error : 'unknown error');
+        }
+
+        $output = trim($result->output);
+        if (mb_strlen($output) > self::OBSERVATION_MAX_CHARS) {
+            $output = mb_substr($output, 0, self::OBSERVATION_MAX_CHARS) . "\n…(truncated)";
+        }
+        if ($output === '') {
+            $output = '(the skill produced no output)';
+        }
+
+        return "Result of skill `{$skill}`:\n{$output}";
+    }
+
+    /**
+     * The executed skill chain as the {@see IntentOutcome::$pipeline} trail.
+     *
+     * @param list<array{skill: string, arguments: array<string, mixed>, result: ExecutionResult}> $steps
+     * @return list<array{skill: string, arguments: array<string, mixed>}>
+     */
+    private function pipelineOf(array $steps): array
+    {
+        return array_map(
+            static fn (array $step): array => ['skill' => $step['skill'], 'arguments' => $step['arguments']],
+            $steps,
+        );
+    }
+
+    /**
+     * Build the final outcome when the loop ends by exhausting its step budget (or
+     * a spinning guard) rather than on a terminal answer: report what actually ran.
+     * A single skill reads exactly like the old single-shot Executed outcome; a
+     * chain combines every step's output and lists the trail in `pipeline`.
+     *
+     * @param list<array{skill: string, arguments: array<string, mixed>, result: ExecutionResult}> $steps
+     */
+    private function finalize(string $intent, array $steps, ?float $confidence, ?string $error = null): IntentOutcome
+    {
+        if ($steps === []) {
             return new IntentOutcome(
                 intent: $intent,
                 decision: IntentDecision::Error,
-                reason: $response->reason,
-                error: 'Planner proposed a skill but did not name one.',
+                confidence: $confidence,
+                error: $error ?? 'The assistant could not act on this request.',
             );
         }
 
-        $entry = $manifest->findSkill($skill);
-        if ($entry === null) {
-            return new IntentOutcome(
-                intent: $intent,
-                decision: IntentDecision::Error,
-                skill: $skill,
-                arguments: $response->arguments,
-                reason: $response->reason,
-                error: "Planner proposed unknown skill '{$skill}' — rejected.",
-            );
-        }
-        // Canonicalize: findSkill() tolerates model drift ('attach_folder' for
-        // 'attach-folder'), but everything downstream — transcript meta, X-Ray,
-        // the shell's per-skill outcome hooks — must see ONE canonical name.
-        $skill = $entry->name;
+        $last = $steps[count($steps) - 1]['result'];
+        $single = count($steps) === 1;
+        $combined = implode("\n\n", array_map(
+            static fn (array $step): string => '» ' . $step['skill'] . "\n" . trim($step['result']->output),
+            $steps,
+        ));
 
-        // UI-skill: open a persistent dialog (Focus) instead of executing.
-        if ($entry->isUi()) {
-            return $this->handleUiSkill($intent, $entry, $response->reason, $response->confidence);
-        }
-
-        $needsConfirmation = $entry->confirmation !== AiConfirmationMode::Never;
-        if ($needsConfirmation) {
-            return new IntentOutcome(
-                intent: $intent,
-                decision: IntentDecision::NeedsConfirmation,
-                reason: $response->reason,
-                skill: $skill,
-                arguments: $response->arguments,
-                riskLevel: $entry->riskLevel->value,
-                confidence: $response->confidence,
-                providerName: $this->provider()->name(),
-                providerModel: $this->provider()->model(),
-            );
-        }
-
-        return $this->execute(
-            $intent,
-            $skill,
-            $response->arguments,
-            $entry->riskLevel->value,
-            $response->confidence,
-            $manifest,
+        return new IntentOutcome(
+            intent: $intent,
+            decision: IntentDecision::Executed,
+            skill: $single ? $steps[0]['skill'] : null,
+            arguments: $single ? $steps[0]['arguments'] : [],
+            confidence: $confidence,
+            exitCode: $last->exitCode,
+            output: $single ? $last->output : $combined,
+            error: $last->error,
+            providerName: $this->provider()->name(),
+            providerModel: $this->provider()->model(),
+            pipeline: $this->pipelineOf($steps),
         );
     }
 
@@ -463,10 +628,16 @@ final class SkillLoopRunner
         );
     }
 
+    /**
+     * @param list<array{skill: string, arguments: array<string, mixed>}> $pipeline
+     *        the skills already run this turn before the assistant settled on a
+     *        non-executing reply (empty for a plain single-shot answer/ask/refuse)
+     */
     private function observe(
         string $intent,
         IntentDecision $decision,
         PlannerResponse $response,
+        array $pipeline = [],
     ): IntentOutcome {
         return new IntentOutcome(
             intent: $intent,
@@ -476,6 +647,7 @@ final class SkillLoopRunner
             confidence: $response->confidence,
             providerName: $this->provider()->name(),
             providerModel: $this->provider()->model(),
+            pipeline: $pipeline,
         );
     }
 
@@ -499,21 +671,187 @@ final class SkillLoopRunner
      * paths MUST build it here, byte-identically, or the warm-up would cache a
      * prefix real turns never reuse.
      */
-    private function plannerRequest(string $userMessage, SkillManifest $manifest): LlmRequest
+    /**
+     * Verbatim window: the minimum number of most-recent turns always replayed to
+     * the planner word-for-word. Small on purpose — the model must see the recent
+     * thread (to fuse fragmented intents and stop treating each turn as first
+     * contact) WITHOUT the unbounded transcript blowing up prefill on the slow CPU
+     * model. Everything older is compressed into the rolling summary.
+     */
+    private const LIVE_WINDOW = 8;
+
+    /**
+     * Fold hysteresis: only compress once at least this many turns have piled up
+     * BEYOND the window. Folding on every turn would fire a summary LLM call each
+     * turn; batching keeps the verbatim tail between {@see LIVE_WINDOW} and
+     * `LIVE_WINDOW + FOLD_BATCH` while summarizing only once per batch.
+     */
+    private const FOLD_BATCH = 6;
+
+    /**
+     * Assemble the planner's conversation context: the rolling summary (as a
+     * single leading context message) followed by the verbatim window of recent
+     * turns. Folds the oldest overflow into the summary when the uncovered tail
+     * grows past the window, so a long dialogue stays cheap to replay without ever
+     * leaving a gap between what the summary covers and what the window shows.
+     *
+     * {@see run()} persists the user's turn BEFORE planning (crash-safety), so the
+     * transcript's last row is already the current intent — and that same text is
+     * passed separately as {@see LlmRequest::$userMessage}. Replaying it here too
+     * would double it, so the just-appended current turn is dropped from the tail
+     * (console-REPL parity: `array_slice($history, 0, -1)`).
+     *
+     * Assistant turns carry the human-facing reply text (what the user actually
+     * saw), not the internal planner JSON — that is the dialogue as it happened.
+     *
+     * @return list<array{role: string, content: string}>
+     */
+    private function plannerHistory(string $currentIntent): array
     {
-        $persona = (new PersonaRegistry())->framing('os');
-        // Pin the ASSISTANT's reply language to the OS locale — without an
-        // explicit instruction the model guesses from the user's phrasing and
-        // drifts (answering English to a Ukrainian OS, or vice versa). The
-        // explicit preference wins; '' = the request's resolved locale.
-        $locale = $this->prefs->locale();
-        if ($locale === '') {
-            $locale = \Semitexa\Locale\Context\LocaleContextStore::getLocale();
+        $summary = $this->summaries->get();
+
+        // Everything not yet folded into the summary, oldest → newest, with ids.
+        // Capped so a runaway transcript can't be materialised; in steady state the
+        // uncovered tail is small (we fold below), so this holds ALL of it — the
+        // newest entries here really are the recent window.
+        $cap = self::LIVE_WINDOW + self::FOLD_BATCH + 4;
+        $uncovered = $this->conversation->turnsAfter($summary['covered_through_id'], $cap);
+
+        // Drop the trailing current-intent user row (persisted just before planning).
+        $last = $uncovered[count($uncovered) - 1] ?? null;
+        if ($last !== null
+            && $last['role'] === ConversationStore::ROLE_USER
+            && trim($last['text']) === trim($currentIntent)
+        ) {
+            array_pop($uncovered);
         }
-        $language = self::LANGUAGE_NAMES[$locale] ?? null;
-        if ($language !== null && $persona !== '') {
-            $persona .= "\nAlways reply in {$language}, regardless of the language the user writes in — unless they explicitly ask you to switch (then use the set-locale skill).";
+
+        // Overflow beyond the window? Fold the oldest overflow into the summary so
+        // the verbatim tail drops back to LIVE_WINDOW, and advance the cursor.
+        $overflow = count($uncovered) - self::LIVE_WINDOW;
+        if ($overflow >= self::FOLD_BATCH) {
+            $batch = array_slice($uncovered, 0, $overflow);
+            $uncovered = array_slice($uncovered, $overflow);
+            $summary = $this->foldIntoSummary($summary, $batch);
         }
+
+        $history = [];
+
+        // The summary rides as a single leading context message so the (large,
+        // static) system prompt stays byte-identical and prefix-cacheable.
+        $context = $this->summaryContextMessage($summary);
+        if ($context !== null) {
+            $history[] = $context;
+        }
+
+        foreach ($uncovered as $turn) {
+            $content = trim($turn['text']);
+            if ($content === '') {
+                continue;
+            }
+            $history[] = [
+                'role' => $turn['role'] === ConversationStore::ROLE_USER
+                    ? ConversationStore::ROLE_USER
+                    : ConversationStore::ROLE_ASSISTANT,
+                'content' => $content,
+            ];
+        }
+
+        return $history;
+    }
+
+    /**
+     * Compress a batch of aging turns into the running summary and persist it.
+     * Best-effort: the summarizer returns the PRIOR summary unchanged on any
+     * model/parse failure, and only then do we still advance the cursor — dropping
+     * the batch from the verbatim window is safe because the summary already tried
+     * to absorb it and the turns remain in the durable transcript regardless.
+     *
+     * @param array{summary: string, active_intent: string, covered_through_id: string} $summary
+     * @param list<array{id: string, at: string, role: string, text: string, meta: array<string, mixed>}> $batch
+     * @return array{summary: string, active_intent: string, covered_through_id: string}
+     */
+    private function foldIntoSummary(array $summary, array $batch): array
+    {
+        if ($batch === []) {
+            return $summary;
+        }
+
+        $turns = [];
+        foreach ($batch as $turn) {
+            $turns[] = [
+                'role' => $turn['role'] === ConversationStore::ROLE_USER ? 'user' : 'assistant',
+                'content' => $turn['text'],
+            ];
+        }
+
+        $folded = (new ConversationSummarizer())->summarize(
+            $this->summaryProvider(),
+            $summary['summary'],
+            $summary['active_intent'],
+            $turns,
+        );
+
+        $coveredThroughId = $batch[count($batch) - 1]['id'];
+        $this->summaries->save($folded['summary'], $folded['active_intent'], $coveredThroughId);
+
+        return [
+            'summary' => $folded['summary'],
+            'active_intent' => $folded['active_intent'],
+            'covered_through_id' => $coveredThroughId,
+        ];
+    }
+
+    /**
+     * The rolling summary rendered as a single leading `user`-role context message,
+     * or null when there is nothing summarized yet. Kept as a plain history turn
+     * (not appended to the system prompt) so the static system prefix stays cached.
+     *
+     * @param array{summary: string, active_intent: string, covered_through_id: string} $summary
+     * @return array{role: string, content: string}|null
+     */
+    private function summaryContextMessage(array $summary): ?array
+    {
+        $text = trim($summary['summary']);
+        $intent = trim($summary['active_intent']);
+        if ($text === '' && $intent === '') {
+            return null;
+        }
+
+        $body = "[Summary of the earlier conversation]\n" . ($text !== '' ? $text : '(nothing notable yet)');
+        if ($intent !== '') {
+            $body .= "\n\n[The user's current focus]\n" . $intent;
+        }
+
+        return ['role' => ConversationStore::ROLE_USER, 'content' => $body];
+    }
+
+    /**
+     * Provider for the summary fold: token-capped and reasoning-trace off (we only
+     * consume the JSON), mirroring {@see plannerProvider()}. Falls back to the base
+     * provider for backends without a `withLimits()` seam.
+     */
+    private function summaryProvider(): LlmProviderInterface
+    {
+        $provider = $this->provider();
+        $maxTokens = (new ConversationSummarizer())->maxTokens();
+
+        if ($provider instanceof RemoteOllamaProvider || $provider instanceof GeminiProvider) {
+            return $provider->withLimits(60, 1, maxTokens: $maxTokens, thinking: false);
+        }
+
+        return $provider;
+    }
+
+    /**
+     * @param list<array{role: string, content: string}> $history recent transcript
+     *        turns (oldest → newest) replayed so the model keeps conversational
+     *        focus. Empty for {@see warmPlanner()} — the warm-up primes the static
+     *        system prefix, and history is separate messages that don't touch it.
+     */
+    private function plannerRequest(string $userMessage, SkillManifest $manifest, array $history = []): LlmRequest
+    {
+        $persona = $this->plannerPersona();
 
         return new LlmRequest(
             systemPrompt: (new Planner())->buildSystemPrompt(
@@ -524,7 +862,78 @@ final class SkillLoopRunner
                 $this->prefs->timezone(),
             ),
             userMessage: $userMessage,
-            history: [],
+            history: $history,
+        );
+    }
+
+    /**
+     * The native function-calling counterpart of {@see plannerRequest()}: a lean
+     * tool-calling system prompt (no skills list, no JSON block) plus the manifest
+     * exposed as tool declarations. Used for tool-calling backends (Gemini).
+     *
+     * @param list<array{role: string, content: string}> $history
+     */
+    private function plannerToolRequest(string $userMessage, SkillManifest $manifest, array $history): LlmRequest
+    {
+        $persona = $this->plannerPersona();
+
+        return new LlmRequest(
+            systemPrompt: (new Planner())->buildToolSystemPrompt(
+                $persona !== '' ? $persona : null,
+                $this->prefs->timezone(),
+            ),
+            userMessage: $userMessage,
+            history: $history,
+            tools: (new PlannerToolSchema())->declarationsFor($manifest),
+        );
+    }
+
+    /**
+     * The persona framing shared by both planner request shapes: the OS identity
+     * plus the reply-language pin. Without an explicit language instruction the
+     * model guesses from the user's phrasing and drifts (answering English to a
+     * Ukrainian OS); the OS locale wins, '' = the request's resolved locale.
+     */
+    private function plannerPersona(): string
+    {
+        $persona = (new PersonaRegistry())->framing('os');
+        $locale = $this->prefs->locale();
+        if ($locale === '') {
+            $locale = \Semitexa\Locale\Context\LocaleContextStore::getLocale();
+        }
+        $language = self::LANGUAGE_NAMES[$locale] ?? null;
+        if ($language !== null && $persona !== '') {
+            $persona .= "\nAlways reply in {$language}, regardless of the language the user writes in — unless they explicitly ask you to switch (then use the set-locale skill).";
+        }
+
+        return $persona;
+    }
+
+    /**
+     * One planner round-trip → a {@see PlannerResponse}. A tool-calling backend
+     * (Gemini) gets the manifest as native tools and returns a structured call we
+     * map directly ({@see PlannerToolSchema}); if it answers with text instead, we
+     * fall back to the JSON/text parse. Every other backend uses the JSON contract
+     * — the degraded but proven path.
+     *
+     * @param list<array{role: string, content: string}> $working
+     */
+    private function plan(string $userMessage, SkillManifest $manifest, array $working): PlannerResponse
+    {
+        if ($this->provider() instanceof GeminiProvider) {
+            $response = $this->completePlanner($this->plannerToolRequest($userMessage, $manifest, $working));
+            if ($response->toolCall !== null) {
+                return (new PlannerToolSchema())->mapToolCall($response->toolCall, $manifest);
+            }
+
+            // No tool call — the model replied with text. Parse it as it stands
+            // (a plain answer, or the legacy JSON contract if it emitted one).
+            return (new Planner())->parseResponse($response, manifest: $manifest);
+        }
+
+        return (new Planner())->parseResponse(
+            $this->completePlanner($this->plannerRequest($userMessage, $manifest, $working)),
+            manifest: $manifest, // lets the parser salvage `{"type":"<skill-name>"}` model drift
         );
     }
 
@@ -563,6 +972,15 @@ final class SkillLoopRunner
         $provider = $this->provider();
         if ($provider instanceof RemoteOllamaProvider) {
             return $provider->withLimits($this->plannerWarm ? 160 : 300, 1, maxTokens: 320, thinking: false);
+        }
+        // Gemini planner/tool calls: reasoning trace OFF. We only consume the
+        // structured tool call (or a short reply), and with thinking ON a compound
+        // request under native tools routinely comes back as an EMPTY candidate
+        // (finishReason STOP, no parts) — the model spends the turn thinking and
+        // emits nothing callable. Disabling it makes tool calls deterministic and
+        // fast. Tokens stay uncapped so a `final_answer` reply is never truncated.
+        if ($provider instanceof GeminiProvider) {
+            return $provider->withLimits(60, 1, maxTokens: null, thinking: false);
         }
 
         return $provider;

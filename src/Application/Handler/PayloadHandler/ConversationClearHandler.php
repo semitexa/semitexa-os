@@ -10,6 +10,7 @@ use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Os\Application\Payload\Request\ConversationClearPayload;
 use Semitexa\Os\Application\Service\ConversationStore;
+use Semitexa\Os\Application\Service\ConversationSummaryStore;
 
 /**
  * Clear the saved dialog transcript — start a fresh conversation.
@@ -20,9 +21,14 @@ final class ConversationClearHandler implements TypedHandlerInterface
     #[InjectAsReadonly]
     protected ConversationStore $conversation;
 
+    /** Cleared alongside the transcript so no stale cursor survives the reset. */
+    #[InjectAsReadonly]
+    protected ConversationSummaryStore $summaries;
+
     public function handle(ConversationClearPayload $payload, ResourceResponse $resource): ResourceResponse
     {
         $this->conversation->clear();
+        $this->summaries->clear();
 
         return $resource
             ->setContent((string) json_encode(['ok' => true], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE))
