@@ -128,13 +128,27 @@ final class ConversationSummaryStore
         }
     }
 
-    /** Start a fresh conversation — remove this tenant's summary. */
+    /**
+     * Start a fresh conversation — remove this tenant's summary. Best-effort,
+     * matching {@see get()}/{@see save()}: a DELETE failure here must not throw
+     * past `ConversationClearHandler`, where the transcript's own clear() may
+     * already have succeeded — an unguarded throw would leave the client with an
+     * unhandled 500 for a "clear conversation" action and a dangling summary row
+     * whose `covered_through_id` still points at turns the transcript just wiped.
+     */
     public function clear(): void
     {
-        $this->orm()->getAdapter()->execute(
-            'DELETE FROM `os_conversation_summary` WHERE `tenant_id` = :tenant_id',
-            ['tenant_id' => $this->currentTenantId()],
-        );
+        try {
+            $this->orm()->getAdapter()->execute(
+                'DELETE FROM `os_conversation_summary` WHERE `tenant_id` = :tenant_id',
+                ['tenant_id' => $this->currentTenantId()],
+            );
+        } catch (\Throwable $e) {
+            FallbackErrorLogger::log('Conversation summary clear failed', [
+                'exception' => $e::class,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function scoped(): DomainRepository

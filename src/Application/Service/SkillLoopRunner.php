@@ -129,7 +129,10 @@ final class SkillLoopRunner
         // that a worker crash during processing (e.g. a concurrent SSE Redis-read
         // deadlock on the same Swoole worker) can never drop the user's message
         // from history. The assistant reply is still appended once the loop finishes.
-        $this->conversation->append(ConversationStore::ROLE_USER, $intent);
+        // The returned id (not just the text) is how plannerHistory() recognises
+        // THIS turn later — text-equality alone can't tell it apart from another
+        // same-tenant request that persisted its own turn in between.
+        $currentTurnId = $this->conversation->append(ConversationStore::ROLE_USER, $intent);
 
         if (!$this->provider()->healthCheck()) {
             return new IntentOutcome(
@@ -144,7 +147,7 @@ final class SkillLoopRunner
 
         $manifest = $this->manifest();
 
-        $outcome = $this->orchestrate($intent, $manifest);
+        $outcome = $this->orchestrate($intent, $manifest, $currentTurnId);
 
         $this->session->record($outcome);
         // User turn already persisted at the top of the loop (crash-safe); append the reply.
@@ -347,16 +350,17 @@ final class SkillLoopRunner
      * real chain; the weak local model stays effectively single-shot — degraded,
      * but never worse than the pre-loop behavior.
      */
-    private function orchestrate(string $intent, SkillManifest $manifest): IntentOutcome
+    private function orchestrate(string $intent, SkillManifest $manifest, string $currentTurnId): IntentOutcome
     {
         $maxSteps = $this->maxAgentSteps();
 
-        $working = $this->plannerHistory($intent); // summary + verbatim window
+        $working = $this->plannerHistory($intent, $currentTurnId); // summary + verbatim window
         $userMessage = $intent;
 
         /** @var list<array{skill: string, arguments: array<string, mixed>, result: ExecutionResult}> $steps */
         $steps = [];
-        $executedKeys = [];
+        /** @var list<array{skill: string, arguments: array<string, mixed>}> $executedCalls */
+        $executedCalls = [];
         $observations = [];
         $lastConfidence = null;
 
@@ -422,27 +426,29 @@ final class SkillLoopRunner
 
             // Loop guard: an identical re-proposal means the model is spinning —
             // stop and finalize with what we have rather than burning the budget.
-            $key = $skill . '|' . (string) json_encode($response->arguments, JSON_UNESCAPED_SLASHES);
-            if (in_array($key, $executedKeys, true)) {
+            // Strict array comparison, NOT a JSON-encoded string key: json_encode
+            // on an associative array is insertion-order-sensitive, and nothing
+            // guarantees the model emits argument keys in the same order twice.
+            $call = ['skill' => $skill, 'arguments' => $response->arguments];
+            if (in_array($call, $executedCalls, true)) {
                 break;
             }
-            $executedKeys[] = $key;
+            $executedCalls[] = $call;
 
             $result = $this->executor()->execute($skill, $response->arguments, $manifest, $this->channelFor($entry));
             $steps[] = ['skill' => $skill, 'arguments' => $response->arguments, 'result' => $result];
 
-            // Keep the original intent visible once the userMessage slot becomes the
-            // running progress note.
-            if ($step === 1) {
-                $working[] = ['role' => ConversationStore::ROLE_USER, 'content' => $intent];
-            }
-
-            // Thread results as a USER-role progress note — NOT a synthetic
-            // assistant/model turn. Under native function-calling a fabricated model
-            // text turn between calls corrupts the tool protocol and Gemini answers
-            // with an empty STOP; a plain user note keeps both paths well-formed.
+            // Fold results into a fresh USER message every step — $working (the
+            // plannerHistory() context) is NEVER mutated mid-loop. Two reasons:
+            // (1) a synthetic assistant/model turn between calls corrupts native
+            // function-calling (Gemini answers with an empty STOP); (2) appending
+            // the intent into $working once and then letting the provider append
+            // userMessage after it produces TWO consecutive user-role turns for
+            // every step from here on — not a conformant multi-turn shape.
+            // Repeating the intent alongside the running results keeps exactly
+            // one user-role message per call and never loses the original ask.
             $observations[] = $this->observationLine($skill, $result);
-            $userMessage = "Results so far:\n" . implode("\n\n", $observations) . "\n\n" . self::CONTINUE_NUDGE;
+            $userMessage = $intent . "\n\nResults so far:\n" . implode("\n\n", $observations) . "\n\n" . self::CONTINUE_NUDGE;
         }
 
         return $this->finalize($intent, $steps, $lastConfidence);
@@ -521,12 +527,30 @@ final class SkillLoopRunner
      */
     private function finalize(string $intent, array $steps, ?float $confidence, ?string $error = null): IntentOutcome
     {
+        // A malformed planner reply (e.g. propose_skill with no name) must surface
+        // as an error EVEN IF earlier steps in this same chain already executed
+        // successfully — falling through to report the last good step as the
+        // whole turn's result would silently hide that the planner malfunctioned
+        // partway through. `pipeline` still carries whatever DID run, so the
+        // caller sees the partial progress alongside the error.
+        if ($error !== null) {
+            return new IntentOutcome(
+                intent: $intent,
+                decision: IntentDecision::Error,
+                confidence: $confidence,
+                error: $error,
+                pipeline: $this->pipelineOf($steps),
+                providerName: $this->provider()->name(),
+                providerModel: $this->provider()->model(),
+            );
+        }
+
         if ($steps === []) {
             return new IntentOutcome(
                 intent: $intent,
                 decision: IntentDecision::Error,
                 confidence: $confidence,
-                error: $error ?? 'The assistant could not act on this request.',
+                error: 'The assistant could not act on this request.',
             );
         }
 
@@ -689,6 +713,18 @@ final class SkillLoopRunner
     private const FOLD_BATCH = 6;
 
     /**
+     * Cap on fold rounds per {@see plannerHistory()} call. `turnsAfter()` is
+     * oldest-first, so a backlog bigger than one fetch (a tenant using this
+     * feature for the first time with existing history, or several turns of
+     * failed folds) would otherwise keep re-surfacing ancient turns as if they
+     * were "recent" — one round only drains {@see FOLD_BATCH} turns per real user
+     * turn. Looping catches up several batches within a single request instead;
+     * bounded so a very large backlog can't turn one request into an unbounded
+     * chain of blocking summarizer calls.
+     */
+    private const MAX_FOLD_ROUNDS = 4;
+
+    /**
      * Assemble the planner's conversation context: the rolling summary (as a
      * single leading context message) followed by the verbatim window of recent
      * turns. Folds the oldest overflow into the summary when the uncovered tail
@@ -698,41 +734,42 @@ final class SkillLoopRunner
      * {@see run()} persists the user's turn BEFORE planning (crash-safety), so the
      * transcript's last row is already the current intent — and that same text is
      * passed separately as {@see LlmRequest::$userMessage}. Replaying it here too
-     * would double it, so the just-appended current turn is dropped from the tail
-     * (console-REPL parity: `array_slice($history, 0, -1)`).
+     * would double it, so the just-appended current turn is dropped from the tail.
      *
      * Assistant turns carry the human-facing reply text (what the user actually
      * saw), not the internal planner JSON — that is the dialogue as it happened.
      *
      * @return list<array{role: string, content: string}>
      */
-    private function plannerHistory(string $currentIntent): array
+    private function plannerHistory(string $currentIntent, string $currentTurnId): array
     {
         $summary = $this->summaries->get();
-
-        // Everything not yet folded into the summary, oldest → newest, with ids.
-        // Capped so a runaway transcript can't be materialised; in steady state the
-        // uncovered tail is small (we fold below), so this holds ALL of it — the
-        // newest entries here really are the recent window.
         $cap = self::LIVE_WINDOW + self::FOLD_BATCH + 4;
+
         $uncovered = $this->conversation->turnsAfter($summary['covered_through_id'], $cap);
+        $uncovered = $this->dropCurrentTurn($uncovered, $currentIntent, $currentTurnId);
 
-        // Drop the trailing current-intent user row (persisted just before planning).
-        $last = $uncovered[count($uncovered) - 1] ?? null;
-        if ($last !== null
-            && $last['role'] === ConversationStore::ROLE_USER
-            && trim($last['text']) === trim($currentIntent)
-        ) {
-            array_pop($uncovered);
-        }
+        for ($round = 0; $round < self::MAX_FOLD_ROUNDS; $round++) {
+            $overflow = count($uncovered) - self::LIVE_WINDOW;
+            if ($overflow < self::FOLD_BATCH) {
+                break;
+            }
 
-        // Overflow beyond the window? Fold the oldest overflow into the summary so
-        // the verbatim tail drops back to LIVE_WINDOW, and advance the cursor.
-        $overflow = count($uncovered) - self::LIVE_WINDOW;
-        if ($overflow >= self::FOLD_BATCH) {
             $batch = array_slice($uncovered, 0, $overflow);
-            $uncovered = array_slice($uncovered, $overflow);
-            $summary = $this->foldIntoSummary($summary, $batch);
+            $folded = $this->foldIntoSummary($summary, $batch);
+            if (!$folded['changed']) {
+                // Summarization failed (transient provider error) — do NOT
+                // advance the cursor. The batch stays uncovered and is retried
+                // on the next call instead of silently vanishing from context.
+                break;
+            }
+
+            $summary = $folded;
+            // Re-fetch from the new cursor rather than just slicing the old
+            // fetch: a backlog bigger than $cap has more turns waiting beyond
+            // what the first fetch could see.
+            $uncovered = $this->conversation->turnsAfter($summary['covered_through_id'], $cap);
+            $uncovered = $this->dropCurrentTurn($uncovered, $currentIntent, $currentTurnId);
         }
 
         $history = [];
@@ -761,20 +798,50 @@ final class SkillLoopRunner
     }
 
     /**
+     * Drop the trailing current-intent user row (persisted just before planning)
+     * so it isn't replayed twice — once here, once as the separate userMessage.
+     * Prefers the exact turn id ({@see run()}'s `append()` return) over a
+     * text-equality heuristic: two concurrent same-tenant requests (double-submit,
+     * two open tabs) can each persist their own turn before either plans, and a
+     * text match can't tell them apart if that happens.
+     *
+     * @param list<array{id: string, at: string, role: string, text: string, meta: array<string, mixed>}> $turns
+     * @return list<array{id: string, at: string, role: string, text: string, meta: array<string, mixed>}>
+     */
+    private function dropCurrentTurn(array $turns, string $currentIntent, string $currentTurnId): array
+    {
+        $last = $turns[count($turns) - 1] ?? null;
+        if ($last === null || $last['role'] !== ConversationStore::ROLE_USER) {
+            return $turns;
+        }
+
+        $isCurrentTurn = $currentTurnId !== ''
+            ? $last['id'] === $currentTurnId
+            : trim($last['text']) === trim($currentIntent);
+
+        if ($isCurrentTurn) {
+            array_pop($turns);
+        }
+
+        return $turns;
+    }
+
+    /**
      * Compress a batch of aging turns into the running summary and persist it.
-     * Best-effort: the summarizer returns the PRIOR summary unchanged on any
-     * model/parse failure, and only then do we still advance the cursor — dropping
-     * the batch from the verbatim window is safe because the summary already tried
-     * to absorb it and the turns remain in the durable transcript regardless.
+     * Best-effort: the summarizer returns the PRIOR summary unchanged (`changed:
+     * false`) on any model/parse failure — the caller MUST check that flag before
+     * advancing its cursor, or a transient failure silently drops this batch from
+     * everything the planner ever sees again (the durable transcript still has it,
+     * but plannerHistory() would never surface it).
      *
      * @param array{summary: string, active_intent: string, covered_through_id: string} $summary
      * @param list<array{id: string, at: string, role: string, text: string, meta: array<string, mixed>}> $batch
-     * @return array{summary: string, active_intent: string, covered_through_id: string}
+     * @return array{summary: string, active_intent: string, covered_through_id: string, changed: bool}
      */
     private function foldIntoSummary(array $summary, array $batch): array
     {
         if ($batch === []) {
-            return $summary;
+            return $summary + ['changed' => false];
         }
 
         $turns = [];
@@ -792,6 +859,10 @@ final class SkillLoopRunner
             $turns,
         );
 
+        if (!$folded['changed']) {
+            return $summary + ['changed' => false];
+        }
+
         $coveredThroughId = $batch[count($batch) - 1]['id'];
         $this->summaries->save($folded['summary'], $folded['active_intent'], $coveredThroughId);
 
@@ -799,6 +870,7 @@ final class SkillLoopRunner
             'summary' => $folded['summary'],
             'active_intent' => $folded['active_intent'],
             'covered_through_id' => $coveredThroughId,
+            'changed' => true,
         ];
     }
 

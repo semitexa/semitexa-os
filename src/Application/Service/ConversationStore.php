@@ -81,17 +81,23 @@ final class ConversationStore
      * never break the loop.
      *
      * @param array<string, mixed> $meta
+     * @return string the persisted turn's id, or '' if the text was empty or the
+     *         write failed — callers that need to recognise "this exact turn"
+     *         later (e.g. {@see SkillLoopRunner}'s current-turn dedupe) should
+     *         treat '' as "no id available" and fall back accordingly, not as an
+     *         error to surface — persistence here is best-effort by design.
      */
-    public function append(string $role, string $text, array $meta = []): void
+    public function append(string $role, string $text, array $meta = []): string
     {
         $text = trim($text);
         if ($text === '') {
-            return;
+            return '';
         }
 
+        $id = Uuid7::generate();
         try {
             $this->scoped()->insert(new ConversationTurnResource(
-                id: Uuid7::generate(),
+                id: $id,
                 tenant_id: $this->currentTenantId(),
                 role: $role === self::ROLE_USER ? self::ROLE_USER : self::ROLE_ASSISTANT,
                 text: $text,
@@ -109,7 +115,11 @@ final class ConversationStore
                 'exception' => $e::class,
                 'message' => $e->getMessage(),
             ]);
+
+            return '';
         }
+
+        return $id;
     }
 
     /**
