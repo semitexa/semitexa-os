@@ -8,41 +8,64 @@ use PHPUnit\Framework\TestCase;
 use Semitexa\Os\Application\Prompt\OsPersonaPrompt;
 use Semitexa\Prompt\Application\Service\PromptRegistry;
 use Semitexa\Prompt\Application\Service\PromptRenderer;
+use Semitexa\Prompt\Domain\Contract\PromptRepositoryInterface;
 use Semitexa\Prompt\Domain\Model\PromptTemplate;
 
 final class OsPersonaPromptTest extends TestCase
 {
-    private function template(): PromptTemplate
+    /** A one-entry repository so render-by-id stays hermetic (no full discovery). */
+    private function repository(): PromptRepositoryInterface
     {
-        return (new PromptRegistry())->buildFromClasses([OsPersonaPrompt::class])['os.persona'];
+        $templates = (new PromptRegistry())->buildFromClasses([OsPersonaPrompt::class]);
+
+        return new class($templates) implements PromptRepositoryInterface {
+            /** @param array<string, PromptTemplate> $templates */
+            public function __construct(private array $templates) {}
+            public function get(string $id): PromptTemplate
+            {
+                return $this->templates[$id];
+            }
+            public function tryGet(string $id): ?PromptTemplate
+            {
+                return $this->templates[$id] ?? null;
+            }
+            public function has(string $id): bool
+            {
+                return isset($this->templates[$id]);
+            }
+            public function all(): array
+            {
+                return array_values($this->templates);
+            }
+        };
     }
 
     /**
-     * The user-name branch is native Twig now ({% if user_name %}), so the
-     * consumer passes the raw name; the template builds the greeting. Rendered
-     * output must be byte-identical to the pre-simplification persona.
+     * The self-binding prompt carries typed data; render() reads its id +
+     * variables(). Known name → the greeting branch, byte-identical.
      */
-    public function testKnownUserNameRendersTheGreeting(): void
+    public function testBoundPromptRendersTheGreeting(): void
     {
-        $rendered = (new PromptRenderer())->renderTemplate($this->template(), [
-            'assistant_name' => 'Semi',
-            'user_name' => 'Taras',
-        ]);
+        $rendered = (new PromptRenderer())->render(
+            (new OsPersonaPrompt())->withData('Semi', 'Taras'),
+            [],
+            $this->repository(),
+        );
 
         self::assertStringStartsWith(
             'You are Semi, the assistant at the heart of Semitexa OS — a personal, intent-first operating system. You are speaking with Taras.',
             $rendered->system,
         );
         self::assertStringContainsString('speak as Semi in the first person', $rendered->system);
-        self::assertStringNotContainsString('{{', $rendered->system);
     }
 
-    public function testUnknownUserNameRendersTheAskForNameGuidance(): void
+    public function testBoundPromptWithoutNameRendersAskForNameGuidance(): void
     {
-        $rendered = (new PromptRenderer())->renderTemplate($this->template(), [
-            'assistant_name' => 'Semi',
-            'user_name' => '',
-        ]);
+        $rendered = (new PromptRenderer())->render(
+            (new OsPersonaPrompt())->withData('Semi', ''),
+            [],
+            $this->repository(),
+        );
 
         self::assertStringStartsWith(
             "You are Semi, the assistant at the heart of Semitexa OS — a personal, intent-first operating system. You do not know the user's name yet.",
@@ -51,11 +74,17 @@ final class OsPersonaPromptTest extends TestCase
         self::assertStringContainsString('record it with the set-user-name skill', $rendered->system);
     }
 
-    public function testTemplateDeclaresItsTwoVariables(): void
+    public function testTypedDataMapsToTheTemplateSlots(): void
     {
-        $vars = $this->template()->variableNames();
-        sort($vars);
+        $vars = (new OsPersonaPrompt())->withData('Semi', 'Taras')->variables();
 
-        self::assertSame(['assistant_name', 'user_name'], $vars);
+        self::assertSame(['assistant_name' => 'Semi', 'user_name' => 'Taras'], $vars);
+
+        // The object's variable keys must cover exactly the template's {{ }} slots.
+        $slots = (new PromptRegistry())->buildFromClasses([OsPersonaPrompt::class])['os.persona']->variableNames();
+        sort($slots);
+        $keys = array_keys($vars);
+        sort($keys);
+        self::assertSame($slots, $keys);
     }
 }

@@ -7,9 +7,7 @@ namespace Semitexa\Os\Application\Service;
 use Semitexa\Llm\Attribute\AsAiPersona;
 use Semitexa\Llm\Domain\Contract\AiPersonaInterface;
 use Semitexa\Os\Application\Prompt\OsPersonaPrompt;
-use Semitexa\Prompt\Application\Service\PromptRegistry;
 use Semitexa\Prompt\Application\Service\PromptRenderer;
-use Semitexa\Prompt\Domain\Model\PromptTemplate;
 
 /**
  * The Semitexa OS persona: the model IS the assistant at the heart of the
@@ -21,7 +19,6 @@ use Semitexa\Prompt\Domain\Model\PromptTemplate;
 final class OsPersona implements AiPersonaInterface
 {
     private ?PromptRenderer $renderer = null;
-    private ?PromptTemplate $template = null;
 
     public function contextName(): string
     {
@@ -30,17 +27,13 @@ final class OsPersona implements AiPersonaInterface
 
     public function systemFraming(): string
     {
-        // Raw data only — the template's {% if user_name %} builds the greeting
-        // (or the ask-for-name guidance when the name is not known yet).
+        // A self-binding prompt: typed data in, no stringly-keyed variables array.
+        // The template's {% if user_name %} builds the greeting (or the
+        // ask-for-name guidance when the name is not known yet).
         $prefs = (new OsPreferences())->all();
 
-        return $this->renderer()->renderTemplate(
-            $this->template ??= (new PromptRegistry())
-                ->buildFromClasses([OsPersonaPrompt::class])[OsPersonaPrompt::ID],
-            [
-                'assistant_name' => $prefs['assistant_name'],
-                'user_name' => $prefs['user_name'],
-            ],
+        return $this->renderer()->render(
+            (new OsPersonaPrompt())->withData($prefs['assistant_name'], $prefs['user_name']),
         )->system;
     }
 
