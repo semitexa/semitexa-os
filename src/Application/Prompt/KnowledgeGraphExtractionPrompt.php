@@ -16,7 +16,7 @@ use Semitexa\Prompt\Domain\Model\PromptMessage;
 #[AsPrompt(
     id: self::ID,
     channel: 'os',
-    template: 'os.weaver.extraction.twig',
+    template: 'resources/prompts/os.weaver.extraction.twig',
     description: 'Weaver knowledge-graph extraction prompt (entities + relations as JSON).',
 )]
 final class KnowledgeGraphExtractionPrompt implements FewShotProviderInterface

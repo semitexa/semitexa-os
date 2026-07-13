@@ -12,7 +12,7 @@ use Semitexa\Prompt\Attribute\AsPrompt;
 #[AsPrompt(
     id: self::ID,
     channel: 'os',
-    template: 'os.skin.accent-color.twig',
+    template: 'resources/prompts/os.skin.accent-color.twig',
     description: 'Live-skin accent-colour picker: reply with one #rrggbb hex for a mood.',
 )]
 final class SkinAccentColorPrompt
