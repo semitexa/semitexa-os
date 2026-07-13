@@ -13,10 +13,11 @@ use Semitexa\Prompt\Domain\Contract\BoundPromptInterface;
  *
  * A self-binding prompt: instead of the caller assembling a stringly-keyed
  * variables array, it carries typed data ({@see $assistantName}, {@see $userName})
- * and converts it to the template's `{{ assistant_name }}` / `{{ user_name }}`
- * slots itself. Build a bound instance with {@see withData()} and pass it
- * straight to the renderer. The catalog still discovers this class parameterless
- * (both args are optional), so listing and DB overrides are unaffected.
+ * exposed through getters, and the template reads them via dot access
+ * (`{{ prompt.assistantName }}` / `{{ prompt.userName }}`). Build a bound
+ * instance with {@see withData()} and pass it straight to the renderer. The
+ * catalog still discovers this class parameterless (both args are optional), so
+ * listing and DB overrides are unaffected.
  */
 #[AsPrompt(
     id: self::ID,
@@ -44,14 +45,13 @@ final class OsPersonaPrompt implements BoundPromptInterface
         return self::ID;
     }
 
-    /**
-     * @return array<string, string>
-     */
-    public function variables(): array
+    public function assistantName(): string
     {
-        return [
-            'assistant_name' => (string) $this->assistantName,
-            'user_name' => (string) $this->userName,
-        ];
+        return (string) $this->assistantName;
+    }
+
+    public function userName(): string
+    {
+        return (string) $this->userName;
     }
 }

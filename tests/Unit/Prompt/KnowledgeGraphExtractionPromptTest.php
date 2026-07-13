@@ -30,11 +30,11 @@ final class KnowledgeGraphExtractionPromptTest extends TestCase
             '{"entities":[{"title":"...","kind":"..."}],"relations":[{"from":"...","to":"...","relation":"..."}]}',
             $system,
         );
-        self::assertStringContainsString('- kind is one of: {{ kinds }}. Pick the closest.', $system);
-        // The projects/known hints are native Twig conditionals now.
-        self::assertStringContainsString("{% if projects %}", $system);
-        self::assertStringContainsString("{{ projects|join(', ') }}", $system);
-        self::assertStringContainsString("{% if known %}", $system);
+        self::assertStringContainsString('- kind is one of: {{ prompt.kinds }}. Pick the closest.', $system);
+        // The projects/known hints are native Twig conditionals over the bound object.
+        self::assertStringContainsString("{% if prompt.projects %}", $system);
+        self::assertStringContainsString("{{ prompt.projects|join(', ') }}", $system);
+        self::assertStringContainsString("{% if prompt.known %}", $system);
 
         // The examples must no longer be in the system text — they are few-shot now.
         self::assertStringNotContainsString('Examples:', $system);
@@ -66,13 +66,11 @@ final class KnowledgeGraphExtractionPromptTest extends TestCase
         $template = (new PromptRegistry())->buildFromClasses([KnowledgeGraphExtractionPrompt::class])['os.weaver.extraction'];
         self::assertCount(6, $template->fewShot);
 
-        $rendered = (new PromptRenderer())->renderTemplate($template, [
-            'kinds' => 'person|project|place',
-            'projects' => [],
-            'known' => [],
-        ]);
+        $rendered = (new PromptRenderer())->render(
+            (new KnowledgeGraphExtractionPrompt())->withData('person|project|place', [], []),
+        );
 
-        // Variables bound in system, few-shot carried through untouched.
+        // Getters bound in system, few-shot carried through untouched.
         self::assertStringContainsString('- kind is one of: person|project|place. Pick the closest.', $rendered->system);
         self::assertStringNotContainsString('{{', $rendered->system);
         self::assertCount(6, $rendered->messages);
@@ -81,19 +79,17 @@ final class KnowledgeGraphExtractionPromptTest extends TestCase
 
     public function testProjectsAndKnownHintsRenderNativelyFromLists(): void
     {
-        $template = (new PromptRegistry())->buildFromClasses([KnowledgeGraphExtractionPrompt::class])['os.weaver.extraction'];
+        $renderer = new PromptRenderer();
 
         // With no data → no hint lines (the {% if %} branches stay empty).
-        $empty = (new PromptRenderer())->renderTemplate($template, ['kinds' => 'person', 'projects' => [], 'known' => []]);
+        $empty = $renderer->render((new KnowledgeGraphExtractionPrompt())->withData('person', [], []));
         self::assertStringNotContainsString('Known projects:', $empty->system);
         self::assertStringNotContainsString('Titles already in the graph:', $empty->system);
 
         // With data → the Twig loop/join builds the exact hint lines.
-        $full = (new PromptRenderer())->renderTemplate($template, [
-            'kinds' => 'person',
-            'projects' => ['Semitexa', 'Apart'],
-            'known' => ['Bohdan', 'Emma'],
-        ]);
+        $full = $renderer->render(
+            (new KnowledgeGraphExtractionPrompt())->withData('person', ['Semitexa', 'Apart'], ['Bohdan', 'Emma']),
+        );
         self::assertStringContainsString("\n- Known projects: Semitexa, Apart. When something clearly belongs", $full->system);
         self::assertStringContainsString("\n- Titles already in the graph: Bohdan; Emma. When the transcript", $full->system);
     }

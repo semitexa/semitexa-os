@@ -31,8 +31,7 @@ final class SkillLoopFragmentPromptsTest extends TestCase
         $language = 'Ukrainian (українська)';
         $expected = "Always reply in {$language}, regardless of the language the user writes in — unless they explicitly ask you to switch (then use the set-locale skill).";
 
-        $template = (new PromptRegistry())->buildFromClasses([ReplyLanguagePrompt::class])['os.reply-language'];
-        $rendered = (new PromptRenderer())->renderTemplate($template, ['language' => $language]);
+        $rendered = (new PromptRenderer())->render((new ReplyLanguagePrompt())->withData($language));
 
         self::assertSame($expected, $rendered->system);
     }

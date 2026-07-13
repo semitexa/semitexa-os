@@ -16,7 +16,6 @@ use Semitexa\Llm\Domain\Enum\AiRiskLevel;
 use Semitexa\Llm\Domain\Model\LlmRequest;
 use Semitexa\Os\Application\Prompt\SkinAccentColorPrompt;
 use Semitexa\Os\Application\Service\SkinStore;
-use Semitexa\Prompt\Application\Service\PromptRegistry;
 use Semitexa\Prompt\Application\Service\PromptRenderer;
 use Semitexa\Theme\Application\Service\Skin\KnobResolver;
 use Semitexa\Theme\Application\Service\Skin\SkinAlgorithmRegistry;
@@ -201,10 +200,7 @@ final class DesignSkinCommand extends BaseCommand
     /** The accent-colour picker system prompt, resolved from the prompt catalog. */
     private function accentColorSystemPrompt(): string
     {
-        $template = (new PromptRegistry())
-            ->buildFromClasses([SkinAccentColorPrompt::class])[SkinAccentColorPrompt::ID];
-
-        return (new PromptRenderer())->renderTemplate($template)->system;
+        return (new PromptRenderer())->render(new SkinAccentColorPrompt())->system;
     }
 
     /**

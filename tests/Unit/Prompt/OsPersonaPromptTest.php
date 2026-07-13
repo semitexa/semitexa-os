@@ -41,8 +41,9 @@ final class OsPersonaPromptTest extends TestCase
     }
 
     /**
-     * The self-binding prompt carries typed data; render() reads its id +
-     * variables(). Known name → the greeting branch, byte-identical.
+     * The self-binding prompt carries typed data; render() exposes it as the
+     * `prompt` object and the template reads its getters. Known name → the
+     * greeting branch, byte-identical.
      */
     public function testBoundPromptRendersTheGreeting(): void
     {
@@ -74,17 +75,21 @@ final class OsPersonaPromptTest extends TestCase
         self::assertStringContainsString('record it with the set-user-name skill', $rendered->system);
     }
 
-    public function testTypedDataMapsToTheTemplateSlots(): void
+    public function testTemplateGettersResolveOnTheBoundObject(): void
     {
-        $vars = (new OsPersonaPrompt())->withData('Semi', 'Taras')->variables();
-
-        self::assertSame(['assistant_name' => 'Semi', 'user_name' => 'Taras'], $vars);
-
-        // The object's variable keys must cover exactly the template's {{ }} slots.
+        // The names the template reads via dot-access (`{{ prompt.assistantName }}`).
         $slots = (new PromptRegistry())->buildFromClasses([OsPersonaPrompt::class])['os.persona']->variableNames();
         sort($slots);
-        $keys = array_keys($vars);
-        sort($keys);
-        self::assertSame($slots, $keys);
+        self::assertSame(['assistantName', 'userName'], $slots);
+
+        // Each one must be a real getter on the class returning the typed data —
+        // there is no variables() map to drift; the object stays in sync with its
+        // .twig slots by construction (a missing getter fails render under strict).
+        $prompt = (new OsPersonaPrompt())->withData('Semi', 'Taras');
+        foreach ($slots as $getter) {
+            self::assertTrue(method_exists($prompt, $getter), "missing getter: {$getter}");
+        }
+        self::assertSame('Semi', $prompt->assistantName());
+        self::assertSame('Taras', $prompt->userName());
     }
 }

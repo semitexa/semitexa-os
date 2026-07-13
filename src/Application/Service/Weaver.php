@@ -15,7 +15,6 @@ use Semitexa\Platform\Settings\Application\Service\SettingsStore;
 use Semitexa\Prompt\Application\Service\PromptRenderer;
 use Semitexa\Prompt\Domain\Contract\PromptRepositoryInterface;
 use Semitexa\Prompt\Domain\Model\PromptMessage;
-use Semitexa\Prompt\Domain\Model\PromptTemplate;
 use Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface;
 use Semitexa\Weave\Application\Service\GraphStore;
 use Semitexa\Weave\Domain\Contract\GraphStoreInterface;
@@ -250,18 +249,22 @@ final class Weaver
             $lines[] = $turn['role'] . ': ' . mb_substr($turn['text'], 0, 400);
         }
 
-        $rendered = $this->renderer()->renderTemplate($this->extractionTemplate(), [
-            'kinds' => implode('|', array_map(static fn (NodeKind $k): string => $k->value, NodeKind::cases())),
-            // Raw data — the template's {% if %}/{{ …|join }} builds the hint lines.
-            // projects: gravitational centres so new work-items land under them,
-            // not under "self". known: existing titles, so the model reuses a
-            // canonical title instead of minting a near-duplicate node.
-            'projects' => array_map(
+        // projects: gravitational centres so new work-items land under them, not
+        // under "self". known: existing titles, so the model reuses a canonical
+        // title instead of minting a near-duplicate node. Both are raw lists — the
+        // template's {% if %}/{{ …|join }} builds the hint lines.
+        $prompt = (new KnowledgeGraphExtractionPrompt())->withData(
+            kinds: implode('|', array_map(static fn (NodeKind $k): string => $k->value, NodeKind::cases())),
+            projects: array_map(
                 static fn ($n): string => $n->title,
                 $this->graphStore()->nodesByKind(NodeKind::Project, 12),
             ),
-            'known' => array_map(static fn ($n): string => $n->title, $this->graphStore()->graph(30)['nodes']),
-        ]);
+            known: array_map(static fn ($n): string => $n->title, $this->graphStore()->graph(30)['nodes']),
+        );
+
+        // Pass the bound repository so a tenant's DB override wins (catalog
+        // fallback otherwise) and the few-shot messages travel with the template.
+        $rendered = $this->renderer()->render($prompt, [], $this->prompts);
 
         return new LlmRequest(
             systemPrompt: $rendered->system,
@@ -278,15 +281,6 @@ final class Weaver
     private function renderer(): PromptRenderer
     {
         return $this->renderer ??= new PromptRenderer();
-    }
-
-    private function extractionTemplate(): PromptTemplate
-    {
-        // Resolve per-call through the bound repository so a tenant's DB override
-        // wins (catalog fallback otherwise). Deliberately NOT memoized: Weaver is
-        // a worker singleton and the resolved template is tenant-scoped, so
-        // caching it on the instance would leak one tenant's override to another.
-        return $this->prompts->get(KnowledgeGraphExtractionPrompt::ID);
     }
 
     /**

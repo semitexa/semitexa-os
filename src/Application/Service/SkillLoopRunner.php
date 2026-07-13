@@ -25,9 +25,7 @@ use Semitexa\Llm\Domain\Model\ExecutionResult;
 use Semitexa\Llm\Domain\Model\LlmRequest;
 use Semitexa\Os\Application\Prompt\LoopContinueNudgePrompt;
 use Semitexa\Os\Application\Prompt\ReplyLanguagePrompt;
-use Semitexa\Prompt\Application\Service\PromptRegistry;
 use Semitexa\Prompt\Application\Service\PromptRenderer;
-use Semitexa\Prompt\Domain\Model\PromptTemplate;
 use Semitexa\Llm\Domain\Model\LlmResponse;
 use Semitexa\Llm\Domain\Model\PlannerResponse;
 use Semitexa\Llm\Domain\Model\SkillEntry;
@@ -484,35 +482,24 @@ final class SkillLoopRunner
     private const OBSERVATION_MAX_CHARS = 1500;
 
     private ?PromptRenderer $promptRenderer = null;
-    private ?PromptTemplate $continueNudgeTemplate = null;
-    private ?PromptTemplate $replyLanguageTemplate = null;
 
     /** The continue-or-answer nudge, resolved from the prompt catalog. */
     private function continueNudge(): string
     {
-        return $this->promptRenderer()->renderTemplate(
-            $this->continueNudgeTemplate ??= $this->promptTemplate(LoopContinueNudgePrompt::class, LoopContinueNudgePrompt::ID),
-            [],
-        )->system;
+        return $this->promptRenderer()->render(new LoopContinueNudgePrompt())->system;
     }
 
     /** The reply-language pin appended to the persona in {@see plannerPersona()}. */
     private function replyLanguageLine(string $language): string
     {
-        return $this->promptRenderer()->renderTemplate(
-            $this->replyLanguageTemplate ??= $this->promptTemplate(ReplyLanguagePrompt::class, ReplyLanguagePrompt::ID),
-            ['language' => $language],
+        return $this->promptRenderer()->render(
+            (new ReplyLanguagePrompt())->withData($language),
         )->system;
     }
 
     private function promptRenderer(): PromptRenderer
     {
         return $this->promptRenderer ??= new PromptRenderer();
-    }
-
-    private function promptTemplate(string $class, string $id): PromptTemplate
-    {
-        return (new PromptRegistry())->buildFromClasses([$class])[$id];
     }
 
     /**
