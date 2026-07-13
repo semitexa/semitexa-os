@@ -12,6 +12,7 @@ use Semitexa\Prompt\Attribute\AsPrompt;
 #[AsPrompt(
     id: self::ID,
     channel: 'os',
+    template: 'os.persona.twig',
     description: 'Semitexa OS persona framing (intent-first assistant identity).',
 )]
 final class OsPersonaPrompt

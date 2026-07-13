@@ -12,6 +12,7 @@ use Semitexa\Prompt\Attribute\AsPrompt;
 #[AsPrompt(
     id: self::ID,
     channel: 'os',
+    template: 'os.reply-language.twig',
     description: 'Reply-language pin appended to the planner persona ({{ language }}).',
 )]
 final class ReplyLanguagePrompt

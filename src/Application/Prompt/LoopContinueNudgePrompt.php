@@ -12,6 +12,7 @@ use Semitexa\Prompt\Attribute\AsPrompt;
 #[AsPrompt(
     id: self::ID,
     channel: 'os',
+    template: 'os.loop.continue-nudge.twig',
     description: 'Orchestration-loop continue-or-answer nudge appended to the results-so-far message.',
 )]
 final class LoopContinueNudgePrompt
