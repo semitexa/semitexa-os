@@ -10,7 +10,12 @@ use Semitexa\Llm\Application\Service\LlmProviderResolver;
 use Semitexa\Llm\Application\Service\RemoteOllamaProvider;
 use Semitexa\Llm\Domain\Contract\LlmProviderInterface;
 use Semitexa\Llm\Domain\Model\LlmRequest;
+use Semitexa\Os\Application\Service\Prompt\KnowledgeGraphExtractionPrompt;
 use Semitexa\Platform\Settings\Application\Service\SettingsStore;
+use Semitexa\Prompt\Application\Service\PromptRegistry;
+use Semitexa\Prompt\Application\Service\PromptRenderer;
+use Semitexa\Prompt\Domain\Model\PromptMessage;
+use Semitexa\Prompt\Domain\Model\PromptTemplate;
 use Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface;
 use Semitexa\Weave\Application\Service\GraphStore;
 use Semitexa\Weave\Domain\Contract\GraphStoreInterface;
@@ -89,6 +94,9 @@ final class Weaver
      * The guard collapses the pile-up to one pass; skipped ticks retry later.
      */
     private bool $weaving = false;
+
+    private ?PromptRenderer $renderer = null;
+    private ?PromptTemplate $extractionTemplate = null;
 
     /**
      * One weave pass. Cheap when idle: no unwoven turns (or not yet settled)
@@ -235,53 +243,63 @@ final class Weaver
             $lines[] = $turn['role'] . ': ' . mb_substr($turn['text'], 0, 400);
         }
 
+        $rendered = $this->renderer()->renderTemplate($this->extractionTemplate(), [
+            'kinds' => implode('|', array_map(static fn (NodeKind $k): string => $k->value, NodeKind::cases())),
+            'projects_line' => $this->projectsLine(),
+            'known_line' => $this->knownLine(),
+        ]);
+
         return new LlmRequest(
-            systemPrompt: $this->systemPrompt(),
+            systemPrompt: $rendered->system,
             userMessage: "Transcript:\n" . implode("\n", $lines),
+            // The extraction examples now travel as role-tagged few-shot messages
+            // (see KnowledgeGraphExtractionPrompt) instead of an inline block.
+            history: array_map(
+                static fn (PromptMessage $m): array => $m->toArray(),
+                $rendered->messages,
+            ),
         );
     }
 
-    private function systemPrompt(): string
+    /**
+     * Known-projects hint. Projects are the graph's gravitational centres: when
+     * the model knows which projects exist, new work-items land under them, not
+     * under "self". Empty when the graph has no projects.
+     */
+    private function projectsLine(): string
     {
-        $kinds = implode('|', array_map(static fn (NodeKind $k): string => $k->value, NodeKind::cases()));
-        // Projects are the graph's gravitational centres: when the model knows
-        // which projects exist, new work-items land under them, not under "self".
         $projects = array_map(
             static fn ($n): string => $n->title,
             $this->graphStore()->nodesByKind(NodeKind::Project, 12),
         );
-        $projectsLine = $projects === [] ? '' : "\n- Known projects: " . implode(', ', $projects)
+
+        return $projects === [] ? '' : "\n- Known projects: " . implode(', ', $projects)
             . '. When something clearly belongs to one of these, relate it to that project (works_on, part_of, …) instead of "self".';
-        // Canonical-title reuse: the model minting a VARIANT of an existing title
-        // ("documentation for Semitexa" vs "Semitexa documentation") creates a
-        // near-duplicate node. Show it what already exists so it reuses titles.
+    }
+
+    /**
+     * Existing-titles hint for canonical-title reuse: the model minting a VARIANT
+     * of an existing title ("documentation for Semitexa" vs "Semitexa
+     * documentation") creates a near-duplicate node. Show it what already exists
+     * so it reuses titles. Empty when the graph is empty.
+     */
+    private function knownLine(): string
+    {
         $known = array_map(static fn ($n): string => $n->title, $this->graphStore()->graph(30)['nodes']);
-        $knownLine = $known === [] ? '' : "\n- Titles already in the graph: " . implode('; ', $known)
+
+        return $known === [] ? '' : "\n- Titles already in the graph: " . implode('; ', $known)
             . '. When the transcript refers to one of these, use its EXACT title — never a rephrasing.';
+    }
 
-        return <<<PROMPT
-            You maintain a personal knowledge graph for the user. From the conversation transcript, extract DURABLE real-world entities in the user's life and work, and the relationships between them.
+    private function renderer(): PromptRenderer
+    {
+        return $this->renderer ??= new PromptRenderer();
+    }
 
-            Reply with ONLY this JSON, no prose, no code fences:
-            {"entities":[{"title":"...","kind":"..."}],"relations":[{"from":"...","to":"...","relation":"..."}]}
-
-            Rules:
-            - kind is one of: {$kinds}. Pick the closest.
-            - Extract only lasting things: people, projects, organisations, places, topics, tasks, events, files. The user is referred to as "self" — use the literal title "self" in relations to link something to the user.
-            - Do NOT extract: UI/interface commands (open/close/restyle/retheme the interface, launch apps), styles or moods from those commands, the assistant itself, greetings, questions, opinions, or anything purely hypothetical.
-            - Titles: the NAME of the thing only, max 6 words, exactly as the user named it, in the user's language. Never a sentence or description.
-            - relation: a short snake_case predicate (works_at, part_of, married_to, located_in, interested_in, owns, works_on, friend_of, ...). Invent one if none fits.
-            - Every entity should appear in at least one relation when the transcript supports it.
-            - Nothing durable in the transcript? Reply {"entities":[],"relations":[]}.{$projectsLine}{$knownLine}
-
-            Examples:
-            "user: мій колега Богдан допомагає мені з дизайном Semitexa"
-            → {"entities":[{"title":"Богдан","kind":"person"},{"title":"Semitexa","kind":"project"}],"relations":[{"from":"Богдан","to":"self","relation":"colleague_of"},{"from":"Богдан","to":"Semitexa","relation":"works_on"}]}
-            "user: restyle the interface like a sunset at sea"
-            → {"entities":[],"relations":[]}
-            "user: my sister Emma moved to Lisbon"
-            → {"entities":[{"title":"Emma","kind":"person"},{"title":"Lisbon","kind":"place"}],"relations":[{"from":"Emma","to":"self","relation":"sister_of"},{"from":"Emma","to":"Lisbon","relation":"lives_in"}]}
-            PROMPT;
+    private function extractionTemplate(): PromptTemplate
+    {
+        return $this->extractionTemplate ??= (new PromptRegistry())
+            ->buildFromClasses([KnowledgeGraphExtractionPrompt::class])[KnowledgeGraphExtractionPrompt::ID];
     }
 
     /**
