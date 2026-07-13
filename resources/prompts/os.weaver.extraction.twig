@@ -10,4 +10,4 @@ Rules:
 - Titles: the NAME of the thing only, max 6 words, exactly as the user named it, in the user's language. Never a sentence or description.
 - relation: a short snake_case predicate (works_at, part_of, married_to, located_in, interested_in, owns, works_on, friend_of, ...). Invent one if none fits.
 - Every entity should appear in at least one relation when the transcript supports it.
-- Nothing durable in the transcript? Reply {"entities":[],"relations":[]}.{{ projects_line }}{{ known_line }}
+- Nothing durable in the transcript? Reply {"entities":[],"relations":[]}.{% if projects %}{{ "\n" }}- Known projects: {{ projects|join(', ') }}. When something clearly belongs to one of these, relate it to that project (works_on, part_of, …) instead of "self".{% endif %}{% if known %}{{ "\n" }}- Titles already in the graph: {{ known|join('; ') }}. When the transcript refers to one of these, use its EXACT title — never a rephrasing.{% endif %}

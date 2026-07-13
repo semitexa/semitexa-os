@@ -31,7 +31,10 @@ final class KnowledgeGraphExtractionPromptTest extends TestCase
             $system,
         );
         self::assertStringContainsString('- kind is one of: {{ kinds }}. Pick the closest.', $system);
-        self::assertStringContainsString('{{ projects_line }}{{ known_line }}', $system);
+        // The projects/known hints are native Twig conditionals now.
+        self::assertStringContainsString("{% if projects %}", $system);
+        self::assertStringContainsString("{{ projects|join(', ') }}", $system);
+        self::assertStringContainsString("{% if known %}", $system);
 
         // The examples must no longer be in the system text — they are few-shot now.
         self::assertStringNotContainsString('Examples:', $system);
@@ -65,8 +68,8 @@ final class KnowledgeGraphExtractionPromptTest extends TestCase
 
         $rendered = (new PromptRenderer())->renderTemplate($template, [
             'kinds' => 'person|project|place',
-            'projects_line' => '',
-            'known_line' => '',
+            'projects' => [],
+            'known' => [],
         ]);
 
         // Variables bound in system, few-shot carried through untouched.
@@ -74,5 +77,24 @@ final class KnowledgeGraphExtractionPromptTest extends TestCase
         self::assertStringNotContainsString('{{', $rendered->system);
         self::assertCount(6, $rendered->messages);
         self::assertSame('{"entities":[],"relations":[]}', $rendered->messages[3]->content);
+    }
+
+    public function testProjectsAndKnownHintsRenderNativelyFromLists(): void
+    {
+        $template = (new PromptRegistry())->buildFromClasses([KnowledgeGraphExtractionPrompt::class])['os.weaver.extraction'];
+
+        // With no data → no hint lines (the {% if %} branches stay empty).
+        $empty = (new PromptRenderer())->renderTemplate($template, ['kinds' => 'person', 'projects' => [], 'known' => []]);
+        self::assertStringNotContainsString('Known projects:', $empty->system);
+        self::assertStringNotContainsString('Titles already in the graph:', $empty->system);
+
+        // With data → the Twig loop/join builds the exact hint lines.
+        $full = (new PromptRenderer())->renderTemplate($template, [
+            'kinds' => 'person',
+            'projects' => ['Semitexa', 'Apart'],
+            'known' => ['Bohdan', 'Emma'],
+        ]);
+        self::assertStringContainsString("\n- Known projects: Semitexa, Apart. When something clearly belongs", $full->system);
+        self::assertStringContainsString("\n- Titles already in the graph: Bohdan; Emma. When the transcript", $full->system);
     }
 }

@@ -252,8 +252,15 @@ final class Weaver
 
         $rendered = $this->renderer()->renderTemplate($this->extractionTemplate(), [
             'kinds' => implode('|', array_map(static fn (NodeKind $k): string => $k->value, NodeKind::cases())),
-            'projects_line' => $this->projectsLine(),
-            'known_line' => $this->knownLine(),
+            // Raw data — the template's {% if %}/{{ …|join }} builds the hint lines.
+            // projects: gravitational centres so new work-items land under them,
+            // not under "self". known: existing titles, so the model reuses a
+            // canonical title instead of minting a near-duplicate node.
+            'projects' => array_map(
+                static fn ($n): string => $n->title,
+                $this->graphStore()->nodesByKind(NodeKind::Project, 12),
+            ),
+            'known' => array_map(static fn ($n): string => $n->title, $this->graphStore()->graph(30)['nodes']),
         ]);
 
         return new LlmRequest(
@@ -266,36 +273,6 @@ final class Weaver
                 $rendered->messages,
             ),
         );
-    }
-
-    /**
-     * Known-projects hint. Projects are the graph's gravitational centres: when
-     * the model knows which projects exist, new work-items land under them, not
-     * under "self". Empty when the graph has no projects.
-     */
-    private function projectsLine(): string
-    {
-        $projects = array_map(
-            static fn ($n): string => $n->title,
-            $this->graphStore()->nodesByKind(NodeKind::Project, 12),
-        );
-
-        return $projects === [] ? '' : "\n- Known projects: " . implode(', ', $projects)
-            . '. When something clearly belongs to one of these, relate it to that project (works_on, part_of, …) instead of "self".';
-    }
-
-    /**
-     * Existing-titles hint for canonical-title reuse: the model minting a VARIANT
-     * of an existing title ("documentation for Semitexa" vs "Semitexa
-     * documentation") creates a near-duplicate node. Show it what already exists
-     * so it reuses titles. Empty when the graph is empty.
-     */
-    private function knownLine(): string
-    {
-        $known = array_map(static fn ($n): string => $n->title, $this->graphStore()->graph(30)['nodes']);
-
-        return $known === [] ? '' : "\n- Titles already in the graph: " . implode('; ', $known)
-            . '. When the transcript refers to one of these, use its EXACT title — never a rephrasing.';
     }
 
     private function renderer(): PromptRenderer

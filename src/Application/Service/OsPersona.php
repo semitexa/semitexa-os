@@ -30,18 +30,16 @@ final class OsPersona implements AiPersonaInterface
 
     public function systemFraming(): string
     {
+        // Raw data only — the template's {% if user_name %} builds the greeting
+        // (or the ask-for-name guidance when the name is not known yet).
         $prefs = (new OsPreferences())->all();
-        $assistant = $prefs['assistant_name'];
-        $userLine = $prefs['user_name'] !== ''
-            ? ' You are speaking with ' . $prefs['user_name'] . '.'
-            : ' You do not know the user\'s name yet. Early in the conversation, warmly ask what you should call them; and whenever they tell you their name in ANY phrasing ("I\'m Taras", "мене звати Тарас", "call me Sam", or just "Taras"), record it with the set-user-name skill (put the extracted name in its `name` argument). Ask once, naturally — never nag or repeat the same question.';
 
         return $this->renderer()->renderTemplate(
             $this->template ??= (new PromptRegistry())
                 ->buildFromClasses([OsPersonaPrompt::class])[OsPersonaPrompt::ID],
             [
-                'assistant_name' => $assistant,
-                'user_line' => $userLine,
+                'assistant_name' => $prefs['assistant_name'],
+                'user_name' => $prefs['user_name'],
             ],
         )->system;
     }

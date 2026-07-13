@@ -8,41 +8,54 @@ use PHPUnit\Framework\TestCase;
 use Semitexa\Os\Application\Prompt\OsPersonaPrompt;
 use Semitexa\Prompt\Application\Service\PromptRegistry;
 use Semitexa\Prompt\Application\Service\PromptRenderer;
+use Semitexa\Prompt\Domain\Model\PromptTemplate;
 
 final class OsPersonaPromptTest extends TestCase
 {
-    /**
-     * The template must equal the pre-migration heredoc byte-for-byte, with only
-     * the two interpolations rewritten to catalog variables. The golden fixture
-     * was produced mechanically from the git-original OsPersona.
-     */
-    public function testTemplateIsByteIdenticalToLegacyHeredoc(): void
+    private function template(): PromptTemplate
     {
-        $golden = (string) file_get_contents(__DIR__ . '/fixtures/os-persona.template.golden.txt');
-
-        self::assertSame($golden, rtrim((new PromptRegistry())->buildFromClasses([OsPersonaPrompt::class])['os.persona']->system));
+        return (new PromptRegistry())->buildFromClasses([OsPersonaPrompt::class])['os.persona'];
     }
 
-    public function testRenderBindsBothAssistantOccurrencesAndTheUserLine(): void
+    /**
+     * The user-name branch is native Twig now ({% if user_name %}), so the
+     * consumer passes the raw name; the template builds the greeting. Rendered
+     * output must be byte-identical to the pre-simplification persona.
+     */
+    public function testKnownUserNameRendersTheGreeting(): void
     {
-        $template = (new PromptRegistry())->buildFromClasses([OsPersonaPrompt::class])['os.persona'];
-
-        $rendered = (new PromptRenderer())->renderTemplate($template, [
+        $rendered = (new PromptRenderer())->renderTemplate($this->template(), [
             'assistant_name' => 'Semi',
-            'user_line' => ' You are speaking with Taras.',
+            'user_name' => 'Taras',
         ]);
 
-        self::assertStringContainsString('You are Semi, the assistant at the heart of Semitexa OS', $rendered->system);
-        self::assertStringContainsString('operating system. You are speaking with Taras.', $rendered->system);
+        self::assertStringStartsWith(
+            'You are Semi, the assistant at the heart of Semitexa OS — a personal, intent-first operating system. You are speaking with Taras.',
+            $rendered->system,
+        );
         self::assertStringContainsString('speak as Semi in the first person', $rendered->system);
         self::assertStringNotContainsString('{{', $rendered->system);
     }
 
+    public function testUnknownUserNameRendersTheAskForNameGuidance(): void
+    {
+        $rendered = (new PromptRenderer())->renderTemplate($this->template(), [
+            'assistant_name' => 'Semi',
+            'user_name' => '',
+        ]);
+
+        self::assertStringStartsWith(
+            "You are Semi, the assistant at the heart of Semitexa OS — a personal, intent-first operating system. You do not know the user's name yet.",
+            $rendered->system,
+        );
+        self::assertStringContainsString('record it with the set-user-name skill', $rendered->system);
+    }
+
     public function testTemplateDeclaresItsTwoVariables(): void
     {
-        $vars = (new PromptRegistry())->buildFromClasses([OsPersonaPrompt::class])['os.persona']->variableNames();
+        $vars = $this->template()->variableNames();
         sort($vars);
 
-        self::assertSame(['assistant_name', 'user_line'], $vars);
+        self::assertSame(['assistant_name', 'user_name'], $vars);
     }
 }
