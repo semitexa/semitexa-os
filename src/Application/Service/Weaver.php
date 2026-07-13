@@ -12,8 +12,8 @@ use Semitexa\Llm\Domain\Contract\LlmProviderInterface;
 use Semitexa\Llm\Domain\Model\LlmRequest;
 use Semitexa\Os\Application\Service\Prompt\KnowledgeGraphExtractionPrompt;
 use Semitexa\Platform\Settings\Application\Service\SettingsStore;
-use Semitexa\Prompt\Application\Service\PromptRegistry;
 use Semitexa\Prompt\Application\Service\PromptRenderer;
+use Semitexa\Prompt\Domain\Contract\PromptRepositoryInterface;
 use Semitexa\Prompt\Domain\Model\PromptMessage;
 use Semitexa\Prompt\Domain\Model\PromptTemplate;
 use Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface;
@@ -96,7 +96,14 @@ final class Weaver
     private bool $weaving = false;
 
     private ?PromptRenderer $renderer = null;
-    private ?PromptTemplate $extractionTemplate = null;
+
+    /**
+     * The bound prompt repository — the DB-override layer in a full app. Weaver
+     * OPTS IN to per-tenant prompt overrides by resolving its extraction prompt
+     * through this instead of straight from the code catalog.
+     */
+    #[InjectAsReadonly]
+    protected PromptRepositoryInterface $prompts;
 
     /**
      * One weave pass. Cheap when idle: no unwoven turns (or not yet settled)
@@ -298,8 +305,11 @@ final class Weaver
 
     private function extractionTemplate(): PromptTemplate
     {
-        return $this->extractionTemplate ??= (new PromptRegistry())
-            ->buildFromClasses([KnowledgeGraphExtractionPrompt::class])[KnowledgeGraphExtractionPrompt::ID];
+        // Resolve per-call through the bound repository so a tenant's DB override
+        // wins (catalog fallback otherwise). Deliberately NOT memoized: Weaver is
+        // a worker singleton and the resolved template is tenant-scoped, so
+        // caching it on the instance would leak one tenant's override to another.
+        return $this->prompts->get(KnowledgeGraphExtractionPrompt::ID);
     }
 
     /**
