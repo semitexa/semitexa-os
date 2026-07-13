@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Semitexa\Os\Tests\Unit\Prompt;
 
 use PHPUnit\Framework\TestCase;
-use Semitexa\Os\Application\Service\Prompt\LoopContinueNudgePrompt;
-use Semitexa\Os\Application\Service\Prompt\ReplyLanguagePrompt;
+use Semitexa\Os\Application\Prompt\LoopContinueNudgePrompt;
+use Semitexa\Os\Application\Prompt\ReplyLanguagePrompt;
 use Semitexa\Prompt\Application\Service\PromptRegistry;
 use Semitexa\Prompt\Application\Service\PromptRenderer;
 
@@ -23,7 +23,7 @@ final class SkillLoopFragmentPromptsTest extends TestCase
             . " If the request is now fully satisfied, respond with an \"answer\" that gives the user the result directly."
             . ' Otherwise propose the next skill.';
 
-        self::assertSame($expected, (new LoopContinueNudgePrompt())->system());
+        self::assertSame($expected, rtrim((new PromptRegistry())->buildFromClasses([LoopContinueNudgePrompt::class])['os.loop.continue-nudge']->system));
     }
 
     public function testReplyLanguageLineIsByteIdenticalToTheLegacyFragment(): void

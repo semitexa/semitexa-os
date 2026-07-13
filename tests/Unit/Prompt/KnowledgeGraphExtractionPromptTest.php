@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\Os\Tests\Unit\Prompt;
 
 use PHPUnit\Framework\TestCase;
-use Semitexa\Os\Application\Service\Prompt\KnowledgeGraphExtractionPrompt;
+use Semitexa\Os\Application\Prompt\KnowledgeGraphExtractionPrompt;
 use Semitexa\Prompt\Application\Service\PromptRegistry;
 use Semitexa\Prompt\Application\Service\PromptRenderer;
 use Semitexa\Prompt\Domain\Enum\MessageRole;
@@ -20,7 +20,7 @@ final class KnowledgeGraphExtractionPromptTest extends TestCase
 {
     public function testInstructionTextIsPreservedAndExamplesAreRemovedFromSystem(): void
     {
-        $system = (new KnowledgeGraphExtractionPrompt())->system();
+        $system = rtrim((new PromptRegistry())->buildFromClasses([KnowledgeGraphExtractionPrompt::class])['os.weaver.extraction']->system);
 
         self::assertStringStartsWith(
             "You maintain a personal knowledge graph for the user. From the conversation transcript, extract DURABLE real-world entities in the user's life and work, and the relationships between them.",

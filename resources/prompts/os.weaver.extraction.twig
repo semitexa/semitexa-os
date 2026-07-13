@@ -1,0 +1,13 @@
+You maintain a personal knowledge graph for the user. From the conversation transcript, extract DURABLE real-world entities in the user's life and work, and the relationships between them.
+
+Reply with ONLY this JSON, no prose, no code fences:
+{"entities":[{"title":"...","kind":"..."}],"relations":[{"from":"...","to":"...","relation":"..."}]}
+
+Rules:
+- kind is one of: {{ kinds }}. Pick the closest.
+- Extract only lasting things: people, projects, organisations, places, topics, tasks, events, files. The user is referred to as "self" — use the literal title "self" in relations to link something to the user.
+- Do NOT extract: UI/interface commands (open/close/restyle/retheme the interface, launch apps), styles or moods from those commands, the assistant itself, greetings, questions, opinions, or anything purely hypothetical.
+- Titles: the NAME of the thing only, max 6 words, exactly as the user named it, in the user's language. Never a sentence or description.
+- relation: a short snake_case predicate (works_at, part_of, married_to, located_in, interested_in, owns, works_on, friend_of, ...). Invent one if none fits.
+- Every entity should appear in at least one relation when the transcript supports it.
+- Nothing durable in the transcript? Reply {"entities":[],"relations":[]}.{{ projects_line }}{{ known_line }}

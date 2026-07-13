@@ -14,7 +14,7 @@ use Semitexa\Llm\Domain\Enum\AiArgumentPolicy;
 use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
 use Semitexa\Llm\Domain\Enum\AiRiskLevel;
 use Semitexa\Llm\Domain\Model\LlmRequest;
-use Semitexa\Os\Application\Service\Prompt\SkinAccentColorPrompt;
+use Semitexa\Os\Application\Prompt\SkinAccentColorPrompt;
 use Semitexa\Os\Application\Service\SkinStore;
 use Semitexa\Prompt\Application\Service\PromptRegistry;
 use Semitexa\Prompt\Application\Service\PromptRenderer;

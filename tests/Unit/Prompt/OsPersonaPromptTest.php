@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\Os\Tests\Unit\Prompt;
 
 use PHPUnit\Framework\TestCase;
-use Semitexa\Os\Application\Service\Prompt\OsPersonaPrompt;
+use Semitexa\Os\Application\Prompt\OsPersonaPrompt;
 use Semitexa\Prompt\Application\Service\PromptRegistry;
 use Semitexa\Prompt\Application\Service\PromptRenderer;
 
@@ -20,7 +20,7 @@ final class OsPersonaPromptTest extends TestCase
     {
         $golden = (string) file_get_contents(__DIR__ . '/fixtures/os-persona.template.golden.txt');
 
-        self::assertSame($golden, (new OsPersonaPrompt())->system());
+        self::assertSame($golden, rtrim((new PromptRegistry())->buildFromClasses([OsPersonaPrompt::class])['os.persona']->system));
     }
 
     public function testRenderBindsBothAssistantOccurrencesAndTheUserLine(): void

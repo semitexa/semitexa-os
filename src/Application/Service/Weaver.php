@@ -10,7 +10,7 @@ use Semitexa\Llm\Application\Service\LlmProviderResolver;
 use Semitexa\Llm\Application\Service\RemoteOllamaProvider;
 use Semitexa\Llm\Domain\Contract\LlmProviderInterface;
 use Semitexa\Llm\Domain\Model\LlmRequest;
-use Semitexa\Os\Application\Service\Prompt\KnowledgeGraphExtractionPrompt;
+use Semitexa\Os\Application\Prompt\KnowledgeGraphExtractionPrompt;
 use Semitexa\Platform\Settings\Application\Service\SettingsStore;
 use Semitexa\Prompt\Application\Service\PromptRenderer;
 use Semitexa\Prompt\Domain\Contract\PromptRepositoryInterface;

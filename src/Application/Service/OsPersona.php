@@ -6,7 +6,7 @@ namespace Semitexa\Os\Application\Service;
 
 use Semitexa\Llm\Attribute\AsAiPersona;
 use Semitexa\Llm\Domain\Contract\AiPersonaInterface;
-use Semitexa\Os\Application\Service\Prompt\OsPersonaPrompt;
+use Semitexa\Os\Application\Prompt\OsPersonaPrompt;
 use Semitexa\Prompt\Application\Service\PromptRegistry;
 use Semitexa\Prompt\Application\Service\PromptRenderer;
 use Semitexa\Prompt\Domain\Model\PromptTemplate;
