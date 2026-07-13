@@ -36,6 +36,15 @@ final class PromptsSaveHandler implements TypedHandlerInterface
                 return $this->json($resource, ['ok' => true, 'id' => $id, 'overridden' => false], 200);
             }
 
+            if ($payload->getAction() === 'restore') {
+                $version = $payload->getVersion();
+                if (!ctype_digit($version) || !$this->overrides->revert($id, (int) $version)) {
+                    return $this->json($resource, ['ok' => false, 'error' => 'Version not found.'], 404);
+                }
+
+                return $this->json($resource, ['ok' => true, 'id' => $id, 'overridden' => true, 'restored' => (int) $version], 200);
+            }
+
             $system = $payload->getSystem();
             if (trim($system) === '') {
                 return $this->json($resource, ['ok' => false, 'error' => 'Override text must not be empty.'], 422);

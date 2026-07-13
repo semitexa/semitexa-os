@@ -156,6 +156,13 @@ final class PromptsAppHandler implements TypedHandlerInterface
   summary{cursor:pointer;font-size:12px;color:var(--mute);user-select:none}
   pre.base{margin:8px 0 0;padding:12px 14px;border-radius:8px;background:rgba(var(--line-rgb),.10);color:var(--mute);
     font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.6;white-space:pre-wrap;max-height:200px;overflow:auto}
+  .histlist{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+  .histrow{display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:7px;background:rgba(var(--line-rgb),.08);font-size:12px}
+  .histrow .hv{font-family:'IBM Plex Mono',monospace;color:var(--accent);min-width:34px;font-weight:500}
+  .histrow .ht{color:var(--dim);font-family:'IBM Plex Mono',monospace;font-size:11px;white-space:nowrap}
+  .histrow .hs{flex:1;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'IBM Plex Mono',monospace}
+  .histrow button{padding:3px 10px;font-size:11px}
+  .histmute{color:var(--dim);font-size:12px;padding:4px 2px}
 </style></head>
 <body>
   <aside class="side">
@@ -206,7 +213,8 @@ final class PromptsAppHandler implements TypedHandlerInterface
         + '<div class="meta"><span class="chip">'+esc(p.channel)+'</span>'+vars+'</div>'
         + '</div>'
         + '<div class="edit"><div class="lbl">System prompt'+(p.base==null?' (override only)':'')+'</div>'
-        + '<textarea id="ta" spellcheck="false"></textarea>' + baseBlock + '</div>'
+        + '<textarea id="ta" spellcheck="false"></textarea>' + baseBlock
+        + '<details id="histbox"><summary>Version history</summary><div id="history" class="histlist"><div class="histmute">Loading…</div></div></details></div>'
         + '<div class="foot">'
         + '<button class="primary" id="save" disabled>Save override</button>'
         + '<button class="ghost" id="reset"'+(p.override==null?' disabled':'')+'>Reset to default</button>'
@@ -216,6 +224,42 @@ final class PromptsAppHandler implements TypedHandlerInterface
       ta.oninput = function(){ document.getElementById('save').disabled = (ta.value === effective(p)); };
       document.getElementById('save').onclick = function(){ save(p, ta.value); };
       document.getElementById('reset').onclick = function(){ reset(p); };
+      loadHistory(p.id);
+    }
+
+    async function loadHistory(id){
+      var box = document.getElementById('history'); if(!box) return;
+      try{
+        var r = await fetch('/os/prompts/history?id='+encodeURIComponent(id), {headers:{'Accept':'application/json'}});
+        var d = await r.json();
+        if(sel !== id) return;
+        var vs = d.versions || [];
+        if(!vs.length){ box.innerHTML = '<div class="histmute">No saved versions yet.</div>'; return; }
+        box.innerHTML = '';
+        vs.forEach(function(v){
+          var line = (v.system||'').split('\n')[0];
+          var row = document.createElement('div');
+          row.className = 'histrow';
+          row.innerHTML = '<span class="hv">v'+v.version+'</span><span class="ht">'+esc((v.created_at||'').replace('T',' ').slice(0,19))+'</span><span class="hs">'+esc(line)+'</span>';
+          var btn = document.createElement('button'); btn.className='ghost'; btn.textContent='Restore';
+          btn.onclick = function(){ restore(id, v.version); };
+          row.appendChild(btn); box.appendChild(row);
+        });
+      }catch(e){ box.innerHTML = '<div class="histmute">History unavailable.</div>'; }
+    }
+
+    async function restore(id, version){
+      try{
+        var d = await post({id:id, action:'restore', version:String(version)});
+        if(d.ok){
+          // A restore appends a new version carrying the old text; reflect it as
+          // the current override by reading the newest history entry back.
+          var hr = await fetch('/os/prompts/history?id='+encodeURIComponent(id), {headers:{'Accept':'application/json'}});
+          var hd = await hr.json(); var top = (hd.versions||[])[0];
+          if(top) byId[id].override = top.system;
+          select(id); flash('Restored v'+version); notify(id);
+        } else flash(d.error||'Restore failed', true);
+      }catch(e){ flash('Network error', true); }
     }
 
     function flash(msg, isErr){

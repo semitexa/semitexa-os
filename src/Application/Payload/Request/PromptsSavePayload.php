@@ -28,6 +28,8 @@ final class PromptsSavePayload implements ValidatablePayloadInterface
 
     private string $system = '';
 
+    private string $version = '';
+
     /**
      * @return array<string, list<string>>
      */
@@ -37,14 +39,27 @@ final class PromptsSavePayload implements ValidatablePayloadInterface
         if ($this->id === '') {
             $errors['id'] = ['A prompt id is required.'];
         }
-        if (!in_array($this->action, ['save', 'reset'], true)) {
-            $errors['action'] = ['action must be "save" or "reset".'];
+        if (!in_array($this->action, ['save', 'reset', 'restore'], true)) {
+            $errors['action'] = ['action must be "save", "reset" or "restore".'];
         }
         if ($this->action === 'save' && trim($this->system) === '') {
             $errors['system'] = ['Override text must not be empty (use action "reset" to clear).'];
         }
+        if ($this->action === 'restore' && !ctype_digit($this->version)) {
+            $errors['version'] = ['A version number is required to restore.'];
+        }
 
         return $errors;
+    }
+
+    public function getVersion(): string
+    {
+        return $this->version;
+    }
+
+    public function setVersion(string $version): void
+    {
+        $this->version = $version;
     }
 
     public function getId(): string
