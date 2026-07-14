@@ -29,20 +29,29 @@ final class PromptsSaveHandler implements TypedHandlerInterface
             return $this->json($resource, ['ok' => false, 'error' => 'A prompt id is required.'], 422);
         }
 
+        $action = $payload->getAction();
+
         try {
-            if ($payload->getAction() === 'reset') {
+            if ($action === 'reset') {
                 $this->overrides->remove($id);
 
                 return $this->json($resource, ['ok' => true, 'id' => $id, 'overridden' => false], 200);
             }
 
-            if ($payload->getAction() === 'restore') {
+            if ($action === 'restore') {
                 $version = $payload->getVersion();
                 if (!ctype_digit($version) || !$this->overrides->revert($id, (int) $version)) {
                     return $this->json($resource, ['ok' => false, 'error' => 'Version not found.'], 404);
                 }
 
                 return $this->json($resource, ['ok' => true, 'id' => $id, 'overridden' => true, 'restored' => (int) $version], 200);
+            }
+
+            // Explicit allowlist: only an explicit "save" persists an override.
+            // Payload validation already enforces this, but the handler must not
+            // fall through to a write for an unexpected action if that is bypassed.
+            if ($action !== 'save') {
+                return $this->json($resource, ['ok' => false, 'error' => 'Unknown action.'], 422);
             }
 
             $system = $payload->getSystem();
@@ -54,7 +63,10 @@ final class PromptsSaveHandler implements TypedHandlerInterface
 
             return $this->json($resource, ['ok' => true, 'id' => $id, 'overridden' => true], 200);
         } catch (\Throwable $e) {
-            return $this->json($resource, ['ok' => false, 'error' => 'Could not save: ' . $e->getMessage()], 500);
+            // Log server-side; never return the raw exception message to the client.
+            error_log('PromptsSaveHandler: could not save override "' . $id . '": ' . $e->getMessage());
+
+            return $this->json($resource, ['ok' => false, 'error' => 'Could not save the override.'], 500);
         }
     }
 

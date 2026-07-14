@@ -290,7 +290,7 @@ final class PromptsAppHandler implements TypedHandlerInterface
       }catch(e){ flash('Network error', true); }
     }
 
-    function notify(id){ try{ window.parent.postMessage({type:'os:prompt-override-changed', id:id}, '*'); }catch(e){} }
+    function notify(id){ try{ window.parent.postMessage({type:'os:prompt-override-changed', id:id}, window.location.origin); }catch(e){} }
 
     searchEl.oninput = renderList;
     renderList();

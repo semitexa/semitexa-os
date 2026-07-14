@@ -28,7 +28,7 @@ final class OsPersona implements AiPersonaInterface
     public function systemFraming(): string
     {
         // A self-binding prompt: typed data in, no stringly-keyed variables array.
-        // The template's {% if user_name %} builds the greeting (or the
+        // The template's {% if prompt.userName %} builds the greeting (or the
         // ask-for-name guidance when the name is not known yet).
         $prefs = (new OsPreferences())->all();
 
