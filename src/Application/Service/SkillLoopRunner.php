@@ -23,6 +23,9 @@ use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
 use Semitexa\Llm\Domain\Enum\PlannerResponseType;
 use Semitexa\Llm\Domain\Model\ExecutionResult;
 use Semitexa\Llm\Domain\Model\LlmRequest;
+use Semitexa\Os\Application\Prompt\LoopContinueNudgePrompt;
+use Semitexa\Os\Application\Prompt\ReplyLanguagePrompt;
+use Semitexa\Prompt\Application\Service\PromptRenderer;
 use Semitexa\Llm\Domain\Model\LlmResponse;
 use Semitexa\Llm\Domain\Model\PlannerResponse;
 use Semitexa\Llm\Domain\Model\SkillEntry;
@@ -451,7 +454,7 @@ final class SkillLoopRunner
             // Repeating the intent alongside the running results keeps exactly
             // one user-role message per call and never loses the original ask.
             $observations[] = $this->observationLine($skill, $result);
-            $userMessage = $intent . "\n\nResults so far:\n" . implode("\n\n", $observations) . "\n\n" . self::CONTINUE_NUDGE;
+            $userMessage = $intent . "\n\nResults so far:\n" . implode("\n\n", $observations) . "\n\n" . $this->continueNudge();
         }
 
         return $this->finalize($intent, $steps, $lastConfidence);
@@ -478,9 +481,26 @@ final class SkillLoopRunner
     /** Cap on how much of a skill's output is fed back as an observation. */
     private const OBSERVATION_MAX_CHARS = 1500;
 
-    private const CONTINUE_NUDGE = "Continue fulfilling the user's original request using this result."
-        . " If the request is now fully satisfied, respond with an \"answer\" that gives the user the result directly."
-        . ' Otherwise propose the next skill.';
+    private ?PromptRenderer $promptRenderer = null;
+
+    /** The continue-or-answer nudge, resolved from the prompt catalog. */
+    private function continueNudge(): string
+    {
+        return $this->promptRenderer()->render(new LoopContinueNudgePrompt())->system;
+    }
+
+    /** The reply-language pin appended to the persona in {@see plannerPersona()}. */
+    private function replyLanguageLine(string $language): string
+    {
+        return $this->promptRenderer()->render(
+            (new ReplyLanguagePrompt())->withData($language),
+        )->system;
+    }
+
+    private function promptRenderer(): PromptRenderer
+    {
+        return $this->promptRenderer ??= new PromptRenderer();
+    }
 
     /**
      * One skill's contribution to the running progress note fed back to the
@@ -1025,7 +1045,7 @@ final class SkillLoopRunner
         }
         $language = self::LANGUAGE_NAMES[$locale] ?? null;
         if ($language !== null && $persona !== '') {
-            $persona .= "\nAlways reply in {$language}, regardless of the language the user writes in — unless they explicitly ask you to switch (then use the set-locale skill).";
+            $persona .= "\n" . $this->replyLanguageLine($language);
         }
 
         return $persona;

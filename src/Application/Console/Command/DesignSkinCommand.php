@@ -14,7 +14,9 @@ use Semitexa\Llm\Domain\Enum\AiArgumentPolicy;
 use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
 use Semitexa\Llm\Domain\Enum\AiRiskLevel;
 use Semitexa\Llm\Domain\Model\LlmRequest;
+use Semitexa\Os\Application\Prompt\SkinAccentColorPrompt;
 use Semitexa\Os\Application\Service\SkinStore;
+use Semitexa\Prompt\Application\Service\PromptRenderer;
 use Semitexa\Theme\Application\Service\Skin\KnobResolver;
 use Semitexa\Theme\Application\Service\Skin\SkinAlgorithmRegistry;
 use Semitexa\Theme\Application\Service\Skin\SkinBuilder;
@@ -181,8 +183,7 @@ final class DesignSkinCommand extends BaseCommand
             }
 
             $response = $provider->complete(new LlmRequest(
-                systemPrompt: 'You choose ONE brand accent colour for a UI theme from a described mood or scene. '
-                    . 'Reply with ONLY a single hex colour in the form #rrggbb — no words, no explanation, no code fences.',
+                systemPrompt: $this->accentColorSystemPrompt(),
                 userMessage: $prompt,
             ));
 
@@ -194,6 +195,12 @@ final class DesignSkinCommand extends BaseCommand
         }
 
         return null;
+    }
+
+    /** The accent-colour picker system prompt, resolved from the prompt catalog. */
+    private function accentColorSystemPrompt(): string
+    {
+        return (new PromptRenderer())->render(new SkinAccentColorPrompt())->system;
     }
 
     /**
