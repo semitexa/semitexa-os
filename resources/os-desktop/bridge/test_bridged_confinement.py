@@ -17,7 +17,6 @@ Run: python3 test_bridged_confinement.py
 """
 import os
 import json
-import socket
 import tempfile
 import threading
 import importlib.util
@@ -32,12 +31,6 @@ TEST_TOKEN = "test-bridge-token-1234"
 def load_bridge(root):
     os.environ["SEMITEXA_FILES_ROOT"] = root
     os.environ["SEMITEXA_BRIDGE_TOKEN"] = TEST_TOKEN
-    # An ephemeral port so the HTTP tests below can bind it (and _host_ok
-    # compares Host against the real bound port).
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    os.environ["SEMITEXA_BRIDGE_PORT"] = str(s.getsockname()[1])
-    s.close()
     here = os.path.dirname(os.path.abspath(__file__))
     spec = importlib.util.spec_from_file_location("bridged", os.path.join(here, "bridged.py"))
     mod = importlib.util.module_from_spec(spec)
@@ -69,7 +62,11 @@ def run_http_token_tests(b, root):
     spawned = []
     b.spawn = lambda cmd: spawned.append(cmd)  # never launch real programs
 
-    srv = socketserver.TCPServer((b.HOST, b.PORT), b.Handler)
+    # Bind port 0 and TELL the module which port it got — binding a
+    # pre-probed free port would race other processes for it. _host_ok
+    # reads the module global per request, so patching it here is enough.
+    srv = socketserver.TCPServer((b.HOST, 0), b.Handler)
+    b.PORT = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     port = b.PORT
     tok = {"X-Bridge-Token": TEST_TOKEN}

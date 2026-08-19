@@ -147,8 +147,10 @@ function say(msg){
 // /open requires the shared bridge token; served same-origin, this page may
 // simply ask /token for it (a remote page can neither call nor read /token).
 let tokenP = null;
-const bridgeToken = () => tokenP ??= fetch("/token").then(r=>r.json()).then(d=>d.token||"")
-  .catch(()=>{ tokenP = null; return ""; }); // don't cache a failure — retry next call
+const bridgeToken = () => tokenP ??= fetch("/token")
+  .then(r=>{ if(!r.ok) throw new Error("token refused"); return r.json(); })
+  .then(d=>{ if(typeof d?.token!=="string" || !d.token) throw new Error("no token"); return d.token; })
+  .catch(()=>{ tokenP = null; return ""; }); // never cache a failure or refusal — retry next call
 async function open(app){
   let q;
   if(app.app){ q = "app="+encodeURIComponent(app.app); }

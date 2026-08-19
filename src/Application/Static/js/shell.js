@@ -43,9 +43,16 @@
         // origins like this shell. Fetched once, then attached as a header.
         let bridgeTokenPromise = null;
         const bridgeToken = () => bridgeTokenPromise ??= fetch(BRIDGE + '/token')
-            .then(r => r.json()).then(d => d.token || '')
-            // A failure (bridge not up yet, old bridge without /token) must
-            // not be cached forever — drop it so the next call retries.
+            // A 403 carries a parseable JSON error body — only r.ok separates
+            // it from a real grant, so reject it into the catch below.
+            .then(r => { if (!r.ok) throw new Error('token refused'); return r.json(); })
+            .then(d => {
+                if (typeof d?.token !== 'string' || !d.token) throw new Error('no token');
+                return d.token;
+            })
+            // A failure (bridge not up yet, old bridge without /token,
+            // refused) must not be cached forever — drop the memo so the
+            // next call retries.
             .catch(() => { bridgeTokenPromise = null; return ''; });
         async function bridgeFetch(path, opts = {}) {
             const t = await bridgeToken();
