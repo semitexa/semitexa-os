@@ -34,8 +34,16 @@ local tools): a remote web page must not be able to drive file mutations by
 POSTing at 127.0.0.1:8777.
 
 Bound to localhost only. The launcher is served same-origin, so no CORS needed.
+
+Every side-effecting or file-reading endpoint (/open, /list, /read, /fs/*)
+additionally requires the shared bridge token (X-Bridge-Token header or
+?token=). A remote page can still FIRE a no-cors GET at 127.0.0.1:8777 (the
+browser sends it before any policy can read the answer), so Host/Origin checks
+alone cannot stop a blind /open?app=terminal — the token can, because a remote
+origin has no way to READ it: GET /token only answers loopback origins, and
+cross-origin reads of it are denied by CORS.
 """
-import http.server, socketserver, urllib.parse, urllib.request, subprocess, os, json, shutil, threading, time, zipfile
+import http.server, socketserver, urllib.parse, urllib.request, subprocess, os, json, shutil, threading, time, zipfile, secrets, hmac
 
 # A folder is treated as a code project (→ editor) if it holds one of these.
 CODE_MARKERS = (".git", "package.json", "composer.json", "pyproject.toml",
@@ -86,8 +94,39 @@ def open_path(path, prefer=""):
             return (True, op)
     return (False, "no-opener")
 
-HOST, PORT = "127.0.0.1", 8777
+HOST = "127.0.0.1"
+PORT = int(os.environ.get("SEMITEXA_BRIDGE_PORT", "8777"))
 BASE = os.path.dirname(os.path.abspath(__file__))
+
+def _load_token():
+    """Shared secret gating every side-effecting endpoint.
+
+    Priority: SEMITEXA_BRIDGE_TOKEN env, else a persisted per-user token file
+    (generated once, 0600) so the token survives bridge restarts and open
+    shell pages keep working across them."""
+    env = os.environ.get("SEMITEXA_BRIDGE_TOKEN", "").strip()
+    if env:
+        return env
+    d = os.path.expanduser("~/.config/semitexa-bridge")
+    f = os.path.join(d, "token")
+    try:
+        with open(f) as fh:
+            tok = fh.read().strip()
+        if tok:
+            return tok
+    except OSError:
+        pass
+    tok = secrets.token_hex(16)
+    try:
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            fh.write(tok)
+    except OSError:
+        pass  # unpersisted token still protects this run
+    return tok
+
+TOKEN = _load_token()
 UDD  = os.path.expanduser("~/.config/semitexa-web")
 CHROME = "chromium"
 CHROME_FLAGS = [
@@ -389,6 +428,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         host = urllib.parse.urlparse(origin).hostname or ""
         return host in ("127.0.0.1", "localhost", "::1")
 
+    def _token_ok(self, q):
+        # The shared-token gate on side effects. Host/Origin checks cannot stop
+        # a BLIND cross-origin GET (the browser fires it regardless of CORS);
+        # only a value the remote page cannot read can. Constant-time compare.
+        given = self.headers.get("X-Bridge-Token", "") or q.get("token", [""])[0]
+        return bool(given) and hmac.compare_digest(given, TOKEN)
+
     def do_GET(self):
         if not self._host_ok():
             self.send_response(403)
@@ -399,6 +445,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if u.path == "/":
             self.path = "/launcher.html"
             return super().do_GET()
+        if u.path == "/token":
+            # Hands the token to LOCAL pages only (the OS shell on the app's
+            # loopback port, the launcher same-origin, local tools with no
+            # Origin). A remote origin is refused here and — belt and braces —
+            # could not read the response anyway without a CORS grant.
+            if not self._origin_ok():
+                return self._json({"error": "denied"}, 403)
+            return self._json({"token": TOKEN})
+        if u.path in ("/open", "/list", "/read") and not self._token_ok(q):
+            return self._json({"error": "token-required"}, 403)
         if u.path == "/open":
             url = q.get("url", [""])[0]
             app = q.get("app", [""])[0]
@@ -433,7 +489,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", self.headers.get("Origin", "*"))
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Bridge-Token")
         self.send_header("Access-Control-Max-Age", "600")
         self.end_headers()
 
@@ -443,6 +499,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             return
         u = urllib.parse.urlparse(self.path)
+        if not self._token_ok(urllib.parse.parse_qs(u.query)):
+            return self._json({"error": "token-required"}, 403)
         op = FS_OPS.get(u.path)
         if not op:
             return self._json({"error": "unknown-endpoint"}, 404)

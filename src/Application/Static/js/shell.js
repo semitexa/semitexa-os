@@ -37,6 +37,28 @@
         if (DESKTOP) document.title = 'SemitexaDesktop';
         const OS_PERMITTED = boot.windowMode === 'os' && DESKTOP;
         const BRIDGE = boot.bridgeUrl || 'http://127.0.0.1:8777';
+        // The bridge requires a shared token on every side-effecting call
+        // (blind cross-origin GETs fire regardless of CORS; the token is the
+        // one thing a remote page can't obtain). /token only answers loopback
+        // origins like this shell. Fetched once, then attached as a header.
+        let bridgeTokenPromise = null;
+        const bridgeToken = () => bridgeTokenPromise ??= fetch(BRIDGE + '/token')
+            // A 403 carries a parseable JSON error body — only r.ok separates
+            // it from a real grant, so reject it into the catch below.
+            .then(r => { if (!r.ok) throw new Error('token refused'); return r.json(); })
+            .then(d => {
+                if (typeof d?.token !== 'string' || !d.token) throw new Error('no token');
+                return d.token;
+            })
+            // A failure (bridge not up yet, old bridge without /token,
+            // refused) must not be cached forever — drop the memo so the
+            // next call retries.
+            .catch(() => { bridgeTokenPromise = null; return ''; });
+        async function bridgeFetch(path, opts = {}) {
+            const t = await bridgeToken();
+            opts.headers = Object.assign({}, opts.headers, t ? { 'X-Bridge-Token': t } : {});
+            return fetch(BRIDGE + path, opts);
+        }
         const isOsMode = () => S.windowMode === 'os';
         const root = document.getElementById('root');
         const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
@@ -1002,7 +1024,7 @@
         async function completeAttachIntent(folder, connectTo) {
             const fail = (msg) => { S.cue = { title: boot.assistantName, body: msg }; render(); setTimeout(() => { S.cue = null; render(); }, 5200); };
             try {
-                const r = await fetch(BRIDGE + '/list?path=', { signal: AbortSignal.timeout(2500) });
+                const r = await bridgeFetch('/list?path=', { signal: AbortSignal.timeout(2500) });
                 if (!r.ok) throw 0;
                 const d = await r.json();
                 const dirs = (d.entries || []).filter(e => e.type === 'dir');
@@ -1252,7 +1274,7 @@
         }
         async function nativeOpen(url) {
             try {
-                const r = await fetch(BRIDGE + '/open?url=' + encodeURIComponent(url) + '&w=1100&h=700');
+                const r = await bridgeFetch('/open?url=' + encodeURIComponent(url) + '&w=1100&h=700');
                 return r.ok;
             } catch (e) { return false; }
         }
@@ -1261,7 +1283,7 @@
         // offer: no sandbox, a real tty on the real machine.
         async function nativeOpenApp(app) {
             try {
-                const r = await fetch(BRIDGE + '/open?app=' + encodeURIComponent(app));
+                const r = await bridgeFetch('/open?app=' + encodeURIComponent(app));
                 return r.ok;
             } catch (e) { return false; }
         }

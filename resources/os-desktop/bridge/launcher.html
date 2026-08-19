@@ -144,12 +144,19 @@ function say(msg){
   toast.textContent = msg; toast.classList.add('on');
   clearTimeout(toastT); toastT = setTimeout(()=>toast.classList.remove('on'), 2200);
 }
+// /open requires the shared bridge token; served same-origin, this page may
+// simply ask /token for it (a remote page can neither call nor read /token).
+let tokenP = null;
+const bridgeToken = () => tokenP ??= fetch("/token")
+  .then(r=>{ if(!r.ok) throw new Error("token refused"); return r.json(); })
+  .then(d=>{ if(typeof d?.token!=="string" || !d.token) throw new Error("no token"); return d.token; })
+  .catch(()=>{ tokenP = null; return ""; }); // never cache a failure or refusal — retry next call
 async function open(app){
   let q;
   if(app.app){ q = "app="+encodeURIComponent(app.app); }
   else { q = "url="+encodeURIComponent(app.url)+"&w="+(app.w||900)+"&h="+(app.h||640); }
   say("Відкриваю "+app.name+"…");
-  try{ await fetch("/open?"+q); }catch(e){ say("Помилка: "+e); }
+  try{ await fetch("/open?"+q, { headers: { "X-Bridge-Token": await bridgeToken() } }); }catch(e){ say("Помилка: "+e); }
 }
 APPS.forEach(a=>{
   const t = document.createElement('div');
