@@ -43,7 +43,10 @@
         // origins like this shell. Fetched once, then attached as a header.
         let bridgeTokenPromise = null;
         const bridgeToken = () => bridgeTokenPromise ??= fetch(BRIDGE + '/token')
-            .then(r => r.json()).then(d => d.token || '').catch(() => '');
+            .then(r => r.json()).then(d => d.token || '')
+            // A failure (bridge not up yet, old bridge without /token) must
+            // not be cached forever — drop it so the next call retries.
+            .catch(() => { bridgeTokenPromise = null; return ''; });
         async function bridgeFetch(path, opts = {}) {
             const t = await bridgeToken();
             opts.headers = Object.assign({}, opts.headers, t ? { 'X-Bridge-Token': t } : {});
