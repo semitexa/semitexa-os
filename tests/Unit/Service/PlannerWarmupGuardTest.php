@@ -33,14 +33,17 @@ final class PlannerWarmupGuardTest extends TestCase
     {
         $body = self::methodSource(SkillLoopRunner::class, 'warmPlanner');
 
+        // The RESULT has to change what happens next. Asserting only that healthCheck() is
+        // mentioned would pass on `$this->provider()->healthCheck();` followed by the completion
+        // anyway — the probe made, the answer ignored, the boot path just as expensive.
+        self::assertMatchesRegularExpression(
+            '/if\s*\(\s*!\s*\$this->provider\(\)->healthCheck\(\)\s*\)\s*\{\s*return;/',
+            $body,
+            'warmPlanner() must return immediately when the provider reports itself unreachable',
+        );
+
         $health = strpos($body, 'healthCheck()');
         $complete = strpos($body, 'completePlanner(');
-
-        self::assertNotFalse(
-            $health,
-            'warmPlanner() no longer probes healthCheck(); an unreachable endpoint is back to '
-                . 'costing a full connect timeout per retry on the worker boot path',
-        );
         self::assertNotFalse($complete, 'warmPlanner() no longer completes anything');
         self::assertLessThan(
             $complete,
@@ -55,12 +58,23 @@ final class PlannerWarmupGuardTest extends TestCase
     {
         $body = self::methodSource(PlannerWarmupListener::class, 'handle');
 
-        self::assertStringContainsString(
-            'workerIsCrashLooping()',
+        self::assertMatchesRegularExpression(
+            '/if\s*\(\s*\$context->workerIsCrashLooping\(\)\s*\)\s*\{[^}]*return;/s',
             $body,
-            'the listener no longer asks whether this worker has been dying at boot; its own '
+            'the listener no longer bails out when this worker has been dying at boot; its own '
                 . '$armed flag is per-process and says nothing about the workers it replaced',
         );
+
+        // Order matters as much as presence. A check that runs after the worker has armed itself
+        // or scheduled the timer has already let the warm-up through for this boot.
+        $guard = strpos($body, 'workerIsCrashLooping()');
+        $arm = strpos($body, 'self::$armed = true');
+        $timer = strpos($body, 'Timer::after');
+
+        self::assertNotFalse($arm, 'the per-process arming guard is gone');
+        self::assertNotFalse($timer, 'the warm-up is no longer scheduled');
+        self::assertLessThan($arm, $guard, 'the crash-loop check must run before arming');
+        self::assertLessThan($timer, $guard, 'the crash-loop check must run before the timer is scheduled');
     }
 
     #[Test]
