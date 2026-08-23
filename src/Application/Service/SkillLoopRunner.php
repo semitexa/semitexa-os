@@ -1148,10 +1148,25 @@ final class SkillLoopRunner
      * full cold manifest prefill (~130s on the CPU model vs ~20s warm). Best-effort:
      * fired off the boot path (see the WorkerStart warm-up listener) and swallows
      * every failure — the model may be slow or down, which must not disturb the OS.
+     *
+     * Reachability is settled by {@see LlmProviderInterface::healthCheck()} FIRST, the
+     * same way {@see run()} settles it for a real turn. Swallowing the failure is not
+     * enough on its own, because the cost is paid before the failure arrives: without
+     * the probe an unreachable endpoint drags the whole completion path onto the boot
+     * path — a 10s connect timeout, once per retry — and a worker that dies in there is
+     * respawned into the exact same call. Measured on a project whose LLM host had gone
+     * away: 1703 respawns of worker 0 over two days, ~60-75% of a core the whole time,
+     * and nothing anywhere said so. The probe is bounded (3s connect, 5s total) and also
+     * checks the model is installed, so a runtime that answers but has nothing loaded is
+     * skipped too — warming it would fail on every turn anyway.
      */
     public function warmPlanner(): void
     {
         try {
+            if (!$this->provider()->healthCheck()) {
+                return;
+            }
+
             $this->completePlanner($this->plannerRequest('warm up', $this->manifest()));
         } catch (\Throwable) {
             // Warming is opportunistic — a cold or unreachable model just means the
