@@ -53,6 +53,14 @@ final class PlannerWarmupListener implements ServerLifecycleListenerInterface
         if ($context->workerId !== 0) {
             return; // single owner primes the shared model cache — see class docblock
         }
+        if ($context->workerIsCrashLooping()) {
+            // This worker has been dying at boot and coming straight back. The warm-up
+            // is the definition of optional work, and $armed is per-PROCESS, so it says
+            // nothing about the predecessors this worker is replacing — without this
+            // check a warm-up that kills the worker gets re-armed on every respawn and
+            // the loop never ends. The first real turn pays the prefill instead.
+            return;
+        }
         if (self::$armed) {
             return; // already warmed in this worker
         }
