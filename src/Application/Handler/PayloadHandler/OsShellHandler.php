@@ -64,6 +64,18 @@ final class OsShellHandler implements TypedHandlerInterface
     #[Config(env: 'SEMITEXA_BRIDGE_URL', default: 'http://127.0.0.1:8777')]
     protected string $bridgeUrl;
 
+    /**
+     * The console's own language, when it differs from the site's.
+     *
+     * A public site's locale set is chosen for its visitors: an Italian theatre
+     * offers it/en, and the request locale on any of its pages is one of those.
+     * The people administering it are a different audience — often a different
+     * language entirely — and without this the console would render in a
+     * locale the OS has no catalog for, i.e. as raw message keys.
+     */
+    #[Config(env: 'SEMITEXA_OS_LOCALE', default: '')]
+    protected string $localeOverride;
+
     public function handle(OsShellPayload $payload, OsShellResource $resource): OsShellResource
     {
         // The shell is the one OS surface a person navigates to rather than
@@ -136,7 +148,12 @@ final class OsShellHandler implements TypedHandlerInterface
      */
     private function localeBundle(): array
     {
+        // The operator's stored preference wins; then this install's declared
+        // console language; then whatever locale the request resolved to.
         $locale = $this->prefs->locale();
+        if ($locale === '') {
+            $locale = trim($this->localeOverride ?? '');
+        }
         if ($locale === '') {
             $locale = \Semitexa\Locale\Context\LocaleContextStore::getLocale();
         }
@@ -146,7 +163,19 @@ final class OsShellHandler implements TypedHandlerInterface
             $service = \Semitexa\Ssr\Application\Service\I18n\Translator::getService();
             $catalog = \Semitexa\Ssr\Application\Service\I18n\Translator::getCatalog();
             foreach ($catalog->keys('en', 'os.shell.') as $key) {
-                $strings[substr($key, \strlen('os.shell.'))] = $service->trans($key, [], $locale);
+                $short = substr($key, \strlen('os.shell.'));
+                $translated = $service->trans($key, [], $locale);
+
+                // trans() hands back the key itself when the active locale has
+                // no catalog for it — the OS ships en and uk, and a site whose
+                // LOCALE_DEFAULT is neither would otherwise render literal
+                // 'os.shell.hi' across the whole console. English is a poor
+                // answer for such a visitor; a raw key is not an answer at all.
+                if ($translated === $key && $locale !== 'en') {
+                    $translated = $service->trans($key, [], 'en');
+                }
+
+                $strings[$short] = $translated;
             }
         } catch (\Throwable) {
             // Best-effort: the shell's inline English fallbacks render the UI.
