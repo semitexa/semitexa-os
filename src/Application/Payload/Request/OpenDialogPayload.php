@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -12,14 +13,14 @@ use Semitexa\Core\Http\Response\ResourceResponse;
  * Open a UI-skill as a dialog window in Focus. The skill is re-validated as a
  * UI-skill against the live manifest by the handler.
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/dialog/open',
     methods: ['POST'],
     responseWith: ResourceResponse::class,
     consumes: ['application/json'],
     produces: ['application/json'],
 )]
-final class OpenDialogPayload implements ValidatablePayloadInterface
+final class OpenDialogPayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
 {
     private string $skill = '';
     private ?string $parentId = null;

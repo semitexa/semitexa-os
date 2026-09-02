@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -12,13 +13,13 @@ use Semitexa\Core\Http\Response\ResourceResponse;
  * Read the saved dialog transcript. Optional `limit` returns only the most
  * recent N turns (0/absent = the whole history).
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/conversation',
     methods: ['GET'],
     responseWith: ResourceResponse::class,
     produces: ['application/json'],
 )]
-final class ConversationPayload implements ValidatablePayloadInterface
+final class ConversationPayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
 {
     private string $limit = '';
 

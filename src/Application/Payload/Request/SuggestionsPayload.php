@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -17,13 +18,13 @@ use Semitexa\Core\Http\Response\ResourceResponse;
  * Query string is kept as raw strings and coerced in the getters, so query
  * hydration never trips strict scalar typing.
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/suggestions',
     methods: ['GET'],
     responseWith: ResourceResponse::class,
     produces: ['application/json'],
 )]
-final class SuggestionsPayload implements ValidatablePayloadInterface
+final class SuggestionsPayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
 {
     private string $hour = '';
 

@@ -4,21 +4,22 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
 /**
  * Update OS preferences from the Settings dialog (v0: the assistant's name).
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/preferences',
     methods: ['POST'],
     responseWith: ResourceResponse::class,
     consumes: ['application/json'],
     produces: ['application/json'],
 )]
-final class PreferencesUpdatePayload implements ValidatablePayloadInterface
+final class PreferencesUpdatePayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
 {
     private string $assistantName = '';
 

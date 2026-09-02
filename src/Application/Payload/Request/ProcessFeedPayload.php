@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Attribute\SseGateModel;
 use Semitexa\Core\Attribute\TransportType;
 use Semitexa\Core\Attribute\WatchScopes;
@@ -26,7 +27,7 @@ use Semitexa\Ssr\Domain\Contract\SseFeedPayloadInterface;
  * No `#[LiveFilterParam]`s: the feed is the whole (tenant-scoped, bounded)
  * registry — there is nothing to filter server-side yet.
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/process/feed',
     methods: ['GET', 'POST'],
     responseWith: JsonResourceResponse::class,
@@ -35,7 +36,7 @@ use Semitexa\Ssr\Domain\Contract\SseFeedPayloadInterface;
     sseGateModel: SseGateModel::BearerSession,
 )]
 #[WatchScopes('os_process')]
-final class ProcessFeedPayload implements SseFeedPayloadInterface
+final class ProcessFeedPayload implements SseFeedPayloadInterface, OsSurfacePayloadInterface
 {
     private ?string $streamId = null;
 

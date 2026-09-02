@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace Semitexa\Os\Application\Handler\PayloadHandler;
 
 use Semitexa\Core\Attribute\AsPayloadHandler;
+use Semitexa\Core\Attribute\InjectAsMutable;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
-use Semitexa\Llm\Application\Service\SkillRegistry;
+use Semitexa\Core\Session\SessionInterface;
+use Semitexa\Llm\Application\Service\TenantSkillScope;
 use Semitexa\Os\Application\Payload\Request\OpenDialogPayload;
 use Semitexa\Os\Application\Service\OpenDialogStore;
+use Semitexa\Os\Application\Service\OsSkillScope;
 
 /**
  * Opens a UI-skill as a dialog window: resolves its title/icon/entry from the
@@ -23,10 +26,23 @@ final class OpenDialogHandler implements TypedHandlerInterface
     #[InjectAsReadonly]
     protected OpenDialogStore $dialogs;
 
+    #[InjectAsMutable]
+    protected SessionInterface $session;
+
+    #[InjectAsReadonly]
+    protected OsSkillScope $skillScope;
+
+    #[InjectAsReadonly]
+    protected TenantSkillScope $skills;
+
     public function handle(OpenDialogPayload $payload, ResourceResponse $resource): ResourceResponse
     {
         $skill = $payload->getSkill();
-        $entry = (new SkillRegistry())->buildManifest()->findSkill($skill);
+        $scope = $this->skillScope->forSession(isset($this->session) ? $this->session : null);
+        $manifest = $scope === null
+            ? new \Semitexa\Llm\Domain\Model\SkillManifest('semitexa.ai-skills/v1', gmdate('c'), [])
+            : $this->skills->manifestFor($scope);
+        $entry = $manifest->findSkill($skill);
 
         if ($entry === null || !$entry->isUi()) {
             return $resource

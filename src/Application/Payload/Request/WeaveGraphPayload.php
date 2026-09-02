@@ -4,20 +4,21 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
 /**
  * Read the Weave graph (nodes + links) for the Ambient "Workspace" 3D view.
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/weave/graph',
     methods: ['GET'],
     responseWith: ResourceResponse::class,
     produces: ['application/json'],
 )]
-final class WeaveGraphPayload implements ValidatablePayloadInterface
+final class WeaveGraphPayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
 {
     /** Node id to centre a CONTEXTUAL view on ('' = the whole bounded graph). */
     private string $focus = '';

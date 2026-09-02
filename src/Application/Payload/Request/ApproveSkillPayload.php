@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -15,14 +16,14 @@ use Semitexa\Core\Http\Response\ResourceResponse;
  * The skill name is re-validated against the live manifest by
  * {@see \Semitexa\Os\Application\Service\SkillLoopRunner::approveAndExecute()}.
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/skill',
     methods: ['POST'],
     responseWith: ResourceResponse::class,
     consumes: ['application/json'],
     produces: ['application/json'],
 )]
-final class ApproveSkillPayload implements ValidatablePayloadInterface
+final class ApproveSkillPayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
 {
     private string $intent = '';
     private string $skill = '';

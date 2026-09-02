@@ -1,0 +1,119 @@
+/* The sign-in page: the OS palette, none of the OS machinery.
+   Loaded on its own so an anonymous visitor never downloads the shell. */
+
+.os-login-body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    box-sizing: border-box;
+    color: var(--os-text, #eaf2ff);
+    background: var(--os-bg, #0b1220);
+    font-family: var(--os-font, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
+}
+
+.os-login {
+    width: 100%;
+    max-width: 380px;
+    padding: 32px;
+    border-radius: 16px;
+    border: 1px solid rgba(var(--os-line-rgb, 148, 163, 184), 0.18);
+    background: rgba(var(--os-panel-rgb, 30, 41, 59), 0.55);
+    box-shadow: 0 24px 60px rgba(2, 8, 23, 0.45);
+    box-sizing: border-box;
+}
+
+.os-login__brand {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.os-login__lede {
+    margin: 6px 0 24px;
+    font-size: 13px;
+    color: var(--os-text-mute, #8d9bb8);
+}
+
+.os-login__error,
+.os-login__notice {
+    margin: 0 0 18px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.os-login__error {
+    color: var(--os-danger, #ff6b82);
+    border: 1px solid rgba(255, 107, 130, 0.35);
+    background: rgba(255, 107, 130, 0.1);
+}
+
+.os-login__notice {
+    color: var(--os-text-2, #cdd9ee);
+    border: 1px solid rgba(var(--os-line-rgb, 148, 163, 184), 0.25);
+    background: rgba(var(--os-line-rgb, 148, 163, 184), 0.08);
+}
+
+.os-login__form {
+    display: grid;
+    gap: 6px;
+}
+
+.os-login__label {
+    font-size: 12px;
+    color: var(--os-text-3, #a8b4cc);
+}
+
+.os-login__label + .os-login__input {
+    margin-bottom: 14px;
+}
+
+.os-login__input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 11px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(var(--os-line-rgb, 148, 163, 184), 0.25);
+    background: rgba(var(--os-ink-rgb, 2, 8, 23), 0.6);
+    color: var(--os-text, #eaf2ff);
+    font-size: 14px;
+    font-family: inherit;
+}
+
+.os-login__input:focus {
+    outline: none;
+    border-color: var(--accent, #37b7ff);
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb, 55, 183, 255), 0.2);
+}
+
+.os-login__submit {
+    margin-top: 8px;
+    padding: 11px 16px;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent, #37b7ff);
+    color: #04121f;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.os-login__submit:hover {
+    filter: brightness(1.08);
+}
+
+.os-login__submit:focus-visible {
+    outline: 2px solid var(--accent, #37b7ff);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .os-login__submit {
+        transition: filter 120ms ease;
+    }
+}

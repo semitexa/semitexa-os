@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -13,13 +14,13 @@ use Semitexa\Core\Http\Response\ResourceResponse;
  * (e.g. a background task finished). The shell polls this on a timer; `since`
  * is the last-seen turn id so each message is announced exactly once.
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/proactive',
     methods: ['GET'],
     responseWith: ResourceResponse::class,
     produces: ['application/json'],
 )]
-final class ProactivePayload implements ValidatablePayloadInterface
+final class ProactivePayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
 {
     private string $since = '';
 
