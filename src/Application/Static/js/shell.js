@@ -788,6 +788,11 @@
                 project: '#37b7ff', person: '#34d399', topic: '#a78bfa', note: '#60a5fa',
                 task: '#fbbf24', event: '#22d3ee', app: '#f472b6', file: '#94a3b8',
                 folder: '#eab308', place: '#f59e0b', org: '#818cf8', thread: '#cbd5e1',
+                // A managed site and its structure. Distinct hues on purpose:
+                // on the museum's map a page and a collection are opened by
+                // different gestures, and telling them apart at a glance is the
+                // point of drawing the thing at all.
+                site: '#2dd4bf', page: '#7dd3fc', collection: '#c084fc',
             };
             return map[kind] || '#94a3b8';
         }
@@ -798,6 +803,7 @@
             project: 'briefcase', person: 'user', org: 'building-2', topic: 'hash',
             note: 'sticky-note', task: 'list-checks', event: 'calendar', place: 'map-pin',
             folder: 'folder', file: 'file-text', app: 'layout-grid', thread: 'message-square',
+            site: 'globe', page: 'file-text', collection: 'layers',
         };
         const _iconCache = {};
         function preloadNodeIcons() {

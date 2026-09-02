@@ -11,7 +11,6 @@ use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Os\Application\Payload\Request\WeaveGraphPayload;
 use Semitexa\Os\Application\Service\OsGraph;
 use Semitexa\Weave\Domain\Contract\GraphStoreInterface;
-use Semitexa\Weave\Domain\Enum\NodeKind;
 
 /**
  * Serve the Weave graph for the Ambient Workspace (3D force-graph). Shapes the
@@ -44,11 +43,7 @@ final class WeaveGraphHandler implements TypedHandlerInterface
         $focus = $focusNode?->id ?? '';
         $data = $focus !== ''
             ? $this->graph->subgraph($focus, $payload->getDepth())
-            // The Workspace is the person's own graph. The sites they administer
-            // live in the same store under the site-structure kinds and have
-            // their own surface; mixing them would bury a handful of meaningful
-            // personal nodes under a museum's worth of pages.
-            : $this->graph->graph(500, NodeKind::personalKinds());
+            : $this->graph->graph();
 
         $self = $this->osGraph->self();
         $selfId = $self->id;
