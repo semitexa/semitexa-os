@@ -29,7 +29,9 @@ use Semitexa\Prompt\Application\Service\PromptRenderer;
 use Semitexa\Llm\Domain\Model\LlmResponse;
 use Semitexa\Llm\Domain\Model\PlannerResponse;
 use Semitexa\Llm\Domain\Model\SkillEntry;
+use Semitexa\Llm\Application\Service\TenantSkillScope;
 use Semitexa\Llm\Domain\Model\SkillManifest;
+use Semitexa\Llm\Domain\Model\SkillScope;
 use Semitexa\Os\Domain\Enum\IntentDecision;
 use Semitexa\Os\Domain\Model\IntentOutcome;
 
@@ -68,6 +70,10 @@ final class SkillLoopRunner
     /** Durable OS-session log behind the Awakening State Snapshot. */
     #[InjectAsReadonly]
     protected OsSessionStore $session;
+
+    /** Narrows the discovered skills to the ones the caller's scope may see. */
+    #[InjectAsReadonly]
+    protected TenantSkillScope $scopes;
 
     /** Registry of open dialog windows (Focus zone) for UI-skills. */
     #[InjectAsReadonly]
@@ -117,7 +123,7 @@ final class SkillLoopRunner
      * it returns {@see IntentDecision::NeedsConfirmation} so the Observe surface can
      * ask the user, then call {@see self::approveAndExecute()}.
      */
-    public function run(string $intent): IntentOutcome
+    public function run(string $intent, SkillScope $scope): IntentOutcome
     {
         $intent = trim($intent);
         if ($intent === '') {
@@ -148,9 +154,9 @@ final class SkillLoopRunner
             );
         }
 
-        $manifest = $this->manifest();
+        $manifest = $this->manifest($scope);
 
-        $outcome = $this->orchestrate($intent, $manifest, $currentTurnId);
+        $outcome = $this->orchestrate($intent, $manifest, $currentTurnId, $scope);
 
         $this->session->record($outcome);
         // User turn already persisted at the top of the loop (crash-safe); append the reply.
@@ -179,7 +185,7 @@ final class SkillLoopRunner
      * is gated ({@see IntentDecision::NeedsConfirmation}) and {@see self::executePipeline()}
      * is called only after approval; otherwise it runs immediately.
      */
-    private function handlePipeline(string $intent, PlannerResponse $response, SkillManifest $manifest): IntentOutcome
+    private function handlePipeline(string $intent, PlannerResponse $response, SkillManifest $manifest, SkillScope $scope): IntentOutcome
     {
         $steps = $response->steps;
         if ($steps === []) {
@@ -236,7 +242,7 @@ final class SkillLoopRunner
 
         // run() records the conversation turn for this intent, so the internal
         // call must not (else the executed pipeline turn would be logged twice).
-        return $this->executePipeline($intent, $steps, recordTurn: false);
+        return $this->executePipeline($intent, $steps, $scope, recordTurn: false);
     }
 
     /**
@@ -248,9 +254,9 @@ final class SkillLoopRunner
      *                         turn — false when {@see self::run()} already records
      *                         the turn for the same intent (internal call)
      */
-    public function executePipeline(string $intent, array $steps, bool $recordTurn = true): IntentOutcome
+    public function executePipeline(string $intent, array $steps, SkillScope $scope, bool $recordTurn = true): IntentOutcome
     {
-        $manifest = $this->manifest();
+        $manifest = $this->manifest($scope);
         $outputs = [];
         $ran = [];
         $lastExit = 0;
@@ -309,9 +315,9 @@ final class SkillLoopRunner
      *
      * @param array<string, scalar|null> $arguments
      */
-    public function approveAndExecute(string $intent, string $skill, array $arguments): IntentOutcome
+    public function approveAndExecute(string $intent, string $skill, array $arguments, SkillScope $scope): IntentOutcome
     {
-        $manifest = $this->manifest();
+        $manifest = $this->manifest($scope);
         $entry = $manifest->findSkill($skill);
         if ($entry === null) {
             return new IntentOutcome(
@@ -353,7 +359,7 @@ final class SkillLoopRunner
      * real chain; the weak local model stays effectively single-shot — degraded,
      * but never worse than the pre-loop behavior.
      */
-    private function orchestrate(string $intent, SkillManifest $manifest, string $currentTurnId): IntentOutcome
+    private function orchestrate(string $intent, SkillManifest $manifest, string $currentTurnId, SkillScope $scope): IntentOutcome
     {
         $maxSteps = $this->maxAgentSteps();
 
@@ -383,7 +389,7 @@ final class SkillLoopRunner
                 return $this->observe($intent, IntentDecision::Refuse, $response, $this->pipelineOf($steps));
             }
             if ($response->type === PlannerResponseType::ProposePipeline) {
-                return $this->handlePipeline($intent, $response, $manifest);
+                return $this->handlePipeline($intent, $response, $manifest, $scope);
             }
 
             // ProposeSkill.
@@ -749,9 +755,16 @@ final class SkillLoopRunner
      */
     private const OS_CHANNELS = ['web', 'ui'];
 
-    private function manifest(): SkillManifest
+    /**
+     * The one place the loop learns which skills exist — and therefore the one
+     * place that decides which it may run. Planning, pipeline execution and
+     * approve-and-execute all resolve their entry from this manifest and reject
+     * anything missing from it, so narrowing it here narrows execution too, not
+     * just what the shell lists.
+     */
+    private function manifest(SkillScope $scope): SkillManifest
     {
-        return (new SkillRegistry())->buildManifest()->forChannels(self::OS_CHANNELS);
+        return $this->scopes->manifestFor($scope)->forChannels(self::OS_CHANNELS);
     }
 
     /**
@@ -1167,7 +1180,12 @@ final class SkillLoopRunner
                 return;
             }
 
-            $this->completePlanner($this->plannerRequest('warm up', $this->manifest()));
+            // Warms the unrestricted prompt, which is the prefix an owner (or a
+            // desktop install, where the gate is off) will actually send. On a
+            // multi-tenant install each tenant's manifest yields a different
+            // prompt, so their first turn still pays the prefill — warming one
+            // prefix per tenant would cost more boot time than it saves.
+            $this->completePlanner($this->plannerRequest('warm up', $this->manifest(SkillScope::unrestricted())));
         } catch (\Throwable) {
             // Warming is opportunistic — a cold or unreachable model just means the
             // first real turn pays the prefill, exactly as it would without this.

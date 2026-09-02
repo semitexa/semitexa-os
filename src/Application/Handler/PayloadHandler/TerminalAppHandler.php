@@ -5,10 +5,14 @@ declare(strict_types=1);
 namespace Semitexa\Os\Application\Handler\PayloadHandler;
 
 use Semitexa\Core\Attribute\AsPayloadHandler;
+use Semitexa\Core\Attribute\InjectAsMutable;
+use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
-use Semitexa\Llm\Application\Service\SkillRegistry;
+use Semitexa\Core\Session\SessionInterface;
+use Semitexa\Llm\Application\Service\TenantSkillScope;
 use Semitexa\Os\Application\Payload\Request\TerminalAppPayload;
+use Semitexa\Os\Application\Service\OsSkillScope;
 
 /**
  * Renders the Terminal dialog body — a console-skill terminal. Lists the
@@ -19,9 +23,21 @@ use Semitexa\Os\Application\Payload\Request\TerminalAppPayload;
 #[AsPayloadHandler(payload: TerminalAppPayload::class, resource: ResourceResponse::class)]
 final class TerminalAppHandler implements TypedHandlerInterface
 {
+    #[InjectAsMutable]
+    protected SessionInterface $session;
+
+    #[InjectAsReadonly]
+    protected OsSkillScope $skillScope;
+
+    #[InjectAsReadonly]
+    protected TenantSkillScope $skills;
+
     public function handle(TerminalAppPayload $payload, ResourceResponse $resource): ResourceResponse
     {
-        $manifest = (new SkillRegistry())->buildManifest();
+        $scope = $this->skillScope->forSession(isset($this->session) ? $this->session : null);
+        $manifest = $scope === null
+            ? new \Semitexa\Llm\Domain\Model\SkillManifest('semitexa.ai-skills/v1', gmdate('c'), [])
+            : $this->skills->manifestFor($scope);
         $console = [];
         foreach ($manifest->skills as $skill) {
             if (!$skill->isUi() && in_array('console', $skill->channels, true)) {

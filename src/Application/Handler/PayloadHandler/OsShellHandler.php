@@ -10,13 +10,14 @@ use Semitexa\Core\Attribute\InjectAsMutable;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Session\SessionInterface;
-use Semitexa\Llm\Application\Service\SkillRegistry;
+use Semitexa\Llm\Application\Service\TenantSkillScope;
 use Semitexa\Os\Application\Payload\Request\OsShellPayload;
 use Semitexa\Os\Application\Resource\Response\OsShellResource;
 use Semitexa\Os\Application\Service\InputLayoutStore;
 use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
 use Semitexa\Os\Application\Service\OsPreferences;
+use Semitexa\Os\Application\Service\OsSkillScope;
 use Semitexa\Os\Application\Service\SkillLoopRunner;
 use Semitexa\Os\Domain\Enum\WindowMode;
 
@@ -44,6 +45,12 @@ final class OsShellHandler implements TypedHandlerInterface
 
     #[InjectAsReadonly]
     protected OsAuthPolicy $authPolicy;
+
+    #[InjectAsReadonly]
+    protected OsSkillScope $skillScope;
+
+    #[InjectAsReadonly]
+    protected TenantSkillScope $skills;
 
     /**
      * The window-hosting mode this install is *permitted* to use. The shell
@@ -75,7 +82,13 @@ final class OsShellHandler implements TypedHandlerInterface
             return $resource->setRedirect($this->authPolicy->loginPath());
         }
 
-        $manifest = (new SkillRegistry())->buildManifest();
+        // What the shell lists is what this admin may run: the manifest is
+        // scoped to their tenant, so a museum's admin never sees — and the
+        // planner never proposes — the clinic's skills.
+        $scope = $this->skillScope->forSession($session);
+        $manifest = $scope === null
+            ? new \Semitexa\Llm\Domain\Model\SkillManifest('semitexa.ai-skills/v1', gmdate('c'), [])
+            : $this->skills->manifestFor($scope);
 
         $skills = [];
         foreach ($manifest->skills as $skill) {
