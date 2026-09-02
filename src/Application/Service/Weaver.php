@@ -254,12 +254,12 @@ final class Weaver
         // title instead of minting a near-duplicate node. Both are raw lists — the
         // template's {% if %}/{{ …|join }} builds the hint lines.
         $prompt = (new KnowledgeGraphExtractionPrompt())->withData(
-            kinds: implode('|', array_map(static fn (NodeKind $k): string => $k->value, NodeKind::cases())),
+            kinds: implode('|', array_map(static fn (NodeKind $k): string => $k->value, NodeKind::personalKinds())),
             projects: array_map(
                 static fn ($n): string => $n->title,
                 $this->graphStore()->nodesByKind(NodeKind::Project, 12),
             ),
-            known: array_map(static fn ($n): string => $n->title, $this->graphStore()->graph(30)['nodes']),
+            known: array_map(static fn ($n): string => $n->title, $this->graphStore()->graph(30, NodeKind::personalKinds())['nodes']),
         );
 
         // Pass the bound repository so a tenant's DB override wins (catalog

@@ -788,6 +788,11 @@
                 project: '#37b7ff', person: '#34d399', topic: '#a78bfa', note: '#60a5fa',
                 task: '#fbbf24', event: '#22d3ee', app: '#f472b6', file: '#94a3b8',
                 folder: '#eab308', place: '#f59e0b', org: '#818cf8', thread: '#cbd5e1',
+                // A managed site and its structure. Distinct hues on purpose:
+                // on the museum's map a page and a collection are opened by
+                // different gestures, and telling them apart at a glance is the
+                // point of drawing the thing at all.
+                site: '#2dd4bf', page: '#7dd3fc', collection: '#c084fc',
             };
             return map[kind] || '#94a3b8';
         }
@@ -798,6 +803,7 @@
             project: 'briefcase', person: 'user', org: 'building-2', topic: 'hash',
             note: 'sticky-note', task: 'list-checks', event: 'calendar', place: 'map-pin',
             folder: 'folder', file: 'file-text', app: 'layout-grid', thread: 'message-square',
+            site: 'globe', page: 'file-text', collection: 'layers',
         };
         const _iconCache = {};
         function preloadNodeIcons() {
@@ -876,6 +882,8 @@
                 .onNodeClick(function (n, e) {
                     if ((n.kind === 'folder' || n.kind === 'file') && n.props && n.props.path) {
                         openWeaveFolder(n); // terminal node → open the in-OS Files manager here
+                    } else if (n.props && n.props.ref && (n.props.opens === 'editor' || n.props.opens === 'grid')) {
+                        openContentSurface(n); // a place on a site's map → its content
                     } else {
                         openNodePop(n, e);
                     }
@@ -947,6 +955,18 @@
             if (node.kind === 'file') { path = path.replace(/\/[^\/]*$/, '') || path; }
             S.nodePop = null;
             await post('/os/dialog/open', { skill: 'Files', path: path });
+            S.mode = 'focus';
+            fetchDialogs().then(render);
+        }
+        // A place on a site's map opens its content rather than the node
+        // popover: what someone wants from "Контакти" is the page's text, and
+        // from "Події" the list of them — not the graph node's title. The route
+        // decides which of the two, because the node already says.
+        async function openContentSurface(node) {
+            const ref = node && node.props && node.props.ref;
+            if (!ref) { openNodePop(node); return; }
+            S.nodePop = null;
+            await post('/os/dialog/open', { skill: 'Content', ref: ref });
             S.mode = 'focus';
             fetchDialogs().then(render);
         }
