@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -17,14 +18,14 @@ use Semitexa\Core\Http\Response\ResourceResponse;
  * progress: -1 (or omitted) means "no value" — JSON has no optional ints in
  * this setter-hydrated payload, and null must stay expressible (indeterminate).
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/process/report',
     methods: ['POST'],
     responseWith: ResourceResponse::class,
     consumes: ['application/json'],
     produces: ['application/json'],
 )]
-final class ProcessReportPayload implements ValidatablePayloadInterface
+final class ProcessReportPayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
 {
     private string $action = '';
     private string $id = '';

@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -12,14 +13,14 @@ use Semitexa\Core\Http\Response\ResourceResponse;
  * Attach a real filesystem path (folder or file) to the Weave as a leaf node —
  * posted by the Files app's "Add to my world" action (files-as-nodes).
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/weave/attach',
     methods: ['POST'],
     responseWith: ResourceResponse::class,
     consumes: ['application/json'],
     produces: ['application/json'],
 )]
-final class WeaveAttachPayload implements ValidatablePayloadInterface
+final class WeaveAttachPayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
 {
     private string $path = '';
 

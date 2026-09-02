@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -12,13 +13,13 @@ use Semitexa\Core\Http\Response\ResourceResponse;
  * Fetch the override version history for one prompt (current tenant), for the
  * Prompts editor's history panel. `id` comes from the query string.
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/prompts/history',
     methods: ['GET'],
     responseWith: ResourceResponse::class,
     produces: ['application/json'],
 )]
-final class PromptsHistoryPayload implements ValidatablePayloadInterface
+final class PromptsHistoryPayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
 {
     private string $id = '';
 

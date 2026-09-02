@@ -13,6 +13,7 @@
         "php": "^8.4",
         "semitexa/core": "*",
         "semitexa/auth": "*",
+        "semitexa/authorization": "*",
         "semitexa/platform-user": "*",
         "semitexa/llm": "*",
         "semitexa/prompt": "*",

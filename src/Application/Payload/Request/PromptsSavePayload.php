@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -13,14 +14,14 @@ use Semitexa\Core\Http\Response\ResourceResponse;
  * `action` is "save" (persist {@see $system} as the override) or "reset"
  * (remove the override, falling back to the catalog).
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/prompts/save',
     methods: ['POST'],
     responseWith: ResourceResponse::class,
     consumes: ['application/json'],
     produces: ['application/json'],
 )]
-final class PromptsSavePayload implements ValidatablePayloadInterface
+final class PromptsSavePayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
 {
     private string $id = '';
 

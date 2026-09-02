@@ -1111,9 +1111,26 @@
         }
 
         // ---------- backend wiring (Ambient) ----------
+        // The console's routes are authenticated, so every write carries the
+        // double-submit CSRF token the server put in a readable cookie. Without
+        // it CsrfListener answers 403 and the shell looks broken for no visible
+        // reason.
+        function csrfToken() {
+            const m = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
+            return m ? decodeURIComponent(m[1]) : '';
+        }
+        // A session can lapse while the shell is open. 401 means the answer is
+        // the sign-in page, and only a navigation can render it.
+        function signInAgain() {
+            window.location.reload();
+        }
         async function post(url, body) {
             try {
-                const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(body) });
+                const token = csrfToken();
+                const headers = { 'Content-Type':'application/json', 'Accept':'application/json' };
+                if (token) headers['X-CSRF-Token'] = token;
+                const res = await fetch(url, { method:'POST', headers, body: JSON.stringify(body) });
+                if (res.status === 401) { signInAgain(); return { decision:'error', message: t('signed_out', 'Signed out.') }; }
                 const txt = await res.text();
                 try { return JSON.parse(txt); } catch(e) { return { decision:'error', message: t('bad_response', 'Bad response (') + res.status + ')' }; }
             } catch (e) { return { decision:'error', message: t('network_error', 'Network error: ') + e.message }; }
@@ -1548,6 +1565,7 @@
             if (S.nodeEditor || S.nodePop) return; // don't re-render (and wipe form input) mid-edit
             try {
                 const r = await fetch('/os/proactive?since=' + encodeURIComponent(PROACTIVE_CURSOR), { headers: { 'Accept': 'application/json' } });
+                if (r.status === 401) { signInAgain(); return; }
                 const d = await r.json();
                 if (d.cursor) setProactiveCursor(d.cursor);
                 const items = d.items || [];

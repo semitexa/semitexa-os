@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -12,14 +13,14 @@ use Semitexa\Core\Http\Response\ResourceResponse;
  * Add a new node to the Weave from the Workspace, optionally connected to an
  * existing node (parentId → new, with the given relation).
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/weave/node/add',
     methods: ['POST'],
     responseWith: ResourceResponse::class,
     consumes: ['application/json'],
     produces: ['application/json'],
 )]
-final class WeaveNodeAddPayload implements ValidatablePayloadInterface
+final class WeaveNodeAddPayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
 {
     private string $parentId = '';
 

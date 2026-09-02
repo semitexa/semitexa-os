@@ -4,21 +4,22 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
 /**
  * Close a dialog window (and its child dialogs).
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/dialog/close',
     methods: ['POST'],
     responseWith: ResourceResponse::class,
     consumes: ['application/json'],
     produces: ['application/json'],
 )]
-final class DialogClosePayload implements ValidatablePayloadInterface
+final class DialogClosePayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
 {
     private string $id = '';
 

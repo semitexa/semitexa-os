@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -12,17 +13,18 @@ use Semitexa\Core\Http\Response\ResourceResponse;
  * The OS intent channel: a single natural-language intent submitted from the
  * web shell, planned and (when policy allows) executed via the Skill loop.
  *
- * v0 is single-tenant / public — Semitexa OS is a personal local-first runtime,
- * so there is no per-user gate at this layer.
+ * The most consequential route in the console: an intent here plans and runs
+ * Skills, which is to say it edits the site. It is gated for exactly that
+ * reason — see {@see \Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface}.
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/intent',
     methods: ['POST'],
     responseWith: ResourceResponse::class,
     consumes: ['application/json', 'application/x-www-form-urlencoded'],
     produces: ['application/json'],
 )]
-final class IntentPayload implements ValidatablePayloadInterface
+final class IntentPayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
 {
     private string $intent = '';
 

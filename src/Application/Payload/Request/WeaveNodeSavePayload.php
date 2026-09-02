@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -13,14 +14,14 @@ use Semitexa\Core\Http\Response\ResourceResponse;
  * (`title`) and/or a merge of properties (`propsJson` — a JSON object, kept as a
  * string so the payload stays simply-typed; the handler decodes it).
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/os/weave/node/save',
     methods: ['POST'],
     responseWith: ResourceResponse::class,
     consumes: ['application/json'],
     produces: ['application/json'],
 )]
-final class WeaveNodeSavePayload implements ValidatablePayloadInterface
+final class WeaveNodeSavePayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
 {
     private string $id = '';
 
