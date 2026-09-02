@@ -14,6 +14,7 @@ use Semitexa\Llm\Application\Service\TenantSkillScope;
 use Semitexa\Os\Application\Payload\Request\OpenDialogPayload;
 use Semitexa\Os\Application\Service\OpenDialogStore;
 use Semitexa\Os\Application\Service\OsSkillScope;
+use Semitexa\Weave\Domain\Contract\GraphStoreInterface;
 
 /**
  * Opens a UI-skill as a dialog window: resolves its title/icon/entry from the
@@ -28,6 +29,9 @@ final class OpenDialogHandler implements TypedHandlerInterface
 
     #[InjectAsMutable]
     protected SessionInterface $session;
+
+    #[InjectAsReadonly]
+    protected GraphStoreInterface $graph;
 
     #[InjectAsReadonly]
     protected OsSkillScope $skillScope;
@@ -59,6 +63,18 @@ final class OpenDialogHandler implements TypedHandlerInterface
         // URL as ?path= and reflected in the window title.
         $entryUrl = (string) $entry->entry;
         $title = $entry->name;
+        $ref = trim($payload->getRef());
+        if ($ref !== '') {
+            $entryUrl .= (str_contains($entryUrl, '?') ? '&' : '?') . 'ref=' . rawurlencode($ref);
+
+            // The window is named after the place, not after the app: a person
+            // opening five pages needs to tell those windows apart.
+            $mapped = $this->graph->nodeByRef($ref);
+            if ($mapped !== null && $mapped->title !== '') {
+                $title = $mapped->title;
+            }
+        }
+
         $path = trim($payload->getPath());
         if ($path !== '') {
             $entryUrl .= (str_contains($entryUrl, '?') ? '&' : '?') . 'path=' . rawurlencode($path);

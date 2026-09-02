@@ -26,6 +26,8 @@ final class OpenDialogPayload implements ValidatablePayloadInterface, OsSurfaceP
     private ?string $parentId = null;
     private string $path = '';
 
+    private string $ref = '';
+
     /**
      * @return array<string, list<string>>
      */
@@ -57,6 +59,24 @@ final class OpenDialogPayload implements ValidatablePayloadInterface, OsSurfaceP
     public function setParentId(?string $parentId): void
     {
         $this->parentId = $parentId !== '' ? $parentId : null;
+    }
+
+    /**
+     * Optional record the dialog should open at, appended as `?ref=` — the map's
+     * name for it, e.g. 'regmus:page:3'.
+     *
+     * Separate from `path` on purpose: a filesystem location and a record
+     * identity are different things, and overloading one for the other is how
+     * a Files dialog ends up trying to list a database row.
+     */
+    public function getRef(): string
+    {
+        return $this->ref;
+    }
+
+    public function setRef(string $ref): void
+    {
+        $this->ref = trim($ref);
     }
 
     /** Optional context appended to the skill's entry as `?path=` (e.g. open Files at a folder). */

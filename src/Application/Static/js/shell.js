@@ -882,6 +882,8 @@
                 .onNodeClick(function (n, e) {
                     if ((n.kind === 'folder' || n.kind === 'file') && n.props && n.props.path) {
                         openWeaveFolder(n); // terminal node → open the in-OS Files manager here
+                    } else if (n.props && n.props.opens === 'editor' && n.props.ref) {
+                        openContentEditor(n); // a page of a managed site → edit its content
                     } else {
                         openNodePop(n, e);
                     }
@@ -953,6 +955,18 @@
             if (node.kind === 'file') { path = path.replace(/\/[^\/]*$/, '') || path; }
             S.nodePop = null;
             await post('/os/dialog/open', { skill: 'Files', path: path });
+            S.mode = 'focus';
+            fetchDialogs().then(render);
+        }
+        // A page on a site's map opens the content editor rather than the node
+        // popover: what someone wants from "Контакти" is the page's text, not the
+        // graph node's title. Renaming the node is still one click away, on the
+        // node itself in the editor's own surface.
+        async function openContentEditor(node) {
+            const ref = node && node.props && node.props.ref;
+            if (!ref) { openNodePop(node); return; }
+            S.nodePop = null;
+            await post('/os/dialog/open', { skill: 'Content', ref: ref });
             S.mode = 'focus';
             fetchDialogs().then(render);
         }

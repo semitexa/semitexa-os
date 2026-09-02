@@ -68,7 +68,10 @@ final class WeaveGraphHandler implements TypedHandlerInterface
             'label' => $n->title,
             'kind' => $n->kind->value,
             'self' => $n->id === $selfId,
-            'props' => $n->properties,
+            // The record a node mirrors, when it mirrors one. The shell needs it
+            // to open the right editor; without it a page node knows what kind
+            // of thing it is and not which thing.
+            'props' => $n->ref === null ? $n->properties : $n->properties + ['ref' => $n->ref],
         ], $data['nodes']);
 
         $links = array_map(static fn ($e): array => [
