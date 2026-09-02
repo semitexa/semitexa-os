@@ -882,8 +882,8 @@
                 .onNodeClick(function (n, e) {
                     if ((n.kind === 'folder' || n.kind === 'file') && n.props && n.props.path) {
                         openWeaveFolder(n); // terminal node → open the in-OS Files manager here
-                    } else if (n.props && n.props.opens === 'editor' && n.props.ref) {
-                        openContentEditor(n); // a page of a managed site → edit its content
+                    } else if (n.props && n.props.ref && (n.props.opens === 'editor' || n.props.opens === 'grid')) {
+                        openContentSurface(n); // a place on a site's map → its content
                     } else {
                         openNodePop(n, e);
                     }
@@ -958,11 +958,11 @@
             S.mode = 'focus';
             fetchDialogs().then(render);
         }
-        // A page on a site's map opens the content editor rather than the node
-        // popover: what someone wants from "Контакти" is the page's text, not the
-        // graph node's title. Renaming the node is still one click away, on the
-        // node itself in the editor's own surface.
-        async function openContentEditor(node) {
+        // A place on a site's map opens its content rather than the node
+        // popover: what someone wants from "Контакти" is the page's text, and
+        // from "Події" the list of them — not the graph node's title. The route
+        // decides which of the two, because the node already says.
+        async function openContentSurface(node) {
             const ref = node && node.props && node.props.ref;
             if (!ref) { openNodePop(node); return; }
             S.nodePop = null;
