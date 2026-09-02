@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>{{ brandTitle|default('Semitexa OS') }} — sign in</title>
+    <link rel="stylesheet" href="{{ asset('semitexa-os-shell/tokens.css', 'skins') }}">
+    <link rel="stylesheet" href="{{ asset('css/design-extras.css', 'os') }}">
+    <link rel="stylesheet" href="{{ asset('css/login.css', 'os') }}">
+</head>
+<body class="os-login-body">
+    <main class="os-login">
+        <h1 class="os-login__brand">{{ brandTitle|default('Semitexa OS') }}</h1>
+        <p class="os-login__lede">Sign in to run this site's skills.</p>
+
+        {% if error %}
+            <p class="os-login__error" role="alert">{{ error }}</p>
+        {% endif %}
+        {% if notice %}
+            <p class="os-login__notice">{{ notice }}</p>
+        {% endif %}
+
+        <form class="os-login__form" method="post" action="{{ action }}" autocomplete="on">
+            <input type="hidden" name="csrf_token" value="{{ csrfToken }}">
+            <input type="hidden" name="_csrf" value="{{ csrfToken }}">
+            <input type="hidden" name="next" value="{{ next }}">
+
+            <label class="os-login__label" for="os-login-email">Email</label>
+            <input class="os-login__input" id="os-login-email" type="email" name="email"
+                   value="{{ email|default('') }}" autocomplete="username"
+                   required autofocus spellcheck="false">
+
+            <label class="os-login__label" for="os-login-password">Password</label>
+            <input class="os-login__input" id="os-login-password" type="password" name="password"
+                   autocomplete="current-password" required>
+
+            <button class="os-login__submit" type="submit">Sign in</button>
+        </form>
+    </main>
+</body>
+</html>

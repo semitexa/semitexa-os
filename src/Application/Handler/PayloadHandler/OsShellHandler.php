@@ -6,12 +6,16 @@ namespace Semitexa\Os\Application\Handler\PayloadHandler;
 
 use Semitexa\Core\Attribute\AsPayloadHandler;
 use Semitexa\Core\Attribute\Config;
+use Semitexa\Core\Attribute\InjectAsMutable;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
+use Semitexa\Core\Session\SessionInterface;
 use Semitexa\Llm\Application\Service\SkillRegistry;
 use Semitexa\Os\Application\Payload\Request\OsShellPayload;
 use Semitexa\Os\Application\Resource\Response\OsShellResource;
 use Semitexa\Os\Application\Service\InputLayoutStore;
+use Semitexa\Os\Application\Service\OsAdminSession;
+use Semitexa\Os\Application\Service\OsAuthPolicy;
 use Semitexa\Os\Application\Service\OsPreferences;
 use Semitexa\Os\Application\Service\SkillLoopRunner;
 use Semitexa\Os\Domain\Enum\WindowMode;
@@ -32,6 +36,15 @@ final class OsShellHandler implements TypedHandlerInterface
     #[InjectAsReadonly]
     protected InputLayoutStore $inputLayouts;
 
+    #[InjectAsMutable]
+    protected SessionInterface $session;
+
+    #[InjectAsReadonly]
+    protected OsAdminSession $admins;
+
+    #[InjectAsReadonly]
+    protected OsAuthPolicy $authPolicy;
+
     /**
      * The window-hosting mode this install is *permitted* to use. The shell
      * still probes at runtime before it promotes anything (see the shell's
@@ -46,6 +59,22 @@ final class OsShellHandler implements TypedHandlerInterface
 
     public function handle(OsShellPayload $payload, OsShellResource $resource): OsShellResource
     {
+        // The shell is the one OS surface a person navigates to rather than
+        // fetches, so an anonymous visitor gets the sign-in form instead of the
+        // bare 401 the rest of /os answers with. Nothing below this line runs
+        // for them — not the skill manifest, not the provider health probe —
+        // because every one of those is a fact about the site they have not
+        // earned yet.
+        $session = isset($this->session) ? $this->session : null;
+
+        if ($this->authPolicy->isRequired() && !$this->admins->isSignedIn($session)) {
+            if ($session !== null) {
+                $this->admins->rememberIntendedPath($session, $this->authPolicy->shellPath());
+            }
+
+            return $resource->setRedirect($this->authPolicy->loginPath());
+        }
+
         $manifest = (new SkillRegistry())->buildManifest();
 
         $skills = [];
