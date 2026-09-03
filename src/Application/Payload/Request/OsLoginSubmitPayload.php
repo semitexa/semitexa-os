@@ -6,6 +6,7 @@ namespace Semitexa\Os\Application\Payload\Request;
 
 use Semitexa\Core\Attribute\AsPublicPayload;
 use Semitexa\Os\Application\Resource\Response\OsLoginResource;
+use Semitexa\Ssr\Application\Service\Seo\Sitemap\NotInSitemap;
 
 /**
  * The submitted credentials.
@@ -14,6 +15,7 @@ use Semitexa\Os\Application\Resource\Response\OsLoginResource;
  * form POST rather than JSON so the browser's own password manager recognises
  * the flow and can offer to store it.
  */
+#[NotInSitemap]
 #[AsPublicPayload(
     path: 'env::SEMITEXA_OS_LOGIN_PATH::/os/login',
     methods: ['POST'],
