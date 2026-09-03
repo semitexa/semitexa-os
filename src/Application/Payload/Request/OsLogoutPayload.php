@@ -6,6 +6,7 @@ namespace Semitexa\Os\Application\Payload\Request;
 
 use Semitexa\Core\Attribute\AsPublicPayload;
 use Semitexa\Os\Application\Resource\Response\OsLoginResource;
+use Semitexa\Ssr\Application\Service\Seo\Sitemap\NotInSitemap;
 
 /**
  * Ending a session.
@@ -15,6 +16,7 @@ use Semitexa\Os\Application\Resource\Response\OsLoginResource;
  * Public because signing out must work even when the session has already
  * lapsed — the answer is the same either way.
  */
+#[NotInSitemap]
 #[AsPublicPayload(
     path: 'env::SEMITEXA_OS_LOGOUT_PATH::/os/login/out',
     methods: ['POST'],

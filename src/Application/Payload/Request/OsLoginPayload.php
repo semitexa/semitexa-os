@@ -6,6 +6,7 @@ namespace Semitexa\Os\Application\Payload\Request;
 
 use Semitexa\Core\Attribute\AsPublicPayload;
 use Semitexa\Os\Application\Resource\Response\OsLoginResource;
+use Semitexa\Ssr\Application\Service\Seo\Sitemap\NotInSitemap;
 
 /**
  * The sign-in page.
@@ -14,6 +15,7 @@ use Semitexa\Os\Application\Resource\Response\OsLoginResource;
  * Its path is env-configurable alongside the shell's: an install that moves the
  * shell to /admin moves the form with it.
  */
+#[NotInSitemap]
 #[AsPublicPayload(
     path: 'env::SEMITEXA_OS_LOGIN_PATH::/os/login',
     methods: ['GET'],
