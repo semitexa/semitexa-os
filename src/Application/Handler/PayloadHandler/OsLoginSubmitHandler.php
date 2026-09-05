@@ -14,7 +14,6 @@ use Semitexa\Os\Application\Payload\Request\OsLoginSubmitPayload;
 use Semitexa\Os\Application\Resource\Response\OsLoginResource;
 use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
-use Semitexa\Os\Application\Service\OsPreferences;
 use Semitexa\Platform\User\Application\Service\UserAuthenticator;
 use Semitexa\Platform\User\Domain\Enum\UserRole;
 
@@ -48,8 +47,6 @@ final class OsLoginSubmitHandler implements TypedHandlerInterface
     #[InjectAsReadonly]
     protected UserAuthenticator $authenticator;
 
-    #[InjectAsReadonly]
-    protected OsPreferences $prefs;
 
     public function handle(OsLoginSubmitPayload $payload, OsLoginResource $resource): OsLoginResource
     {
@@ -101,7 +98,6 @@ final class OsLoginSubmitHandler implements TypedHandlerInterface
                 csrfToken: $this->csrfToken(),
                 next: $next,
             )
-            ->withBranding($this->prefs->assistantName())
             ->withEmail($email)
             ->withError($error)
             ->withNotice(null);

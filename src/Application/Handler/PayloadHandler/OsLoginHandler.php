@@ -14,7 +14,6 @@ use Semitexa\Os\Application\Payload\Request\OsLoginPayload;
 use Semitexa\Os\Application\Resource\Response\OsLoginResource;
 use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
-use Semitexa\Os\Application\Service\OsPreferences;
 
 /**
  * Renders the sign-in form — or gets out of the way when there is nothing to
@@ -33,8 +32,6 @@ final class OsLoginHandler implements TypedHandlerInterface
     #[InjectAsReadonly]
     protected OsAuthPolicy $policy;
 
-    #[InjectAsReadonly]
-    protected OsPreferences $prefs;
 
     public function handle(OsLoginPayload $payload, OsLoginResource $resource): OsLoginResource
     {
@@ -51,7 +48,6 @@ final class OsLoginHandler implements TypedHandlerInterface
                 csrfToken: $this->csrfToken(),
                 next: $next,
             )
-            ->withBranding($this->prefs->assistantName())
             ->withEmail('')
             ->withError(null)
             ->withNotice(null);
