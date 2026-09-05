@@ -7,15 +7,14 @@ namespace Semitexa\Os\Application\Db\MySQL\Mapper;
 use Semitexa\Orm\Attribute\AsMapper;
 use Semitexa\Orm\Domain\Contract\ResourceModelMapperInterface;
 use Semitexa\Os\Application\Db\MySQL\Model\ConversationTurnResource;
+use Semitexa\Os\Domain\Model\ConversationTurn;
 
 /**
- * Self-mapping mapper for {@see ConversationTurnResource} — resource is the
- * domain model, both directions are clone-passthroughs.
+ * The bridge between the MySQL row and one turn of the conversation. The meta
+ * is a JSON string in the column and an array in the turn — the encoding is the
+ * table's, decoded once here rather than at every read site.
  */
-#[AsMapper(
-    resourceModel: ConversationTurnResource::class,
-    domainModel: ConversationTurnResource::class,
-)]
+#[AsMapper(resourceModel: ConversationTurnResource::class, domainModel: ConversationTurn::class)]
 final class ConversationTurnMapper implements ResourceModelMapperInterface
 {
     public function toDomain(object $resourceModel): object
@@ -23,14 +22,30 @@ final class ConversationTurnMapper implements ResourceModelMapperInterface
         $resourceModel instanceof ConversationTurnResource
             || throw new \InvalidArgumentException('Unexpected resource model.');
 
-        return clone $resourceModel;
+        $meta = json_decode($resourceModel->meta_json, true);
+
+        return new ConversationTurn(
+            id: $resourceModel->id,
+            tenantId: $resourceModel->tenant_id,
+            role: $resourceModel->role,
+            text: $resourceModel->text,
+            // A malformed row must not break a transcript read.
+            meta: is_array($meta) ? $meta : [],
+            createdAt: $resourceModel->created_at,
+        );
     }
 
     public function toSourceModel(object $domainModel): object
     {
-        $domainModel instanceof ConversationTurnResource
-            || throw new \InvalidArgumentException('Unexpected domain model.');
+        $domainModel instanceof ConversationTurn || throw new \InvalidArgumentException('Unexpected domain model.');
 
-        return clone $domainModel;
+        return new ConversationTurnResource(
+            id: $domainModel->getId(),
+            tenant_id: $domainModel->getTenantId(),
+            role: $domainModel->getRole(),
+            text: $domainModel->getText(),
+            meta_json: (string) json_encode($domainModel->getMeta(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            created_at: $domainModel->getCreatedAt() ?? new \DateTimeImmutable(),
+        );
     }
 }

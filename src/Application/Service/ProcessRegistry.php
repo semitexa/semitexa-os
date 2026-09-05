@@ -12,6 +12,7 @@ use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Direction;
 use Semitexa\Orm\Repository\DomainRepository;
 use Semitexa\Os\Application\Db\MySQL\Model\ProcessResource;
+use Semitexa\Os\Domain\Model\Process;
 use Semitexa\Os\Domain\Enum\ProcessStatus;
 
 /**
@@ -68,7 +69,7 @@ final class ProcessRegistry
         string $origin = 'internal',
         ?int $progress = null,
         ?string $detail = null,
-    ): ProcessResource {
+    ): Process {
         $now = new \DateTimeImmutable();
         $existing = $this->find($id);
         if ($existing !== null) {
@@ -88,15 +89,15 @@ final class ProcessRegistry
             ]));
         }
 
-        $process = new ProcessResource(
+        $process = new Process(
             id: $this->storageKey($id),
-            tenant_id: $this->currentTenantId(),
+            tenantId: $this->currentTenantId(),
             source: $this->slug($source),
             origin: $this->origin($origin),
             title: $this->title($title),
             status: ProcessStatus::Running->value,
-            started_at: $now,
-            updated_at: $now,
+            startedAt: $now,
+            updatedAt: $now,
             progress: $this->clampRunning($progress),
             detail: $this->detail($detail),
         );
@@ -107,10 +108,10 @@ final class ProcessRegistry
     }
 
     /** Progress update; null keeps the process indeterminate. Bumps the heartbeat. */
-    public function progress(string $id, ?int $progress, ?string $detail = null): ?ProcessResource
+    public function progress(string $id, ?int $progress, ?string $detail = null): ?Process
     {
         $p = $this->find($id);
-        if ($p === null || ProcessStatus::tryFrom($p->status)?->isFinal() === true) {
+        if ($p === null || $p->statusEnum()->isFinal()) {
             return $p;
         }
 
@@ -127,10 +128,10 @@ final class ProcessRegistry
     }
 
     /** "Still alive" without new numbers — keeps the stall reaper away. */
-    public function heartbeat(string $id): ?ProcessResource
+    public function heartbeat(string $id): ?Process
     {
         $p = $this->find($id);
-        if ($p === null || ProcessStatus::tryFrom($p->status)?->isFinal() === true) {
+        if ($p === null || $p->statusEnum()->isFinal()) {
             return $p;
         }
 
@@ -140,17 +141,17 @@ final class ProcessRegistry
         ]));
     }
 
-    public function complete(string $id, ?string $detail = null): ?ProcessResource
+    public function complete(string $id, ?string $detail = null): ?Process
     {
         return $this->finish($id, ProcessStatus::Done, $detail, progress: 100);
     }
 
-    public function fail(string $id, ?string $detail = null): ?ProcessResource
+    public function fail(string $id, ?string $detail = null): ?Process
     {
         return $this->finish($id, ProcessStatus::Failed, $detail, progress: null);
     }
 
-    public function find(string $id): ?ProcessResource
+    public function find(string $id): ?Process
     {
         return $this->scoped()->findById($this->storageKey($id));
     }
@@ -161,19 +162,19 @@ final class ProcessRegistry
      * recently finished rows. The lazy demotion writes the row so every
      * consumer — and the producer itself — sees the same verdict.
      *
-     * @return list<ProcessResource>
+     * @return list<Process>
      */
     public function all(): array
     {
-        /** @var list<ProcessResource> $rows */
+        /** @var list<Process> $rows */
         $rows = $this->scoped()->query()
             ->orderBy(ProcessResource::column('updated_at'), Direction::Desc)
             ->limit(self::MAX_LISTED)
-            ->fetchAllAs(ProcessResource::class, $this->orm()->getMapperRegistry());
+            ->fetchAllAs(Process::class, $this->orm()->getMapperRegistry());
 
         $deadline = (new \DateTimeImmutable())->getTimestamp() - self::STALL_TTL_SECONDS;
         foreach ($rows as $i => $p) {
-            if ($p->status === ProcessStatus::Running->value && $p->updated_at->getTimestamp() < $deadline) {
+            if ($p->isRunning() && ($p->getUpdatedAt()?->getTimestamp() ?? 0) < $deadline) {
                 $rows[$i] = $this->save($this->copy($p, ['status' => ProcessStatus::Stalled->value]));
             }
         }
@@ -184,26 +185,26 @@ final class ProcessRegistry
     /**
      * @return array{id:string,source:string,origin:string,title:string,status:string,status_label:string,progress:?int,detail:?string,started_at:string,updated_at:string,completed_at:?string}
      */
-    public function toArray(ProcessResource $p): array
+    public function toArray(Process $p): array
     {
-        $status = ProcessStatus::tryFrom($p->status) ?? ProcessStatus::Running;
+        $now = new \DateTimeImmutable();
 
         return [
-            'id' => $this->producerId($p->id),
-            'source' => $p->source,
-            'origin' => $p->origin,
-            'title' => $p->title,
-            'status' => $p->status,
-            'status_label' => $status->label(),
-            'progress' => $p->progress,
-            'detail' => $p->detail,
-            'started_at' => $p->started_at->format('c'),
-            'updated_at' => $p->updated_at->format('c'),
-            'completed_at' => $p->completed_at?->format('c'),
+            'id' => $this->producerId($p->getId()),
+            'source' => $p->getSource(),
+            'origin' => $p->getOrigin(),
+            'title' => $p->getTitle(),
+            'status' => $p->getStatus(),
+            'status_label' => $p->statusEnum()->label(),
+            'progress' => $p->getProgress(),
+            'detail' => $p->getDetail(),
+            'started_at' => ($p->getStartedAt() ?? $now)->format('c'),
+            'updated_at' => ($p->getUpdatedAt() ?? $now)->format('c'),
+            'completed_at' => $p->getCompletedAt()?->format('c'),
         ];
     }
 
-    private function finish(string $id, ProcessStatus $status, ?string $detail, ?int $progress): ?ProcessResource
+    private function finish(string $id, ProcessStatus $status, ?string $detail, ?int $progress): ?Process
     {
         $p = $this->find($id);
         if ($p === null) {
@@ -317,29 +318,29 @@ final class ProcessRegistry
         return $detail === '' ? null : mb_substr($detail, 0, 255);
     }
 
-    private function save(ProcessResource $p): ProcessResource
+    private function save(Process $p): Process
     {
         $this->scoped()->update($p);
 
         return $p;
     }
 
-    /** @param array<string, mixed> $ch */
-    private function copy(ProcessResource $p, array $ch): ProcessResource
+    /**
+     * @param array<string, mixed> $ch keyed as the row was — translated once here
+     */
+    private function copy(Process $p, array $ch): Process
     {
-        return new ProcessResource(
-            id: $p->id,
-            tenant_id: $p->tenant_id,
-            source: $ch['source'] ?? $p->source,
-            origin: $ch['origin'] ?? $p->origin,
-            title: $ch['title'] ?? $p->title,
-            status: $ch['status'] ?? $p->status,
-            started_at: $ch['started_at'] ?? $p->started_at,
-            updated_at: $ch['updated_at'] ?? $p->updated_at,
-            progress: array_key_exists('progress', $ch) ? $ch['progress'] : $p->progress,
-            detail: array_key_exists('detail', $ch) ? $ch['detail'] : $p->detail,
-            completed_at: array_key_exists('completed_at', $ch) ? $ch['completed_at'] : $p->completed_at,
-        );
+        $renamed = [];
+        foreach ($ch as $key => $value) {
+            $renamed[match ($key) {
+                'started_at' => 'startedAt',
+                'updated_at' => 'updatedAt',
+                'completed_at' => 'completedAt',
+                default => $key,
+            }] = $value;
+        }
+
+        return $p->with($renamed);
     }
 
     /** Repository bound to the ambient tenant — the ORM gate filters every query. */
@@ -357,7 +358,7 @@ final class ProcessRegistry
 
     private function repository(): DomainRepository
     {
-        return $this->repository ??= $this->orm()->repository(ProcessResource::class, ProcessResource::class);
+        return $this->repository ??= $this->orm()->repository(ProcessResource::class, Process::class);
     }
 
     private function orm(): OrmManager
