@@ -174,7 +174,7 @@ final class ConversationStore
             ->limit(1)
             ->fetchAllAs(ConversationTurn::class, $this->orm()->getMapperRegistry());
 
-        return $rows[0]->id ?? '';
+        return isset($rows[0]) ? $rows[0]->getId() : '';
     }
 
     /**
@@ -226,14 +226,14 @@ final class ConversationStore
 
         $out = [];
         foreach (array_reverse($rows) as $row) {
-            if ($afterId !== '' && strcmp($row->id, $afterId) <= 0) {
+            if ($afterId !== '' && strcmp($row->getId(), $afterId) <= 0) {
                 continue;
             }
-            $meta = json_decode($row->meta_json, true);
-            if (!is_array($meta) || ($meta['proactive'] ?? false) !== true) {
+            $meta = $row->getMeta();
+            if (($meta['proactive'] ?? false) !== true) {
                 continue;
             }
-            $out[] = ['id' => $row->id, 'text' => $row->text, 'meta' => $meta];
+            $out[] = ['id' => $row->getId(), 'text' => $row->getText(), 'meta' => $meta];
         }
 
         return $out;
