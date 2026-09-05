@@ -27,11 +27,11 @@ final class WeaveNodeRemoveHandler implements TypedHandlerInterface
         if ($node === null) {
             return $this->json($resource, ['ok' => false, 'error' => 'Unknown node.'], 404);
         }
-        if (($node->properties['is_self'] ?? false) === true) {
+        if (($node->getProperties()['is_self'] ?? false) === true) {
             return $this->json($resource, ['ok' => false, 'error' => 'The self node cannot be removed.'], 422);
         }
 
-        $this->graph->removeNode($node->id);
+        $this->graph->removeNode($node->getId());
 
         return $this->json($resource, ['ok' => true], 200);
     }

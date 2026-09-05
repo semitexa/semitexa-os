@@ -37,23 +37,23 @@ final class WeaveGraphHandler implements TypedHandlerInterface
         // shell and the show-in-world skill share one matcher (GraphStore::search).
         if ($focus === '' && trim($payload->getFocusQuery()) !== '') {
             $hit = $this->graph->search(trim($payload->getFocusQuery()), 1)[0] ?? null;
-            $focus = $hit?->id ?? '';
+            $focus = $hit?->getId() ?? '';
         }
         $focusNode = $focus !== '' ? $this->graph->node($focus) : null;
-        $focus = $focusNode?->id ?? '';
+        $focus = $focusNode?->getId() ?? '';
         $data = $focus !== ''
             ? $this->graph->subgraph($focus, $payload->getDepth())
             : $this->graph->graph();
 
         $self = $this->osGraph->self();
-        $selfId = $self->id;
+        $selfId = $self->getId();
 
         if ($focus === '') {
             // The owner node is guaranteed by OsGraph (created on first use); make
             // sure a freshly-created one is included in this render's node list.
             $present = false;
             foreach ($data['nodes'] as $node) {
-                if ($node->id === $selfId) {
+                if ($node->getId() === $selfId) {
                     $present = true;
                     break;
                 }
@@ -64,20 +64,20 @@ final class WeaveGraphHandler implements TypedHandlerInterface
         }
 
         $nodes = array_map(static fn ($n): array => [
-            'id' => $n->id,
-            'label' => $n->title,
-            'kind' => $n->kind->value,
-            'self' => $n->id === $selfId,
+            'id' => $n->getId(),
+            'label' => $n->getTitle(),
+            'kind' => $n->getKind()->value,
+            'self' => $n->getId() === $selfId,
             // The record a node mirrors, when it mirrors one. The shell needs it
             // to open the right editor; without it a page node knows what kind
             // of thing it is and not which thing.
-            'props' => $n->ref === null ? $n->properties : $n->properties + ['ref' => $n->ref],
+            'props' => $n->getRef() === null ? $n->getProperties() : $n->getProperties() + ['ref' => $n->getRef()],
         ], $data['nodes']);
 
         $links = array_map(static fn ($e): array => [
-            'source' => $e->fromId,
-            'target' => $e->toId,
-            'relation' => $e->relation,
+            'source' => $e->getFromId(),
+            'target' => $e->getToId(),
+            'relation' => $e->getRelation(),
         ], $data['edges']);
 
         return $resource
@@ -86,7 +86,7 @@ final class WeaveGraphHandler implements TypedHandlerInterface
                     'nodes' => $nodes,
                     'links' => $links,
                     'self' => $selfId,
-                    'focus' => $focusNode !== null ? ['id' => $focusNode->id, 'label' => $focusNode->title] : null,
+                    'focus' => $focusNode !== null ? ['id' => $focusNode->getId(), 'label' => $focusNode->getTitle()] : null,
                 ],
                 JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
             ))

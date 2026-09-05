@@ -23,7 +23,8 @@ final class OsGraphProjectsTest extends TestCase
     #[Test]
     public function a_project_resolves_its_root_from_the_first_attached_folder(): void
     {
-        $project = new Node('p1', NodeKind::Project, 'Aurora', [], '', null, '2026-07-08 10:00:00');
+        $updatedAt = new \DateTimeImmutable('2026-07-08 10:00:00');
+        $project = new Node('p1', NodeKind::Project, 'Aurora', [], '', null, $updatedAt);
         $graph = $this->createMock(GraphStoreInterface::class);
         $graph->method('nodesByKind')->with(NodeKind::Project)->willReturn([$project]);
         $graph->method('neighborhood')->with('p1')->willReturn([
@@ -44,7 +45,7 @@ final class OsGraphProjectsTest extends TestCase
         self::assertSame('/home/u/Projects/aurora', $projects[0]['path']);
         self::assertSame([['title' => 'aurora', 'path' => '/home/u/Projects/aurora']], $projects[0]['folders']);
         self::assertSame(['folder' => 1, 'note' => 1, 'task' => 2], $projects[0]['counts']);
-        self::assertSame('2026-07-08 10:00:00', $projects[0]['updated_at']);
+        self::assertSame($updatedAt->format('c'), $projects[0]['updated_at']);
     }
 
     #[Test]

@@ -74,7 +74,7 @@ final class OsGraph
         $cachedId = $this->settings()->get(self::MODULE, self::SELF_ID_KEY);
         if (is_string($cachedId) && $cachedId !== '') {
             $node = $this->graph()->node($cachedId);
-            if ($node !== null && ($node->properties['is_self'] ?? false) === true) {
+            if ($node !== null && ($node->getProperties()['is_self'] ?? false) === true) {
                 return $node;
             }
         }
@@ -82,8 +82,8 @@ final class OsGraph
         // Self-healing fallback — first-ever resolution, or the cached node
         // vanished. Scan once, cache the id so every later call is O(1).
         foreach ($this->graph()->nodesByKind(NodeKind::Person) as $node) {
-            if (($node->properties['is_self'] ?? false) === true) {
-                $this->cacheSelfId($node->id);
+            if (($node->getProperties()['is_self'] ?? false) === true) {
+                $this->cacheSelfId($node->getId());
 
                 return $node;
             }
@@ -91,7 +91,7 @@ final class OsGraph
 
         $name = $this->prefs()->userName();
         $created = $this->graph()->upsertNode(NodeKind::Person, $name !== '' ? $name : 'You', ['is_self' => true], 'os:self');
-        $this->cacheSelfId($created->id);
+        $this->cacheSelfId($created->getId());
 
         return $created;
     }
@@ -126,16 +126,16 @@ final class OsGraph
         $connectTo = trim($connectTo);
         if ($connectTo !== '') {
             $found = $this->graph()->search($connectTo, 1);
-            if (isset($found[0]) && $found[0]->id !== $node->id) {
+            if (isset($found[0]) && $found[0]->getId() !== $node->getId()) {
                 $parent = $found[0];
             }
         }
-        if ($parent->id !== $node->id) {
+        if ($parent->getId() !== $node->getId()) {
             // The new thing is the subject, and grounding to the owner is not
             // containment: "Anna part_of you" was both backwards and untrue.
-            $parent->id === $self->id
-                ? $this->graph()->addEdge($node->id, $parent->id, Relation::RELATED_TO, 100, 'os:assistant')
-                : $this->graph()->addEdge($node->id, $parent->id, Relation::PART_OF, 100, 'os:assistant');
+            $parent->getId() === $self->getId()
+                ? $this->graph()->addEdge($node->getId(), $parent->getId(), Relation::RELATED_TO, 100, 'os:assistant')
+                : $this->graph()->addEdge($node->getId(), $parent->getId(), Relation::PART_OF, 100, 'os:assistant');
         }
 
         return ['node' => $node, 'parent' => $parent];
@@ -168,11 +168,11 @@ final class OsGraph
         $node = $this->graph()->upsertNode($nodeKind, $title, ['path' => $path], 'os:files');
 
         $parent = $this->resolveAttachParent($node, $title, trim($connectTo));
-        if ($parent->id !== $node->id) {
+        if ($parent->getId() !== $node->getId()) {
             // The folder is part of the project, not the project of the folder.
-            $parent->id === $this->self()->id
-                ? $this->graph()->addEdge($node->id, $parent->id, Relation::RELATED_TO, 100, 'os:files')
-                : $this->graph()->addEdge($node->id, $parent->id, Relation::PART_OF, 100, 'os:files');
+            $parent->getId() === $this->self()->getId()
+                ? $this->graph()->addEdge($node->getId(), $parent->getId(), Relation::RELATED_TO, 100, 'os:files')
+                : $this->graph()->addEdge($node->getId(), $parent->getId(), Relation::PART_OF, 100, 'os:files');
         }
 
         return ['node' => $node, 'parent' => $parent];
@@ -185,7 +185,7 @@ final class OsGraph
 
         if ($connectTo !== '') {
             $found = $this->graph()->search($connectTo, 1);
-            if (isset($found[0]) && $found[0]->id !== $node->id) {
+            if (isset($found[0]) && $found[0]->getId() !== $node->getId()) {
                 return $found[0];
             }
         }
@@ -196,7 +196,7 @@ final class OsGraph
                 continue;
             }
             foreach ($this->graph()->search($term, 5) as $hit) {
-                if ($hit->id !== $node->id && !in_array($hit->kind, $leafKinds, true)) {
+                if ($hit->getId() !== $node->getId() && !in_array($hit->getKind(), $leafKinds, true)) {
                     return $hit;
                 }
             }
@@ -224,25 +224,25 @@ final class OsGraph
         foreach ($this->graph()->nodesByKind(NodeKind::Project) as $project) {
             $folders = [];
             $counts = [];
-            foreach ($this->graph()->neighborhood($project->id)['neighbors'] as $neighbor) {
-                if (($neighbor->properties['is_self'] ?? false) === true) {
+            foreach ($this->graph()->neighborhood($project->getId())['neighbors'] as $neighbor) {
+                if (($neighbor->getProperties()['is_self'] ?? false) === true) {
                     continue; // the owner is the graph's root, not project content
                 }
-                $counts[$neighbor->kind->value] = ($counts[$neighbor->kind->value] ?? 0) + 1;
-                $path = $neighbor->properties['path'] ?? null;
-                if ($neighbor->kind === NodeKind::Folder && is_string($path) && $path !== '') {
-                    $folders[] = ['title' => $neighbor->title, 'path' => $path];
+                $counts[$neighbor->getKind()->value] = ($counts[$neighbor->getKind()->value] ?? 0) + 1;
+                $path = $neighbor->getProperties()['path'] ?? null;
+                if ($neighbor->getKind() === NodeKind::Folder && is_string($path) && $path !== '') {
+                    $folders[] = ['title' => $neighbor->getTitle(), 'path' => $path];
                 }
             }
 
-            $ownPath = $project->properties['path'] ?? null;
+            $ownPath = $project->getProperties()['path'] ?? null;
             $projects[] = [
-                'id' => $project->id,
-                'title' => $project->title,
+                'id' => $project->getId(),
+                'title' => $project->getTitle(),
                 'path' => is_string($ownPath) && $ownPath !== '' ? $ownPath : ($folders[0]['path'] ?? null),
                 'folders' => $folders,
                 'counts' => $counts,
-                'updated_at' => $project->updatedAt,
+                'updated_at' => $project->getUpdatedAt()?->format('c'),
             ];
         }
 
@@ -256,7 +256,7 @@ final class OsGraph
     public function recall(string $query = ''): string
     {
         $query = trim($query);
-        $selfId = $this->self()->id;
+        $selfId = $this->self()->getId();
 
         if ($query !== '') {
             $hits = $this->graph()->search($query, self::RECALL_HITS);
@@ -266,7 +266,7 @@ final class OsGraph
 
             $lines = [];
             foreach ($hits as $hit) {
-                $view = $this->graph()->neighborhood($hit->id);
+                $view = $this->graph()->neighborhood($hit->getId());
                 $lines[] = $this->recallLine($hit, $view['neighbors'] ?? [], $view['edges'] ?? [], $selfId);
             }
 
@@ -281,7 +281,7 @@ final class OsGraph
 
         $lines = [];
         foreach ($neighbors as $neighbor) {
-            $lines[] = $this->recallLine($neighbor, [$this->selfNodeFrom($view)], $view['edges'] ?? [], $selfId, $neighbor->id);
+            $lines[] = $this->recallLine($neighbor, [$this->selfNodeFrom($view)], $view['edges'] ?? [], $selfId, $neighbor->getId());
         }
 
         return 'Here\'s what\'s in your world right now:' . "\n" . implode("\n", $lines);
@@ -332,7 +332,7 @@ final class OsGraph
     private function buildBriefing(int $limit): string
     {
         try {
-            $selfId = $this->self()->id;
+            $selfId = $this->self()->getId();
             $view = $this->graph()->neighborhood($selfId);
             $neighbors = $view['neighbors'] ?? [];
             if ($neighbors === []) {
@@ -342,7 +342,7 @@ final class OsGraph
             $self = $this->selfNodeFrom($view);
             $lines = [];
             foreach (array_slice($neighbors, 0, $limit) as $neighbor) {
-                $lines[] = $this->recallLine($neighbor, [$self], $view['edges'] ?? [], $selfId, $neighbor->id);
+                $lines[] = $this->recallLine($neighbor, [$self], $view['edges'] ?? [], $selfId, $neighbor->getId());
             }
 
             return implode("\n", $lines);
@@ -372,30 +372,30 @@ final class OsGraph
      */
     private function recallLine(Node $node, array $others, array $edges, string $selfId, string $focusId = ''): string
     {
-        $focusId = $focusId !== '' ? $focusId : $node->id;
-        $titles = [$node->id => $node->title];
+        $focusId = $focusId !== '' ? $focusId : $node->getId();
+        $titles = [$node->getId() => $node->getTitle()];
         foreach ($others as $other) {
-            $titles[$other->id] = $other->title;
+            $titles[$other->getId()] = $other->getTitle();
         }
         $titles[$selfId] = 'you';
 
         $rendered = [];
         foreach ($edges as $edge) {
-            if ($edge->fromId !== $focusId && $edge->toId !== $focusId) {
+            if ($edge->getFromId() !== $focusId && $edge->getToId() !== $focusId) {
                 continue;
             }
-            $from = $titles[$edge->fromId] ?? null;
-            $to = $titles[$edge->toId] ?? null;
+            $from = $titles[$edge->getFromId()] ?? null;
+            $to = $titles[$edge->getToId()] ?? null;
             if ($from === null || $to === null) {
                 continue;
             }
-            $rendered[] = $from . ' ' . $edge->relation . ' ' . $to;
+            $rendered[] = $from . ' ' . $edge->getRelation() . ' ' . $to;
             if (count($rendered) >= self::RECALL_RELATIONS_PER_NODE) {
                 break;
             }
         }
 
-        $line = '• ' . $node->title . ' (' . $node->kind->value . ')';
+        $line = '• ' . $node->getTitle() . ' (' . $node->getKind()->value . ')';
 
         return $rendered === [] ? $line : $line . ' — ' . implode(', ', array_unique($rendered));
     }

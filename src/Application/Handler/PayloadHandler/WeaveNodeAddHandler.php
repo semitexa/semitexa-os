@@ -35,7 +35,7 @@ final class WeaveNodeAddHandler implements TypedHandlerInterface
         $parentId = trim($payload->getParentId());
         if ($parentId !== '') {
             $relation = trim($payload->getRelation());
-            $this->graph->addEdge($parentId, $node->id, $relation !== '' ? $relation : Relation::RELATED_TO, 100, 'os:workspace');
+            $this->graph->addEdge($parentId, $node->getId(), $relation !== '' ? $relation : Relation::RELATED_TO, 100, 'os:workspace');
         }
 
         return $resource

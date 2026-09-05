@@ -256,7 +256,7 @@ final class Weaver
         $prompt = (new KnowledgeGraphExtractionPrompt())->withData(
             kinds: implode('|', array_map(static fn (NodeKind $k): string => $k->value, NodeKind::personalKinds())),
             projects: array_map(
-                static fn ($n): string => $n->title,
+                static fn ($n): string => $n->getTitle(),
                 $this->graphStore()->nodesByKind(NodeKind::Project, 12),
             ),
             // Titles carry their KIND. Without it the model reused a title but
@@ -266,7 +266,7 @@ final class Weaver
             // help: it refuses cross-kind merges, and rightly so, since person
             // "Anna" and project "Anna" are genuinely different.
             known: array_map(
-                static fn ($n): string => $n->title . ' (' . $n->kind->value . ')',
+                static fn ($n): string => $n->getTitle() . ' (' . $n->getKind()->value . ')',
                 $this->graphStore()->graph(30, NodeKind::personalKinds())['nodes'],
             ),
         );
@@ -364,14 +364,14 @@ final class Weaver
         foreach ($parsed['relations'] as $relation) {
             $from = $this->resolve($relation['from'], $byTitle);
             $to = $this->resolve($relation['to'], $byTitle);
-            if ($from === null || $to === null || $from->id === $to->id) {
+            if ($from === null || $to === null || $from->getId() === $to->getId()) {
                 continue;
             }
-            $this->graphStore()->addEdge($from->id, $to->id, Relation::normalise($relation['relation']), 100, self::SOURCE);
+            $this->graphStore()->addEdge($from->getId(), $to->getId(), Relation::normalise($relation['relation']), 100, self::SOURCE);
             $edges++;
-            $linked[$from->id] = true;
-            $linked[$to->id] = true;
-            $detail[] = $from->title . ' —' . Relation::normalise($relation['relation']) . '→ ' . $to->title;
+            $linked[$from->getId()] = true;
+            $linked[$to->getId()] = true;
+            $detail[] = $from->getTitle() . ' —' . Relation::normalise($relation['relation']) . '→ ' . $to->getTitle();
         }
 
         // Orphans hang off the owner, mirroring WeaveRememberSkill's grounding.
@@ -388,8 +388,8 @@ final class Weaver
         // first — the old order had the owner as the part.
         $self = $this->osGraph()->self();
         foreach ($byTitle as $node) {
-            if (!isset($linked[$node->id]) && $node->id !== $self->id) {
-                $this->graphStore()->addEdge($node->id, $self->id, Relation::RELATED_TO, 100, self::SOURCE);
+            if (!isset($linked[$node->getId()]) && $node->getId() !== $self->getId()) {
+                $this->graphStore()->addEdge($node->getId(), $self->getId(), Relation::RELATED_TO, 100, self::SOURCE);
                 $edges++;
             }
         }
@@ -400,7 +400,7 @@ final class Weaver
     /** "self" (or the owner's actual name) → the owner node; batch title → its node; else best graph match. */
     private function resolve(string $title, array $byTitle): ?Node
     {
-        if (strtolower($title) === 'self' || $this->key($title) === $this->key($this->osGraph()->self()->title)) {
+        if (strtolower($title) === 'self' || $this->key($title) === $this->key($this->osGraph()->self()->getTitle())) {
             return $this->osGraph()->self();
         }
         if (isset($byTitle[$this->key($title)])) {

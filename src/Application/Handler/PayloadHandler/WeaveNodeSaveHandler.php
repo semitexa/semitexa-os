@@ -45,7 +45,7 @@ final class WeaveNodeSaveHandler implements TypedHandlerInterface
         }
 
         // Keep the OS's idea of the user's name in step with the self node.
-        if (($node->properties['is_self'] ?? false) === true && $title !== '') {
+        if (($node->getProperties()['is_self'] ?? false) === true && $title !== '') {
             try {
                 $this->prefs->setUserName($title);
             } catch (\InvalidArgumentException) {

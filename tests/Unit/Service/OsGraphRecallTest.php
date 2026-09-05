@@ -271,7 +271,7 @@ final class OsGraphRecallTest extends TestCase
             public function node(string $id): ?Node
             {
                 foreach (array_merge([$this->self], $this->neighbors) as $n) {
-                    if ($n->id === $id) {
+                    if ($n->getId() === $id) {
                         return $n;
                     }
                 }
@@ -288,19 +288,19 @@ final class OsGraphRecallTest extends TestCase
             {
                 return array_values(array_filter(
                     $this->neighbors,
-                    static fn (Node $n): bool => mb_stripos($n->title, $term) !== false,
+                    static fn (Node $n): bool => mb_stripos($n->getTitle(), $term) !== false,
                 ));
             }
 
             public function neighborhood(string $nodeId): array
             {
-                if ($nodeId === $this->self->id) {
+                if ($nodeId === $this->self->getId()) {
                     return ['node' => $this->self, 'edges' => $this->edges, 'neighbors' => $this->neighbors];
                 }
 
                 $edges = array_values(array_filter(
                     $this->edges,
-                    static fn (Edge $e): bool => $e->fromId === $nodeId || $e->toId === $nodeId,
+                    static fn (Edge $e): bool => $e->getFromId() === $nodeId || $e->getToId() === $nodeId,
                 ));
 
                 return ['node' => $this->node($nodeId), 'edges' => $edges, 'neighbors' => [$this->self]];
