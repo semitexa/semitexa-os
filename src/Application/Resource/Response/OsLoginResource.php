@@ -47,6 +47,16 @@ final class OsLoginResource extends HtmlResponse implements ResourceInterface
         return $this->with('notice', $notice);
     }
 
+    /**
+     * The name the sign-in page introduces itself with.
+     *
+     * Left unset by the OS's own login handlers, so the template falls back to
+     * the product wordmark. It used to be fed the chat assistant's nickname,
+     * which put an unexplained first name in front of an anonymous visitor and
+     * meant renaming your assistant rebranded the sign-in page: the two
+     * identities are unrelated. A host that HAS a site or tenant name of its
+     * own is what this is for.
+     */
     public function withBranding(string $title): static
     {
         return $this->with('brandTitle', $title);
