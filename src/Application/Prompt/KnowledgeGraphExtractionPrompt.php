@@ -83,6 +83,12 @@ final class KnowledgeGraphExtractionPrompt implements BoundPromptInterface, FewS
             PromptMessage::assistant('{"entities":[],"relations":[]}'),
             PromptMessage::user('user: my sister Emma moved to Lisbon'),
             PromptMessage::assistant('{"entities":[{"title":"Emma","kind":"person"},{"title":"Lisbon","kind":"place"}],"relations":[{"from":"Emma","to":"self","relation":"sister_of"},{"from":"Emma","to":"Lisbon","relation":"lives_in"}]}'),
+            // A preference and a goal. Without an example of each the model
+            // keeps returning only entities, whatever the rules say.
+            PromptMessage::user('user: терпіти не можу відеодзвінки, завжди прошу переписку. і хочу за рік переїхати до Португалії'),
+            PromptMessage::assistant('{"entities":[{"title":"відеодзвінки","kind":"topic"},{"title":"переїхати до Португалії","kind":"goal"}],"relations":[{"from":"self","to":"відеодзвінки","relation":"avoids"},{"from":"self","to":"переїхати до Португалії","relation":"wants"}]}'),
+            PromptMessage::user('user: today is annoying, everything is breaking'),
+            PromptMessage::assistant('{"entities":[],"relations":[]}'),
         ];
     }
 }

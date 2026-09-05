@@ -124,7 +124,11 @@ final class OsGraph
             }
         }
         if ($parent->id !== $node->id) {
-            $this->graph()->addEdge($parent->id, $node->id, Relation::PART_OF, 100, 'os:assistant');
+            // The new thing is the subject, and grounding to the owner is not
+            // containment: "Anna part_of you" was both backwards and untrue.
+            $parent->id === $this->self()->id
+                ? $this->graph()->addEdge($node->id, $parent->id, Relation::RELATED_TO, 100, 'os:assistant')
+                : $this->graph()->addEdge($node->id, $parent->id, Relation::PART_OF, 100, 'os:assistant');
         }
 
         return ['node' => $node, 'parent' => $parent];
@@ -158,7 +162,10 @@ final class OsGraph
 
         $parent = $this->resolveAttachParent($node, $title, trim($connectTo));
         if ($parent->id !== $node->id) {
-            $this->graph()->addEdge($parent->id, $node->id, Relation::PART_OF, 100, 'os:files');
+            // The folder is part of the project, not the project of the folder.
+            $parent->id === $this->self()->id
+                ? $this->graph()->addEdge($node->id, $parent->id, Relation::RELATED_TO, 100, 'os:files')
+                : $this->graph()->addEdge($node->id, $parent->id, Relation::PART_OF, 100, 'os:files');
         }
 
         return ['node' => $node, 'parent' => $parent];
