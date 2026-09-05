@@ -1,13 +1,16 @@
-You maintain a personal knowledge graph for the user. From the conversation transcript, extract DURABLE real-world entities in the user's life and work, and the relationships between them.
+You maintain a personal knowledge graph for the user. From the conversation transcript, extract DURABLE facts about the user's life and work: the entities in it, what they are working towards, and what they lastingly prefer, enjoy or habitually do.
 
 Reply with ONLY this JSON, no prose, no code fences:
 {"entities":[{"title":"...","kind":"..."}],"relations":[{"from":"...","to":"...","relation":"..."}]}
 
 Rules:
 - kind is one of: {{ prompt.kinds }}. Pick the closest.
-- Extract only lasting things: people, projects, organisations, places, topics, tasks, events, files. The user is referred to as "self" — use the literal title "self" in relations to link something to the user.
-- Do NOT extract: UI/interface commands (open/close/restyle/retheme the interface, launch apps), styles or moods from those commands, the assistant itself, greetings, questions, opinions, or anything purely hypothetical.
-- Titles: the NAME of the thing only, max 6 words, exactly as the user named it, in the user's language. Never a sentence or description.
-- relation: a short snake_case predicate (works_at, part_of, married_to, located_in, interested_in, owns, works_on, friend_of, ...). Invent one if none fits.
-- Every entity should appear in at least one relation when the transcript supports it.
-- Nothing durable in the transcript? Reply {"entities":[],"relations":[]}.{% if prompt.projects %}{{ "\n" }}- Known projects: {{ prompt.projects|join(', ') }}. When something clearly belongs to one of these, relate it to that project (works_on, part_of, …) instead of "self".{% endif %}{% if prompt.known %}{{ "\n" }}- Titles already in the graph: {{ prompt.known|join('; ') }}. When the transcript refers to one of these, use its EXACT title — never a rephrasing.{% endif %}
+- Extract lasting things: people, projects, organisations, places, topics, tasks, events, files, and goals. The user is referred to as "self" — use the literal title "self" in relations to link something to the user.
+- ALSO extract what the user lastingly prefers, enjoys, avoids or habitually does, and what they are working towards. These are the facts that let you help them without asking twice. A preference or habit is a relation onto a thing that exists: "self" + prefers / enjoys / avoids / interested_in / collects / plays / habit_of + the thing. A goal is its own entity of kind "goal", named as the outcome ("move to Portugal", "learn Rust"), related as "self" + wants.
+- A passing reaction is not a preference. "this is annoying today", "I'm tired" — nothing. "I always work late", "I can't stand video calls", "I've played guitar for years" — extract. If they would still be true next month, keep them.
+- Do NOT extract: UI/interface commands (open/close/restyle/retheme the interface, launch apps), styles or moods from those commands, the assistant itself, greetings, questions, one-off moods, or anything purely hypothetical.
+- Titles: the NAME of the thing only, max 6 words, exactly as the user named it, in the user's language. Never a sentence or description. A goal is the outcome, not the sentence: "move to Portugal", never "I want to move to Portugal next year".
+- relation: a short snake_case predicate (works_at, part_of, married_to, located_in, interested_in, owns, works_on, friend_of, prefers, avoids, wants, habit_of, ...). Invent one if none fits.
+- DIRECTION matters — write "from" as whoever the predicate is about, "to" as what it points at. "Дмитро teaches self", not "self teaches Дмитро". "self interested_in гітара", not "гітара interested_in self". Read your own triple back as a sentence before emitting it; if it says the opposite of what the user said, swap it.
+- Every entity should appear in at least one relation when the transcript supports it. When you genuinely cannot relate one, still list it — it will be grounded for you; do not invent a relationship to fill the gap.
+- Nothing durable in the transcript? Reply {"entities":[],"relations":[]}.{% if prompt.projects %}{{ "\n" }}- Known projects: {{ prompt.projects|join(', ') }}. When something clearly belongs to one of these, relate it to that project (works_on, part_of, …) instead of "self".{% endif %}{% if prompt.known %}{{ "\n" }}- Already in the graph, as title (kind): {{ prompt.known|join('; ') }}. When the transcript refers to one of these, use its EXACT title AND its existing kind — never a rephrasing, and never the same title under a different kind.{% endif %}

@@ -6,11 +6,16 @@ namespace Semitexa\Os\Application\Service;
 
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Core\Support\CoroutineLocal;
+use Semitexa\Core\Tenant\DefaultTenantContextStore;
+use Semitexa\Core\Tenant\TenantContextAccess;
+use Semitexa\Core\Tenant\TenantContextStoreInterface;
 use Semitexa\Platform\Settings\Application\Service\SettingsStore;
 use Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface;
 use Semitexa\Weave\Application\Service\GraphStore;
 use Semitexa\Weave\Domain\Contract\GraphStoreInterface;
 use Semitexa\Weave\Domain\Enum\NodeKind;
+use Semitexa\Weave\Domain\Model\Edge;
 use Semitexa\Weave\Domain\Model\Node;
 use Semitexa\Weave\Domain\Model\Relation;
 
@@ -27,6 +32,18 @@ final class OsGraph
 {
     private const MODULE = 'os';
 
+    /** How many search hits a focused recall expands with their relations. */
+    private const RECALL_HITS = 6;
+
+    /** Relations shown per thing — a hub must not flood the reply. */
+    private const RECALL_RELATIONS_PER_NODE = 4;
+
+    /** Entries carried in the standing briefing — this rides on EVERY turn. */
+    private const BRIEFING_ENTRIES = 12;
+
+    /** Per-request memo for the briefing — see {@see worldBriefing()}. */
+    private const BRIEFING_MEMO_KEY = 'os.graph.briefing';
+
     /** Settings key caching the owner node's id — see {@see self()}. */
     private const SELF_ID_KEY = 'graph.self_node_id';
 
@@ -38,6 +55,10 @@ final class OsGraph
 
     #[InjectAsReadonly]
     protected SettingsStoreInterface $settings;
+
+    /** Only ever read to key the per-request briefing memo — see worldBriefing(). */
+    #[InjectAsReadonly]
+    protected TenantContextStoreInterface $tenantContextStore;
 
     /**
      * The owner node ("Я") — the centre of the graph. Created once (a Person
@@ -54,7 +75,7 @@ final class OsGraph
         $cachedId = $this->settings()->get(self::MODULE, self::SELF_ID_KEY);
         if (is_string($cachedId) && $cachedId !== '') {
             $node = $this->graph()->node($cachedId);
-            if ($node !== null && ($node->properties['is_self'] ?? false) === true) {
+            if ($node !== null && ($node->getProperties()['is_self'] ?? false) === true) {
                 return $node;
             }
         }
@@ -62,8 +83,8 @@ final class OsGraph
         // Self-healing fallback — first-ever resolution, or the cached node
         // vanished. Scan once, cache the id so every later call is O(1).
         foreach ($this->graph()->nodesByKind(NodeKind::Person) as $node) {
-            if (($node->properties['is_self'] ?? false) === true) {
-                $this->cacheSelfId($node->id);
+            if (($node->getProperties()['is_self'] ?? false) === true) {
+                $this->cacheSelfId($node->getId());
 
                 return $node;
             }
@@ -71,7 +92,7 @@ final class OsGraph
 
         $name = $this->prefs()->userName();
         $created = $this->graph()->upsertNode(NodeKind::Person, $name !== '' ? $name : 'You', ['is_self' => true], 'os:self');
-        $this->cacheSelfId($created->id);
+        $this->cacheSelfId($created->getId());
 
         return $created;
     }
@@ -101,16 +122,21 @@ final class OsGraph
         $nodeKind = $kind !== '' ? (NodeKind::tryFromLoose($kind) ?? NodeKind::Topic) : NodeKind::Topic;
         $node = $this->graph()->upsertNode($nodeKind, $title, [], 'os:assistant');
 
-        $parent = $this->self();
+        $self = $this->self();
+        $parent = $self;
         $connectTo = trim($connectTo);
         if ($connectTo !== '') {
             $found = $this->graph()->search($connectTo, 1);
-            if (isset($found[0]) && $found[0]->id !== $node->id) {
+            if (isset($found[0]) && $found[0]->getId() !== $node->getId()) {
                 $parent = $found[0];
             }
         }
-        if ($parent->id !== $node->id) {
-            $this->graph()->addEdge($parent->id, $node->id, Relation::PART_OF, 100, 'os:assistant');
+        if ($parent->getId() !== $node->getId()) {
+            // The new thing is the subject, and grounding to the owner is not
+            // containment: "Anna part_of you" was both backwards and untrue.
+            $parent->getId() === $self->getId()
+                ? $this->graph()->addEdge($node->getId(), $parent->getId(), Relation::RELATED_TO, 100, 'os:assistant')
+                : $this->graph()->addEdge($node->getId(), $parent->getId(), Relation::PART_OF, 100, 'os:assistant');
         }
 
         return ['node' => $node, 'parent' => $parent];
@@ -143,8 +169,11 @@ final class OsGraph
         $node = $this->graph()->upsertNode($nodeKind, $title, ['path' => $path], 'os:files');
 
         $parent = $this->resolveAttachParent($node, $title, trim($connectTo));
-        if ($parent->id !== $node->id) {
-            $this->graph()->addEdge($parent->id, $node->id, Relation::PART_OF, 100, 'os:files');
+        if ($parent->getId() !== $node->getId()) {
+            // The folder is part of the project, not the project of the folder.
+            $parent->getId() === $this->self()->getId()
+                ? $this->graph()->addEdge($node->getId(), $parent->getId(), Relation::RELATED_TO, 100, 'os:files')
+                : $this->graph()->addEdge($node->getId(), $parent->getId(), Relation::PART_OF, 100, 'os:files');
         }
 
         return ['node' => $node, 'parent' => $parent];
@@ -157,7 +186,7 @@ final class OsGraph
 
         if ($connectTo !== '') {
             $found = $this->graph()->search($connectTo, 1);
-            if (isset($found[0]) && $found[0]->id !== $node->id) {
+            if (isset($found[0]) && $found[0]->getId() !== $node->getId()) {
                 return $found[0];
             }
         }
@@ -168,7 +197,7 @@ final class OsGraph
                 continue;
             }
             foreach ($this->graph()->search($term, 5) as $hit) {
-                if ($hit->id !== $node->id && !in_array($hit->kind, $leafKinds, true)) {
+                if ($hit->getId() !== $node->getId() && !in_array($hit->getKind(), $leafKinds, true)) {
                     return $hit;
                 }
             }
@@ -196,25 +225,25 @@ final class OsGraph
         foreach ($this->graph()->nodesByKind(NodeKind::Project) as $project) {
             $folders = [];
             $counts = [];
-            foreach ($this->graph()->neighborhood($project->id)['neighbors'] as $neighbor) {
-                if (($neighbor->properties['is_self'] ?? false) === true) {
+            foreach ($this->graph()->neighborhood($project->getId())['neighbors'] as $neighbor) {
+                if (($neighbor->getProperties()['is_self'] ?? false) === true) {
                     continue; // the owner is the graph's root, not project content
                 }
-                $counts[$neighbor->kind->value] = ($counts[$neighbor->kind->value] ?? 0) + 1;
-                $path = $neighbor->properties['path'] ?? null;
-                if ($neighbor->kind === NodeKind::Folder && is_string($path) && $path !== '') {
-                    $folders[] = ['title' => $neighbor->title, 'path' => $path];
+                $counts[$neighbor->getKind()->value] = ($counts[$neighbor->getKind()->value] ?? 0) + 1;
+                $path = $neighbor->getProperties()['path'] ?? null;
+                if ($neighbor->getKind() === NodeKind::Folder && is_string($path) && $path !== '') {
+                    $folders[] = ['title' => $neighbor->getTitle(), 'path' => $path];
                 }
             }
 
-            $ownPath = $project->properties['path'] ?? null;
+            $ownPath = $project->getProperties()['path'] ?? null;
             $projects[] = [
-                'id' => $project->id,
-                'title' => $project->title,
+                'id' => $project->getId(),
+                'title' => $project->getTitle(),
                 'path' => is_string($ownPath) && $ownPath !== '' ? $ownPath : ($folders[0]['path'] ?? null),
                 'folders' => $folders,
                 'counts' => $counts,
-                'updated_at' => $project->updatedAt,
+                'updated_at' => $project->getUpdatedAt()?->format('c'),
             ];
         }
 
@@ -228,23 +257,174 @@ final class OsGraph
     public function recall(string $query = ''): string
     {
         $query = trim($query);
-        $line = static fn (Node $n): string => '• ' . $n->title . ' (' . $n->kind->value . ')';
+        $selfId = $this->self()->getId();
 
         if ($query !== '') {
-            $hits = $this->graph()->search($query, 8);
+            $hits = $this->graph()->search($query, self::RECALL_HITS);
             if ($hits === []) {
                 return 'I don\'t have anything about "' . $query . '" in your world yet.';
             }
 
-            return 'Here\'s what I have about "' . $query . '":' . "\n" . implode("\n", array_map($line, $hits));
+            $lines = [];
+            foreach ($hits as $hit) {
+                $view = $this->graph()->neighborhood($hit->getId());
+                $lines[] = $this->recallLine($hit, $view['neighbors'] ?? [], $view['edges'] ?? [], $selfId);
+            }
+
+            return 'Here\'s what I have about "' . $query . '":' . "\n" . implode("\n", $lines);
         }
 
-        $neighbors = $this->graph()->neighborhood($this->self()->id)['neighbors'] ?? [];
+        $view = $this->graph()->neighborhood($selfId);
+        $neighbors = $view['neighbors'] ?? [];
         if ($neighbors === []) {
             return 'Your world is just getting started — nothing is connected to you yet. Tell me what you\'re working on.';
         }
 
-        return 'Here\'s what\'s in your world right now:' . "\n" . implode("\n", array_map($line, $neighbors));
+        $lines = [];
+        foreach ($neighbors as $neighbor) {
+            $lines[] = $this->recallLine($neighbor, [$this->selfNodeFrom($view)], $view['edges'] ?? [], $selfId, $neighbor->getId());
+        }
+
+        return 'Here\'s what\'s in your world right now:' . "\n" . implode("\n", $lines);
+    }
+
+    /**
+     * The standing briefing about the user, for the assistant's system prompt.
+     *
+     * recall() answers a question; this answers none — it is what the assistant
+     * carries into every turn so it can use what it knows without being asked.
+     * The skill alone was never enough: the model had to decide to call it, and
+     * nothing in the persona told it the graph existed.
+     *
+     * Best-effort by construction. An empty graph, a missing table or a DB
+     * hiccup must cost the assistant its memory for that turn, never its
+     * persona — the caller renders nothing when this returns ''.
+     */
+    public function worldBriefing(int $limit = self::BRIEFING_ENTRIES): string
+    {
+        // Memoized per request, not per call. The persona is rebuilt inside the
+        // skill loop's step budget — up to five steps on a tool-calling backend
+        // — so an unmemoized briefing would repeat its ~5 queries on every step
+        // of every turn. CoroutineLocal rather than a property, because a
+        // container-managed service is shared across concurrent coroutines.
+        //
+        // KEYED BY TENANT, even though a request coroutine only ever serves one.
+        // TenantFanoutInterface::eachTenant() walks every tenant inside a SINGLE
+        // coroutine — that is how the weave timer works — so a bare key would
+        // hand one tenant's private briefing to the next the moment anything
+        // builds a persona under a fan-out. Same reasoning as the override
+        // store's per-tenant memo.
+        $tenant = TenantContextAccess::tenantIdOrDefault($this->tenantContextStore()->tryGet());
+
+        // Keyed by the LIMIT as well: a briefing built for worldBriefing(1) is
+        // not the answer to a later default-sized call in the same coroutine,
+        // and a default-sized one is not the answer to a smaller ask.
+        $key = $tenant . "\0" . $limit;
+
+        /** @var array<string, string> $memo */
+        $memo = CoroutineLocal::get(self::BRIEFING_MEMO_KEY, []);
+        if (isset($memo[$key])) {
+            return $memo[$key];
+        }
+
+        $memo[$key] = $this->buildBriefing($limit);
+        CoroutineLocal::set(self::BRIEFING_MEMO_KEY, $memo);
+
+        return $memo[$key];
+    }
+
+    /**
+     * The ambient tenant store, injected or built.
+     *
+     * The store keeps the context in a coroutine-local, so an instance built
+     * here reads exactly what an injected one would. That matters because the
+     * persona constructs OsGraph bare — personas are not container-built — so
+     * the old `isset() ? tryGet() : null` answered 'default' for every briefing
+     * ever rendered, and under a tenant fan-out would have keyed one tenant's
+     * standing memory under the next tenant's turn.
+     */
+    private function tenantContextStore(): TenantContextStoreInterface
+    {
+        return $this->tenantContextStore ??= new DefaultTenantContextStore();
+    }
+
+    private function buildBriefing(int $limit): string
+    {
+        try {
+            $selfId = $this->self()->getId();
+            $view = $this->graph()->neighborhood($selfId);
+            $neighbors = $view['neighbors'] ?? [];
+            if ($neighbors === []) {
+                return '';
+            }
+
+            $self = $this->selfNodeFrom($view);
+            $lines = [];
+            foreach (array_slice($neighbors, 0, $limit) as $neighbor) {
+                $lines[] = $this->recallLine($neighbor, [$self], $view['edges'] ?? [], $selfId, $neighbor->getId());
+            }
+
+            return implode("\n", $lines);
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    /**
+     * One recall line: the thing, and — the part that used to be thrown away —
+     * how it actually relates to the rest of the world.
+     *
+     * A bare list of titles tells the assistant that "Дмитро" and "гітара" exist
+     * and nothing else, so it cannot answer that Дмитро teaches the user or that
+     * the guitar is an interest. The edges are already in hand from
+     * neighborhood(); this renders them.
+     *
+     * Relations are printed as the stored triple rather than turned into a
+     * sentence. The weaver emits both directions for the same pair (measured:
+     * "гітара interested_in <user>" alongside "<user> works_on Semitexa"), so any
+     * phrasing that assumed a direction would confidently state the reverse of
+     * what is recorded. The triple is honest about what the graph holds.
+     *
+     * @param list<Node> $others  nodes that may sit at the other end of an edge
+     * @param list<Edge> $edges   every edge in the view, filtered here
+     * @param string     $focusId the node whose edges to render (defaults to $node)
+     */
+    private function recallLine(Node $node, array $others, array $edges, string $selfId, string $focusId = ''): string
+    {
+        $focusId = $focusId !== '' ? $focusId : $node->getId();
+        $titles = [$node->getId() => $node->getTitle()];
+        foreach ($others as $other) {
+            $titles[$other->getId()] = $other->getTitle();
+        }
+        $titles[$selfId] = 'you';
+
+        $rendered = [];
+        foreach ($edges as $edge) {
+            if ($edge->getFromId() !== $focusId && $edge->getToId() !== $focusId) {
+                continue;
+            }
+            $from = $titles[$edge->getFromId()] ?? null;
+            $to = $titles[$edge->getToId()] ?? null;
+            if ($from === null || $to === null) {
+                continue;
+            }
+            $rendered[] = $from . ' ' . $edge->getRelation() . ' ' . $to;
+            if (count($rendered) >= self::RECALL_RELATIONS_PER_NODE) {
+                break;
+            }
+        }
+
+        $line = '• ' . $node->getTitle() . ' (' . $node->getKind()->value . ')';
+
+        return $rendered === [] ? $line : $line . ' — ' . implode(', ', array_unique($rendered));
+    }
+
+    /** The owner node as it appears inside its own neighbourhood view. */
+    private function selfNodeFrom(array $view): Node
+    {
+        $node = $view['node'] ?? null;
+
+        return $node instanceof Node ? $node : $this->self();
     }
 
     private function graph(): GraphStoreInterface

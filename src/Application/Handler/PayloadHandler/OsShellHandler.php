@@ -64,18 +64,6 @@ final class OsShellHandler implements TypedHandlerInterface
     #[Config(env: 'SEMITEXA_BRIDGE_URL', default: 'http://127.0.0.1:8777')]
     protected string $bridgeUrl;
 
-    /**
-     * The console's own language, when it differs from the site's.
-     *
-     * A public site's locale set is chosen for its visitors: an Italian theatre
-     * offers it/en, and the request locale on any of its pages is one of those.
-     * The people administering it are a different audience — often a different
-     * language entirely — and without this the console would render in a
-     * locale the OS has no catalog for, i.e. as raw message keys.
-     */
-    #[Config(env: 'SEMITEXA_OS_LOCALE', default: '')]
-    protected string $localeOverride;
-
     public function handle(OsShellPayload $payload, OsShellResource $resource): OsShellResource
     {
         // The shell is the one OS surface a person navigates to rather than
@@ -138,8 +126,8 @@ final class OsShellHandler implements TypedHandlerInterface
     /**
      * The OS locale + its resolved shell string bundle for the boot payload.
      *
-     * Locale: the explicit OS preference wins; '' = follow the request's own
-     * resolution (the locale phase already set the context). Strings: every
+     * Locale: whatever {@see OsPreferences::language()} decides — the same
+     * answer the assistant's default name is spelled in. Strings: every
      * `os.shell.*` catalog key resolved through TranslationService — so
      * per-tenant translation overrides apply — keyed WITHOUT the prefix (the
      * shell's t() keys). English key set is the canonical enumeration.
@@ -148,15 +136,7 @@ final class OsShellHandler implements TypedHandlerInterface
      */
     private function localeBundle(): array
     {
-        // The operator's stored preference wins; then this install's declared
-        // console language; then whatever locale the request resolved to.
-        $locale = $this->prefs->locale();
-        if ($locale === '') {
-            $locale = trim($this->localeOverride ?? '');
-        }
-        if ($locale === '') {
-            $locale = \Semitexa\Locale\Context\LocaleContextStore::getLocale();
-        }
+        $locale = $this->prefs->language();
 
         $strings = [];
         try {

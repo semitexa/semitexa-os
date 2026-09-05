@@ -256,10 +256,19 @@ final class Weaver
         $prompt = (new KnowledgeGraphExtractionPrompt())->withData(
             kinds: implode('|', array_map(static fn (NodeKind $k): string => $k->value, NodeKind::personalKinds())),
             projects: array_map(
-                static fn ($n): string => $n->title,
+                static fn ($n): string => $n->getTitle(),
                 $this->graphStore()->nodesByKind(NodeKind::Project, 12),
             ),
-            known: array_map(static fn ($n): string => $n->title, $this->graphStore()->graph(30, NodeKind::personalKinds())['nodes']),
+            // Titles carry their KIND. Without it the model reused a title but
+            // refiled it — the upsert keys on (kind, title), so "Мурчик" the
+            // person and "Мурчик" the topic became two nodes, and both were then
+            // read back to the assistant as separate things. weave:dedup cannot
+            // help: it refuses cross-kind merges, and rightly so, since person
+            // "Anna" and project "Anna" are genuinely different.
+            known: array_map(
+                static fn ($n): string => $n->getTitle() . ' (' . $n->getKind()->value . ')',
+                $this->graphStore()->graph(30, NodeKind::personalKinds())['nodes'],
+            ),
         );
 
         // Pass the bound repository so a tenant's DB override wins (catalog
@@ -355,21 +364,32 @@ final class Weaver
         foreach ($parsed['relations'] as $relation) {
             $from = $this->resolve($relation['from'], $byTitle);
             $to = $this->resolve($relation['to'], $byTitle);
-            if ($from === null || $to === null || $from->id === $to->id) {
+            if ($from === null || $to === null || $from->getId() === $to->getId()) {
                 continue;
             }
-            $this->graphStore()->addEdge($from->id, $to->id, Relation::normalise($relation['relation']), 100, self::SOURCE);
+            $this->graphStore()->addEdge($from->getId(), $to->getId(), Relation::normalise($relation['relation']), 100, self::SOURCE);
             $edges++;
-            $linked[$from->id] = true;
-            $linked[$to->id] = true;
-            $detail[] = $from->title . ' —' . Relation::normalise($relation['relation']) . '→ ' . $to->title;
+            $linked[$from->getId()] = true;
+            $linked[$to->getId()] = true;
+            $detail[] = $from->getTitle() . ' —' . Relation::normalise($relation['relation']) . '→ ' . $to->getTitle();
         }
 
         // Orphans hang off the owner, mirroring WeaveRememberSkill's grounding.
+        //
+        // RELATED_TO, not PART_OF. An entity the model named but did not relate
+        // is only known to be *in* the person's world; claiming containment
+        // produced lines like "you part_of Олена" and "you part_of гітара" —
+        // measured, 13 of them, and the single largest source of noise in what
+        // the assistant reads back. RELATED_TO is documented as the weakest,
+        // inferred edge, which is exactly what this is.
+        //
+        // The thing is the subject: "гітара related_to you" reads the way every
+        // other neighbour line does, and PART_OF's own contract puts the child
+        // first — the old order had the owner as the part.
         $self = $this->osGraph()->self();
         foreach ($byTitle as $node) {
-            if (!isset($linked[$node->id]) && $node->id !== $self->id) {
-                $this->graphStore()->addEdge($self->id, $node->id, Relation::PART_OF, 100, self::SOURCE);
+            if (!isset($linked[$node->getId()]) && $node->getId() !== $self->getId()) {
+                $this->graphStore()->addEdge($node->getId(), $self->getId(), Relation::RELATED_TO, 100, self::SOURCE);
                 $edges++;
             }
         }
@@ -380,7 +400,7 @@ final class Weaver
     /** "self" (or the owner's actual name) → the owner node; batch title → its node; else best graph match. */
     private function resolve(string $title, array $byTitle): ?Node
     {
-        if (strtolower($title) === 'self' || $this->key($title) === $this->key($this->osGraph()->self()->title)) {
+        if (strtolower($title) === 'self' || $this->key($title) === $this->key($this->osGraph()->self()->getTitle())) {
             return $this->osGraph()->self();
         }
         if (isset($byTitle[$this->key($title)])) {

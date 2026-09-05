@@ -32,12 +32,13 @@ final class OsPersonaPrompt implements BoundPromptInterface
     public function __construct(
         private readonly ?string $assistantName = null,
         private readonly ?string $userName = null,
+        private readonly ?string $world = null,
     ) {}
 
     /** An immutable copy bound to the given data — safe to render per request. */
-    public function withData(string $assistantName, string $userName): self
+    public function withData(string $assistantName, string $userName, string $world = ''): self
     {
-        return new self($assistantName, $userName);
+        return new self($assistantName, $userName, $world);
     }
 
     public function promptId(): string
@@ -53,5 +54,15 @@ final class OsPersonaPrompt implements BoundPromptInterface
     public function userName(): string
     {
         return (string) $this->userName;
+    }
+
+    /**
+     * What the assistant already knows about this person, from their graph.
+     * Empty when the graph has nothing yet — the template renders no block at
+     * all rather than telling the model it remembers nothing.
+     */
+    public function world(): string
+    {
+        return (string) $this->world;
     }
 }

@@ -23,7 +23,7 @@ final class KnowledgeGraphExtractionPromptTest extends TestCase
         $system = rtrim((new PromptRegistry())->buildFromClasses([KnowledgeGraphExtractionPrompt::class])['os.weaver.extraction']->system);
 
         self::assertStringStartsWith(
-            "You maintain a personal knowledge graph for the user. From the conversation transcript, extract DURABLE real-world entities in the user's life and work, and the relationships between them.",
+            "You maintain a personal knowledge graph for the user. From the conversation transcript, extract DURABLE facts about the user's life and work: the entities in it, what they are working towards, and what they lastingly prefer, enjoy or habitually do.",
             $system,
         );
         self::assertStringContainsString(
@@ -36,18 +36,25 @@ final class KnowledgeGraphExtractionPromptTest extends TestCase
         self::assertStringContainsString("{{ prompt.projects|join(', ') }}", $system);
         self::assertStringContainsString("{% if prompt.known %}", $system);
 
+        // The rules that make the graph worth reading back: what the assistant
+        // is meant to notice, and which way round to record it.
+        self::assertStringContainsString('prefers / enjoys / avoids / interested_in', $system);
+        self::assertStringContainsString('A goal is its own entity of kind "goal"', $system);
+        self::assertStringContainsString('A passing reaction is not a preference.', $system);
+        self::assertStringContainsString('DIRECTION matters', $system);
+
         // The examples must no longer be in the system text — they are few-shot now.
         self::assertStringNotContainsString('Examples:', $system);
         self::assertStringNotContainsString('Богдан', $system);
     }
 
-    public function testFewShotIsThreeUserAssistantPairs(): void
+    public function testFewShotIsFiveUserAssistantPairs(): void
     {
         $fewShot = (new KnowledgeGraphExtractionPrompt())->fewShot();
 
-        self::assertCount(6, $fewShot);
+        self::assertCount(10, $fewShot);
         self::assertSame(
-            [MessageRole::User, MessageRole::Assistant, MessageRole::User, MessageRole::Assistant, MessageRole::User, MessageRole::Assistant],
+            array_merge(...array_fill(0, 5, [MessageRole::User, MessageRole::Assistant])),
             array_map(static fn ($m) => $m->role, $fewShot),
         );
 
@@ -59,12 +66,25 @@ final class KnowledgeGraphExtractionPromptTest extends TestCase
         self::assertSame('user: restyle the interface like a sunset at sea', $fewShot[2]->content);
         self::assertSame('{"entities":[],"relations":[]}', $fewShot[3]->content);
         self::assertSame('user: my sister Emma moved to Lisbon', $fewShot[4]->content);
+        // A preference and a goal, and a passing mood that must yield nothing —
+        // without an example of each the model returns only entities.
+        self::assertStringContainsString('відеодзвінки', $fewShot[6]->content);
+        self::assertStringContainsString('"relation":"avoids"', $fewShot[7]->content);
+        self::assertStringContainsString('"kind":"goal"', $fewShot[7]->content);
+        // The goal NODE alone is not the example — the edge that ties it to the
+        // person is. Asserting only the kind lets a regression drop or rename
+        // the relation and still pass.
+        self::assertStringContainsString(
+            '{"from":"self","to":"переїхати до Португалії","relation":"wants"}',
+            $fewShot[7]->content,
+        );
+        self::assertSame('{"entities":[],"relations":[]}', $fewShot[9]->content);
     }
 
     public function testFewShotFlowsThroughRegistryAndRenderer(): void
     {
         $template = (new PromptRegistry())->buildFromClasses([KnowledgeGraphExtractionPrompt::class])['os.weaver.extraction'];
-        self::assertCount(6, $template->fewShot);
+        self::assertCount(10, $template->fewShot);
 
         $rendered = (new PromptRenderer())->render(
             (new KnowledgeGraphExtractionPrompt())->withData('person|project|place', [], []),
@@ -73,7 +93,7 @@ final class KnowledgeGraphExtractionPromptTest extends TestCase
         // Getters bound in system, few-shot carried through untouched.
         self::assertStringContainsString('- kind is one of: person|project|place. Pick the closest.', $rendered->system);
         self::assertStringNotContainsString('{{', $rendered->system);
-        self::assertCount(6, $rendered->messages);
+        self::assertCount(10, $rendered->messages);
         self::assertSame('{"entities":[],"relations":[]}', $rendered->messages[3]->content);
     }
 
@@ -84,13 +104,13 @@ final class KnowledgeGraphExtractionPromptTest extends TestCase
         // With no data → no hint lines (the {% if %} branches stay empty).
         $empty = $renderer->render((new KnowledgeGraphExtractionPrompt())->withData('person', [], []));
         self::assertStringNotContainsString('Known projects:', $empty->system);
-        self::assertStringNotContainsString('Titles already in the graph:', $empty->system);
+        self::assertStringNotContainsString('Already in the graph', $empty->system);
 
         // With data → the Twig loop/join builds the exact hint lines.
         $full = $renderer->render(
             (new KnowledgeGraphExtractionPrompt())->withData('person', ['Semitexa', 'Apart'], ['Bohdan', 'Emma']),
         );
         self::assertStringContainsString("\n- Known projects: Semitexa, Apart. When something clearly belongs", $full->system);
-        self::assertStringContainsString("\n- Titles already in the graph: Bohdan; Emma. When the transcript", $full->system);
+        self::assertStringContainsString("\n- Already in the graph, as title (kind): Bohdan; Emma. When the transcript", $full->system);
     }
 }

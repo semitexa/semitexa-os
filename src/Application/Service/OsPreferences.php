@@ -5,13 +5,15 @@ declare(strict_types=1);
 namespace Semitexa\Os\Application\Service;
 
 use Semitexa\Core\Attribute\AsService;
+use Semitexa\Core\Attribute\Config;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Platform\Settings\Application\Service\SettingsStore;
 use Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface;
 
 /**
- * OS personalisation preferences — the assistant's name (default "Semi") and
- * the user's own name (empty = unknown, the onboarding cue).
+ * OS personalisation preferences — the assistant's name (defaults to Solomiia,
+ * spelled in the console's own language) and the user's own name (empty =
+ * unknown, the onboarding cue).
  *
  * Persisted in the database via the platform settings store (module `os`), not
  * a local file. Values are global (single-user OS); per-user scoping is a future
@@ -33,7 +35,13 @@ final class OsPreferences
     private const KEY_TIMEZONE = 'timezone';
     private const KEY_THEME_MODE = 'theme_mode';
     private const MAX_NAME_LEN = 24;
-    private const DEFAULT_ASSISTANT_NAME = 'Semi';
+    /**
+     * The assistant's name before anyone renames her, per console language.
+     * The same person either way — Ukrainian writes her in Cyrillic, every
+     * other language gets the transliteration the rest of the ecosystem uses.
+     */
+    private const DEFAULT_ASSISTANT_NAMES = ['uk' => 'Соломія'];
+    private const DEFAULT_ASSISTANT_NAME = 'Solomiia';
     private const DEFAULT_TIMEZONE = 'Europe/Kyiv';
 
     /** Light/dark preference. 'auto' follows the OS (with a time-of-day fallback client-side). */
@@ -53,6 +61,18 @@ final class OsPreferences
     protected SettingsStoreInterface $settings;
 
     /**
+     * The console's own language, when it differs from the site's.
+     *
+     * A public site's locale set is chosen for its visitors: an Italian theatre
+     * offers it/en, and the request locale on any of its pages is one of those.
+     * The people administering it are a different audience — often a different
+     * language entirely — and without this the console would render in a locale
+     * the OS has no catalog for, i.e. as raw message keys.
+     */
+    #[Config(env: 'SEMITEXA_OS_LOCALE', default: '')]
+    protected string $localeOverride;
+
+    /**
      * All preferences with defaults applied and values sanitised — safe to hand
      * straight to the shell.
      *
@@ -61,7 +81,7 @@ final class OsPreferences
     public function all(): array
     {
         return [
-            'assistant_name' => $this->cleanName($this->rawString(self::KEY_ASSISTANT_NAME)) ?? self::DEFAULT_ASSISTANT_NAME,
+            'assistant_name' => $this->cleanName($this->rawString(self::KEY_ASSISTANT_NAME)) ?? $this->defaultAssistantName(),
             'user_name' => $this->cleanName($this->rawString(self::KEY_USER_NAME)) ?? '',
             'theme_mode' => $this->themeMode(),
             'timezone' => $this->timezone()->getName(),
@@ -129,6 +149,51 @@ final class OsPreferences
     }
 
     /**
+     * The language the console actually speaks: the stored preference, else the
+     * SEMITEXA_OS_LOCALE override, else whatever locale the request resolved to.
+     *
+     * This is the single answer to "what language is this console in" — the
+     * shell's string bundle and the assistant's default name both read it, so
+     * they cannot disagree.
+     */
+    public function language(): string
+    {
+        $locale = $this->locale();
+        if ($locale === '') {
+            $locale = $this->localeOverrideValue();
+        }
+        if ($locale === '') {
+            $locale = \Semitexa\Locale\Context\LocaleContextStore::getLocale();
+        }
+
+        return self::canonicalLanguage($locale);
+    }
+
+    /**
+     * The bare language subtag: 'en-US', 'en_US' and 'EN' all answer 'en'.
+     *
+     * Only `locale()` reads a stored preference that was checked against the
+     * supported list; the env override and the ambient locale arrive in
+     * whatever shape they were written, and both callers of `language()` look
+     * their answer up in a map keyed by the bare subtag — the reply-language
+     * instruction and the shell's string catalog. An unnormalised 'en-US'
+     * missed both silently. The shape is normalised, not the value: an override
+     * naming a language the install does not ship is still honoured, because
+     * pinning a console to one language is what the override is for.
+     */
+    private static function canonicalLanguage(string $locale): string
+    {
+        $locale = strtolower(trim($locale));
+        if ($locale === '') {
+            return '';
+        }
+
+        $separator = strcspn($locale, '-_');
+
+        return substr($locale, 0, $separator);
+    }
+
+    /**
      * Set the OS language ('' clears back to request-driven resolution).
      *
      * @return Preferences the applied preferences
@@ -182,6 +247,28 @@ final class OsPreferences
         $this->settings()->set(self::MODULE, self::KEY_THEME_MODE, $mode);
 
         return $this->all();
+    }
+
+    /**
+     * Her name in the console's language, used until someone renames her.
+     * An unlisted language gets the Latin spelling rather than a guess.
+     */
+    private function defaultAssistantName(): string
+    {
+        $language = strtolower(substr($this->language(), 0, 2));
+
+        return self::DEFAULT_ASSISTANT_NAMES[$language] ?? self::DEFAULT_ASSISTANT_NAME;
+    }
+
+    /**
+     * #[Config] only fills the property for container-managed instances; the
+     * skills that `new` this class read the same variable directly.
+     */
+    private function localeOverrideValue(): string
+    {
+        return trim(isset($this->localeOverride) && $this->localeOverride !== ''
+            ? $this->localeOverride
+            : (string) getenv('SEMITEXA_OS_LOCALE'));
     }
 
     public function assistantName(): string

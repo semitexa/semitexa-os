@@ -57,8 +57,8 @@ final class WeaveRememberSkill implements InvocableSkillInterface
         }
 
         $parent = $result['parent'];
-        $link = ($parent->properties['is_self'] ?? false) === true ? 'you' : '"' . $parent->title . '"';
+        $link = ($parent->getProperties()['is_self'] ?? false) === true ? 'you' : '"' . $parent->getTitle() . '"';
 
-        return 'Added "' . $result['node']->title . '" to your world, linked to ' . $link . '. Open Workspace to see it.';
+        return 'Added "' . $result['node']->getTitle() . '" to your world, linked to ' . $link . '. Open Workspace to see it.';
     }
 }

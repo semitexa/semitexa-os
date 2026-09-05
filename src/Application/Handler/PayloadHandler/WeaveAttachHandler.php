@@ -39,10 +39,10 @@ final class WeaveAttachHandler implements TypedHandlerInterface
             if ($payload->getNarrate()) {
                 // Intent flow: make the completed attach audible in the chat —
                 // the same proactive channel the weaver narrates through.
-                $where = ($parent->properties['is_self'] ?? false) === true ? 'you' : '"' . $parent->title . '"';
+                $where = ($parent->getProperties()['is_self'] ?? false) === true ? 'you' : '"' . $parent->getTitle() . '"';
                 $this->conversation->append(
                     ConversationStore::ROLE_ASSISTANT,
-                    'Attached "' . $result['node']->title . '" to your world — under ' . $where . '. Open Workspace to see it.',
+                    'Attached "' . $result['node']->getTitle() . '" to your world — under ' . $where . '. Open Workspace to see it.',
                     ['proactive' => true, 'source' => 'files', 'kind' => 'attached', 'skill' => 'attach-folder'],
                 );
             }
@@ -50,9 +50,9 @@ final class WeaveAttachHandler implements TypedHandlerInterface
                 'ok' => true,
                 'node' => $result['node']->toArray(),
                 'parent' => [
-                    'id' => $parent->id,
-                    'title' => $parent->title,
-                    'is_self' => ($parent->properties['is_self'] ?? false) === true,
+                    'id' => $parent->getId(),
+                    'title' => $parent->getTitle(),
+                    'is_self' => ($parent->getProperties()['is_self'] ?? false) === true,
                 ],
             ];
         } catch (\InvalidArgumentException $e) {

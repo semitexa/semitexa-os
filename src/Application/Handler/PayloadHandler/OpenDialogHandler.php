@@ -70,8 +70,8 @@ final class OpenDialogHandler implements TypedHandlerInterface
             // The window is named after the place, not after the app: a person
             // opening five pages needs to tell those windows apart.
             $mapped = $this->graph->nodeByRef($ref);
-            if ($mapped !== null && $mapped->title !== '') {
-                $title = $mapped->title;
+            if ($mapped !== null && $mapped->getTitle() !== '') {
+                $title = $mapped->getTitle();
             }
         }
 

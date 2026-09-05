@@ -51,6 +51,6 @@ final class WeaveShowSkill implements InvocableSkillInterface
             return 'I don\'t have "' . $query . '" in your world yet — tell me about it and I\'ll remember.';
         }
 
-        return 'Focusing your world on "' . $found[0]->title . '" — opening the Workspace.';
+        return 'Focusing your world on "' . $found[0]->getTitle() . '" — opening the Workspace.';
     }
 }

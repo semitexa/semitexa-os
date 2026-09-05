@@ -33,7 +33,7 @@ final class OsShellResource extends HtmlResponse implements ResourceInterface
             ->with('providerHealthy', $healthy);
     }
 
-    /** The name the user calls their assistant (default "Semi"). */
+    /** The name the user calls their assistant (defaults to Solomiia). */
     public function withAssistantName(string $name): static
     {
         return $this->with('assistantName', $name);

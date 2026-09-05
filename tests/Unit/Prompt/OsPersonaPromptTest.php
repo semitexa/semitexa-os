@@ -48,31 +48,84 @@ final class OsPersonaPromptTest extends TestCase
     public function testBoundPromptRendersTheGreeting(): void
     {
         $rendered = (new PromptRenderer())->render(
-            (new OsPersonaPrompt())->withData('Semi', 'Taras'),
+            (new OsPersonaPrompt())->withData('Solomiia', 'Taras'),
             [],
             $this->repository(),
         );
 
         self::assertStringStartsWith(
-            'You are Semi, the assistant at the heart of Semitexa OS — a personal, intent-first operating system. You are speaking with Taras.',
+            'You are Solomiia, the assistant at the heart of Semitexa OS — a personal, intent-first operating system. You are speaking with Taras.',
             $rendered->system,
         );
-        self::assertStringContainsString('speak as Semi in the first person', $rendered->system);
+        self::assertStringContainsString('Speak as Solomiia in the first person', $rendered->system);
     }
 
     public function testBoundPromptWithoutNameRendersAskForNameGuidance(): void
     {
         $rendered = (new PromptRenderer())->render(
-            (new OsPersonaPrompt())->withData('Semi', ''),
+            (new OsPersonaPrompt())->withData('Solomiia', ''),
             [],
             $this->repository(),
         );
 
         self::assertStringStartsWith(
-            "You are Semi, the assistant at the heart of Semitexa OS — a personal, intent-first operating system. You do not know the user's name yet.",
+            "You are Solomiia, the assistant at the heart of Semitexa OS — a personal, intent-first operating system. You do not know the user's name yet.",
             $rendered->system,
         );
         self::assertStringContainsString('record it with the set-user-name skill', $rendered->system);
+    }
+
+    /**
+     * The persona carries a character, not just a job title — and two rules
+     * that make her trustworthy: she does not invent, and she does not report
+     * an action as done before the skill result says so. Those are the lines
+     * an edit for brevity would quietly drop.
+     */
+    public function testThePersonaCarriesHerCharacterAndTheTwoHardRules(): void
+    {
+        $system = (new PromptRenderer())->render(
+            (new OsPersonaPrompt())->withData('Solomiia', 'Taras'),
+            [],
+            $this->repository(),
+        )->system;
+
+        foreach (['warm', 'quick-witted', 'curious', 'quietly funny'] as $trait) {
+            self::assertStringContainsString($trait, $system, "the persona lost its '{$trait}'");
+        }
+        self::assertStringContainsString('Never invent a fact, a number or an outcome', $system);
+        self::assertStringContainsString('Never say you have done something until a skill result confirms it', $system);
+    }
+
+    /**
+     * The standing memory block is the assistant's own notes about the person.
+     * With nothing to say it must render nothing at all — a heading over an
+     * empty list tells the model it remembers nothing, which is a worse
+     * starting point than silence.
+     */
+    public function testAnEmptyWorldRendersNoMemoryBlock(): void
+    {
+        $system = (new PromptRenderer())->render(
+            (new OsPersonaPrompt())->withData('Solomiia', 'Taras', ''),
+            [],
+            $this->repository(),
+        )->system;
+
+        self::assertStringNotContainsString('standing memory', $system);
+        self::assertStringContainsString('Speak as Solomiia in the first person', $system);
+    }
+
+    public function testAKnownWorldIsCarriedWithTheInstructionToUseIt(): void
+    {
+        $system = (new PromptRenderer())->render(
+            (new OsPersonaPrompt())->withData('Solomiia', 'Taras', '• Дмитро (person) — Дмитро teaches you'),
+            [],
+            $this->repository(),
+        )->system;
+
+        self::assertStringContainsString('Дмитро teaches you', $system);
+        self::assertStringContainsString('use it from your very first words', $system);
+        // Knowing something must never turn into reciting it.
+        self::assertStringContainsString('never tell them you keep notes', $system);
     }
 
     public function testTemplateGettersResolveOnTheBoundObject(): void
@@ -80,16 +133,16 @@ final class OsPersonaPromptTest extends TestCase
         // The names the template reads via dot-access (`{{ prompt.assistantName }}`).
         $slots = (new PromptRegistry())->buildFromClasses([OsPersonaPrompt::class])['os.persona']->variableNames();
         sort($slots);
-        self::assertSame(['assistantName', 'userName'], $slots);
+        self::assertSame(['assistantName', 'userName', 'world'], $slots);
 
         // Each one must be a real getter on the class returning the typed data —
         // there is no variables() map to drift; the object stays in sync with its
         // .twig slots by construction (a missing getter fails render under strict).
-        $prompt = (new OsPersonaPrompt())->withData('Semi', 'Taras');
+        $prompt = (new OsPersonaPrompt())->withData('Solomiia', 'Taras');
         foreach ($slots as $getter) {
             self::assertTrue(method_exists($prompt, $getter), "missing getter: {$getter}");
         }
-        self::assertSame('Semi', $prompt->assistantName());
+        self::assertSame('Solomiia', $prompt->assistantName());
         self::assertSame('Taras', $prompt->userName());
     }
 }

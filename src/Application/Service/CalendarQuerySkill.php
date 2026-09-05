@@ -51,10 +51,11 @@ final class CalendarQuerySkill implements InvocableSkillInterface
 
         $lines = [];
         foreach ($events as $e) {
-            $start = $e->starts_at->setTimezone($tz);
-            $time = $e->all_day === 1 ? 'all day' : $start->format('H:i');
-            $where = $e->location !== null && $e->location !== '' ? ' (' . $e->location . ')' : '';
-            $lines[] = '• ' . $start->format('D M j') . ', ' . $time . ' — ' . $e->title . $where;
+            $start = $e->getStartsAt()->setTimezone($tz);
+            $time = $e->isAllDay() ? 'all day' : $start->format('H:i');
+            $location = $e->getLocation();
+            $where = $location !== null && $location !== '' ? ' (' . $location . ')' : '';
+            $lines[] = '• ' . $start->format('D M j') . ', ' . $time . ' — ' . $e->getTitle() . $where;
         }
 
         $count = count($events);

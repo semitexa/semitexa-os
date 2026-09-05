@@ -32,8 +32,14 @@ final class OsPersona implements AiPersonaInterface
         // ask-for-name guidance when the name is not known yet).
         $prefs = (new OsPreferences())->all();
 
+        // The standing memory rides here rather than in the skill loop, so
+        // every caller of the OS persona gets it — not just the planner.
         return $this->renderer()->render(
-            (new OsPersonaPrompt())->withData($prefs['assistant_name'], $prefs['user_name']),
+            (new OsPersonaPrompt())->withData(
+                $prefs['assistant_name'],
+                $prefs['user_name'],
+                (new OsGraph())->worldBriefing(),
+            ),
         )->system;
     }
 

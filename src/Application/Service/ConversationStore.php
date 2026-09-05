@@ -15,6 +15,7 @@ use Semitexa\Orm\Query\Direction;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
 use Semitexa\Os\Application\Db\MySQL\Model\ConversationTurnResource;
+use Semitexa\Os\Domain\Model\ConversationTurn;
 
 /**
  * The full dialog transcript — every turn of the conversation between the user
@@ -96,13 +97,13 @@ final class ConversationStore
 
         $id = Uuid7::generate();
         try {
-            $this->scoped()->insert(new ConversationTurnResource(
+            $this->scoped()->insert(new ConversationTurn(
                 id: $id,
-                tenant_id: $this->currentTenantId(),
+                tenantId: $this->currentTenantId(),
                 role: $role === self::ROLE_USER ? self::ROLE_USER : self::ROLE_ASSISTANT,
                 text: $text,
-                meta_json: (string) json_encode($meta, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-                created_at: new \DateTimeImmutable(),
+                meta: $meta,
+                createdAt: new \DateTimeImmutable(),
             ));
         } catch (\Throwable $e) {
             // Persistence stays best-effort — a DB hiccup must never break the
@@ -141,20 +142,16 @@ final class ConversationStore
         $rows = $this->scoped()->query()
             ->orderBy(ConversationTurnResource::column('id'), Direction::Desc)
             ->limit($effective)
-            ->fetchAllAs(ConversationTurnResource::class, $this->orm()->getMapperRegistry());
+            ->fetchAllAs(ConversationTurn::class, $this->orm()->getMapperRegistry());
         $rows = array_reverse($rows);
 
         return array_map(
-            static function (ConversationTurnResource $row): array {
-                $meta = json_decode($row->meta_json, true);
-
-                return [
-                    'at' => $row->created_at->format('c'),
-                    'role' => $row->role,
-                    'text' => $row->text,
-                    'meta' => is_array($meta) ? $meta : [],
-                ];
-            },
+            static fn (ConversationTurn $row): array => [
+                'at' => ($row->getCreatedAt() ?? new \DateTimeImmutable())->format('c'),
+                'role' => $row->getRole(),
+                'text' => $row->getText(),
+                'meta' => $row->getMeta(),
+            ],
             $rows,
         );
     }
@@ -171,13 +168,13 @@ final class ConversationStore
      */
     public function latestId(): string
     {
-        /** @var list<ConversationTurnResource> $rows */
+        /** @var list<ConversationTurn> $rows */
         $rows = $this->scoped()->query()
             ->orderBy(ConversationTurnResource::column('id'), Direction::Desc)
             ->limit(1)
-            ->fetchAllAs(ConversationTurnResource::class, $this->orm()->getMapperRegistry());
+            ->fetchAllAs(ConversationTurn::class, $this->orm()->getMapperRegistry());
 
-        return $rows[0]->id ?? '';
+        return isset($rows[0]) ? $rows[0]->getId() : '';
     }
 
     /**
@@ -194,24 +191,20 @@ final class ConversationStore
             $query = $query->where(ConversationTurnResource::column('id'), Operator::GreaterThan, $afterId);
         }
 
-        /** @var list<ConversationTurnResource> $rows */
+        /** @var list<ConversationTurn> $rows */
         $rows = $query
             ->orderBy(ConversationTurnResource::column('id'), Direction::Asc)
             ->limit(max(1, $limit))
-            ->fetchAllAs(ConversationTurnResource::class, $this->orm()->getMapperRegistry());
+            ->fetchAllAs(ConversationTurn::class, $this->orm()->getMapperRegistry());
 
         return array_map(
-            static function (ConversationTurnResource $row): array {
-                $meta = json_decode($row->meta_json, true);
-
-                return [
-                    'id' => $row->id,
-                    'at' => $row->created_at->format('c'),
-                    'role' => $row->role,
-                    'text' => $row->text,
-                    'meta' => is_array($meta) ? $meta : [],
-                ];
-            },
+            static fn (ConversationTurn $row): array => [
+                'id' => $row->getId(),
+                'at' => ($row->getCreatedAt() ?? new \DateTimeImmutable())->format('c'),
+                'role' => $row->getRole(),
+                'text' => $row->getText(),
+                'meta' => $row->getMeta(),
+            ],
             $rows,
         );
     }
@@ -225,22 +218,22 @@ final class ConversationStore
      */
     public function proactiveAfter(string $afterId, int $scan = 40): array
     {
-        /** @var list<ConversationTurnResource> $rows */
+        /** @var list<ConversationTurn> $rows */
         $rows = $this->scoped()->query()
             ->orderBy(ConversationTurnResource::column('id'), Direction::Desc)
             ->limit($scan)
-            ->fetchAllAs(ConversationTurnResource::class, $this->orm()->getMapperRegistry());
+            ->fetchAllAs(ConversationTurn::class, $this->orm()->getMapperRegistry());
 
         $out = [];
         foreach (array_reverse($rows) as $row) {
-            if ($afterId !== '' && strcmp($row->id, $afterId) <= 0) {
+            if ($afterId !== '' && strcmp($row->getId(), $afterId) <= 0) {
                 continue;
             }
-            $meta = json_decode($row->meta_json, true);
-            if (!is_array($meta) || ($meta['proactive'] ?? false) !== true) {
+            $meta = $row->getMeta();
+            if (($meta['proactive'] ?? false) !== true) {
                 continue;
             }
-            $out[] = ['id' => $row->id, 'text' => $row->text, 'meta' => $meta];
+            $out[] = ['id' => $row->getId(), 'text' => $row->getText(), 'meta' => $meta];
         }
 
         return $out;
@@ -286,7 +279,7 @@ final class ConversationStore
     {
         return $this->repository ??= $this->orm()->repository(
             ConversationTurnResource::class,
-            ConversationTurnResource::class,
+            ConversationTurn::class,
         );
     }
 

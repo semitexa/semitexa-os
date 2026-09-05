@@ -83,7 +83,7 @@ final class SettingsAppHandler implements TypedHandlerInterface
   <div class="sub">Personalise your OS.</div>
   <div class="field">
     <label for="assistant">Assistant name</label>
-    <input id="assistant" value="%ANAME_ATTR%" maxlength="24" autocomplete="off" spellcheck="false" placeholder="Semi">
+    <input id="assistant" value="%ANAME_ATTR%" maxlength="24" autocomplete="off" spellcheck="false" placeholder="Solomiia">
   </div>
   <div class="field">
     <label for="user">Your name</label>
