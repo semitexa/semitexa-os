@@ -7,6 +7,8 @@ namespace Semitexa\Os\Application\Service;
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Support\CoroutineLocal;
+use Semitexa\Core\Tenant\TenantContextAccess;
+use Semitexa\Core\Tenant\TenantContextStoreInterface;
 use Semitexa\Platform\Settings\Application\Service\SettingsStore;
 use Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface;
 use Semitexa\Weave\Application\Service\GraphStore;
@@ -52,6 +54,10 @@ final class OsGraph
 
     #[InjectAsReadonly]
     protected SettingsStoreInterface $settings;
+
+    /** Only ever read to key the per-request briefing memo — see worldBriefing(). */
+    #[InjectAsReadonly]
+    protected TenantContextStoreInterface $tenantContextStore;
 
     /**
      * The owner node ("Я") — the centre of the graph. Created once (a Person
@@ -115,7 +121,8 @@ final class OsGraph
         $nodeKind = $kind !== '' ? (NodeKind::tryFromLoose($kind) ?? NodeKind::Topic) : NodeKind::Topic;
         $node = $this->graph()->upsertNode($nodeKind, $title, [], 'os:assistant');
 
-        $parent = $this->self();
+        $self = $this->self();
+        $parent = $self;
         $connectTo = trim($connectTo);
         if ($connectTo !== '') {
             $found = $this->graph()->search($connectTo, 1);
@@ -126,7 +133,7 @@ final class OsGraph
         if ($parent->id !== $node->id) {
             // The new thing is the subject, and grounding to the owner is not
             // containment: "Anna part_of you" was both backwards and untrue.
-            $parent->id === $this->self()->id
+            $parent->id === $self->id
                 ? $this->graph()->addEdge($node->id, $parent->id, Relation::RELATED_TO, 100, 'os:assistant')
                 : $this->graph()->addEdge($node->id, $parent->id, Relation::PART_OF, 100, 'os:assistant');
         }
@@ -297,19 +304,29 @@ final class OsGraph
         // Memoized per request, not per call. The persona is rebuilt inside the
         // skill loop's step budget — up to five steps on a tool-calling backend
         // — so an unmemoized briefing would repeat its ~5 queries on every step
-        // of every turn. A coroutine serves one request and therefore one
-        // tenant, so the value cannot leak across tenants; CoroutineLocal rather
-        // than a property because a container-managed service is shared across
-        // concurrent coroutines (see the OS-wide sweep of request-scoped state).
-        $memo = CoroutineLocal::get(self::BRIEFING_MEMO_KEY, null);
-        if (is_string($memo)) {
-            return $memo;
+        // of every turn. CoroutineLocal rather than a property, because a
+        // container-managed service is shared across concurrent coroutines.
+        //
+        // KEYED BY TENANT, even though a request coroutine only ever serves one.
+        // TenantFanoutInterface::eachTenant() walks every tenant inside a SINGLE
+        // coroutine — that is how the weave timer works — so a bare key would
+        // hand one tenant's private briefing to the next the moment anything
+        // builds a persona under a fan-out. Same reasoning as the override
+        // store's per-tenant memo.
+        $tenant = TenantContextAccess::tenantIdOrDefault(
+            isset($this->tenantContextStore) ? $this->tenantContextStore->tryGet() : null,
+        );
+
+        /** @var array<string, string> $memo */
+        $memo = CoroutineLocal::get(self::BRIEFING_MEMO_KEY, []);
+        if (isset($memo[$tenant])) {
+            return $memo[$tenant];
         }
 
-        $briefing = $this->buildBriefing($limit);
-        CoroutineLocal::set(self::BRIEFING_MEMO_KEY, $briefing);
+        $memo[$tenant] = $this->buildBriefing($limit);
+        CoroutineLocal::set(self::BRIEFING_MEMO_KEY, $memo);
 
-        return $briefing;
+        return $memo[$tenant];
     }
 
     private function buildBriefing(int $limit): string

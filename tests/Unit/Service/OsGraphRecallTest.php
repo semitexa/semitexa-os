@@ -104,6 +104,26 @@ final class OsGraphRecallTest extends TestCase
         self::assertSame($first, $graph->worldBriefing());
     }
 
+    /**
+     * TenantFanoutInterface::eachTenant() walks every tenant inside ONE
+     * coroutine — the weave timer already does exactly that — so a memo keyed
+     * only by coroutine would serve the first tenant's private briefing to the
+     * second the moment anything builds a persona under a fan-out.
+     */
+    #[Test]
+    public function the_memo_never_hands_one_tenants_briefing_to_another(): void
+    {
+        $graph = $this->graph();
+        $first = $graph->worldBriefing();
+        self::assertStringContainsString('Дмитро teaches you', $first);
+
+        // Same coroutine, different tenant, different world.
+        (new \ReflectionProperty(OsGraph::class, 'tenantContextStore'))->setValue($graph, $this->tenantStore('acme'));
+        (new \ReflectionProperty(OsGraph::class, 'graph'))->setValue($graph, $this->explodingStore());
+
+        self::assertSame('', $graph->worldBriefing(), 'the other tenant must not inherit this one\'s memo');
+    }
+
     #[Test]
     public function the_standing_briefing_carries_the_same_relations(): void
     {
@@ -132,6 +152,55 @@ final class OsGraphRecallTest extends TestCase
         (new \ReflectionProperty(OsGraph::class, 'graph'))->setValue($graph, $this->explodingStore());
 
         self::assertSame('', $graph->worldBriefing());
+    }
+
+    /** A tenant context pinned to one id, for the fan-out memo test. */
+    private function tenantStore(string $tenantId): \Semitexa\Core\Tenant\TenantContextStoreInterface
+    {
+        return new class($tenantId) implements \Semitexa\Core\Tenant\TenantContextStoreInterface {
+            public function __construct(private string $tenantId)
+            {
+            }
+
+            public function tryGet(): ?\Semitexa\Core\Tenant\TenantContextInterface
+            {
+                // TenantContextAccess reads the id off getTenantId() when the
+                // context exposes one, ahead of the layer lookup.
+                return new class($this->tenantId) implements \Semitexa\Core\Tenant\TenantContextInterface {
+                    public function __construct(private string $tenantId)
+                    {
+                    }
+
+                    public function getTenantId(): string
+                    {
+                        return $this->tenantId;
+                    }
+
+                    public function getLayer(\Semitexa\Core\Tenant\Layer\TenantLayerInterface $layer): ?\Semitexa\Core\Tenant\Layer\TenantLayerValueInterface
+                    {
+                        return null;
+                    }
+
+                    public function hasLayer(\Semitexa\Core\Tenant\Layer\TenantLayerInterface $layer): bool
+                    {
+                        return false;
+                    }
+                };
+            }
+
+            public function get(): \Semitexa\Core\Tenant\TenantContextInterface
+            {
+                return $this->tryGet();
+            }
+
+            public function set(\Semitexa\Core\Tenant\TenantContextInterface $context): void
+            {
+            }
+
+            public function clear(): void
+            {
+            }
+        };
     }
 
     /** A store that fails on any question — a missing table, a dead connection. */
