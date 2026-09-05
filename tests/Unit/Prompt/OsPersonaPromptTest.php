@@ -96,12 +96,44 @@ final class OsPersonaPromptTest extends TestCase
         self::assertStringContainsString('Never say you have done something until a skill result confirms it', $system);
     }
 
+    /**
+     * The standing memory block is the assistant's own notes about the person.
+     * With nothing to say it must render nothing at all — a heading over an
+     * empty list tells the model it remembers nothing, which is a worse
+     * starting point than silence.
+     */
+    public function testAnEmptyWorldRendersNoMemoryBlock(): void
+    {
+        $system = (new PromptRenderer())->render(
+            (new OsPersonaPrompt())->withData('Solomiia', 'Taras', ''),
+            [],
+            $this->repository(),
+        )->system;
+
+        self::assertStringNotContainsString('standing memory', $system);
+        self::assertStringContainsString('Speak as Solomiia in the first person', $system);
+    }
+
+    public function testAKnownWorldIsCarriedWithTheInstructionToUseIt(): void
+    {
+        $system = (new PromptRenderer())->render(
+            (new OsPersonaPrompt())->withData('Solomiia', 'Taras', '• Дмитро (person) — Дмитро teaches you'),
+            [],
+            $this->repository(),
+        )->system;
+
+        self::assertStringContainsString('Дмитро teaches you', $system);
+        self::assertStringContainsString('use it from your very first words', $system);
+        // Knowing something must never turn into reciting it.
+        self::assertStringContainsString('never tell them you keep notes', $system);
+    }
+
     public function testTemplateGettersResolveOnTheBoundObject(): void
     {
         // The names the template reads via dot-access (`{{ prompt.assistantName }}`).
         $slots = (new PromptRegistry())->buildFromClasses([OsPersonaPrompt::class])['os.persona']->variableNames();
         sort($slots);
-        self::assertSame(['assistantName', 'userName'], $slots);
+        self::assertSame(['assistantName', 'userName', 'world'], $slots);
 
         // Each one must be a real getter on the class returning the typed data —
         // there is no variables() map to drift; the object stays in sync with its

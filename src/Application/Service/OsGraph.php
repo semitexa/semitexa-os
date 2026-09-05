@@ -6,11 +6,13 @@ namespace Semitexa\Os\Application\Service;
 
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Core\Support\CoroutineLocal;
 use Semitexa\Platform\Settings\Application\Service\SettingsStore;
 use Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface;
 use Semitexa\Weave\Application\Service\GraphStore;
 use Semitexa\Weave\Domain\Contract\GraphStoreInterface;
 use Semitexa\Weave\Domain\Enum\NodeKind;
+use Semitexa\Weave\Domain\Model\Edge;
 use Semitexa\Weave\Domain\Model\Node;
 use Semitexa\Weave\Domain\Model\Relation;
 
@@ -26,6 +28,18 @@ use Semitexa\Weave\Domain\Model\Relation;
 final class OsGraph
 {
     private const MODULE = 'os';
+
+    /** How many search hits a focused recall expands with their relations. */
+    private const RECALL_HITS = 6;
+
+    /** Relations shown per thing — a hub must not flood the reply. */
+    private const RECALL_RELATIONS_PER_NODE = 4;
+
+    /** Entries carried in the standing briefing — this rides on EVERY turn. */
+    private const BRIEFING_ENTRIES = 12;
+
+    /** Per-request memo for the briefing — see {@see worldBriefing()}. */
+    private const BRIEFING_MEMO_KEY = 'os.graph.briefing';
 
     /** Settings key caching the owner node's id — see {@see self()}. */
     private const SELF_ID_KEY = 'graph.self_node_id';
@@ -228,23 +242,146 @@ final class OsGraph
     public function recall(string $query = ''): string
     {
         $query = trim($query);
-        $line = static fn (Node $n): string => '• ' . $n->title . ' (' . $n->kind->value . ')';
+        $selfId = $this->self()->id;
 
         if ($query !== '') {
-            $hits = $this->graph()->search($query, 8);
+            $hits = $this->graph()->search($query, self::RECALL_HITS);
             if ($hits === []) {
                 return 'I don\'t have anything about "' . $query . '" in your world yet.';
             }
 
-            return 'Here\'s what I have about "' . $query . '":' . "\n" . implode("\n", array_map($line, $hits));
+            $lines = [];
+            foreach ($hits as $hit) {
+                $view = $this->graph()->neighborhood($hit->id);
+                $lines[] = $this->recallLine($hit, $view['neighbors'] ?? [], $view['edges'] ?? [], $selfId);
+            }
+
+            return 'Here\'s what I have about "' . $query . '":' . "\n" . implode("\n", $lines);
         }
 
-        $neighbors = $this->graph()->neighborhood($this->self()->id)['neighbors'] ?? [];
+        $view = $this->graph()->neighborhood($selfId);
+        $neighbors = $view['neighbors'] ?? [];
         if ($neighbors === []) {
             return 'Your world is just getting started — nothing is connected to you yet. Tell me what you\'re working on.';
         }
 
-        return 'Here\'s what\'s in your world right now:' . "\n" . implode("\n", array_map($line, $neighbors));
+        $lines = [];
+        foreach ($neighbors as $neighbor) {
+            $lines[] = $this->recallLine($neighbor, [$this->selfNodeFrom($view)], $view['edges'] ?? [], $selfId, $neighbor->id);
+        }
+
+        return 'Here\'s what\'s in your world right now:' . "\n" . implode("\n", $lines);
+    }
+
+    /**
+     * The standing briefing about the user, for the assistant's system prompt.
+     *
+     * recall() answers a question; this answers none — it is what the assistant
+     * carries into every turn so it can use what it knows without being asked.
+     * The skill alone was never enough: the model had to decide to call it, and
+     * nothing in the persona told it the graph existed.
+     *
+     * Best-effort by construction. An empty graph, a missing table or a DB
+     * hiccup must cost the assistant its memory for that turn, never its
+     * persona — the caller renders nothing when this returns ''.
+     */
+    public function worldBriefing(int $limit = self::BRIEFING_ENTRIES): string
+    {
+        // Memoized per request, not per call. The persona is rebuilt inside the
+        // skill loop's step budget — up to five steps on a tool-calling backend
+        // — so an unmemoized briefing would repeat its ~5 queries on every step
+        // of every turn. A coroutine serves one request and therefore one
+        // tenant, so the value cannot leak across tenants; CoroutineLocal rather
+        // than a property because a container-managed service is shared across
+        // concurrent coroutines (see the OS-wide sweep of request-scoped state).
+        $memo = CoroutineLocal::get(self::BRIEFING_MEMO_KEY, null);
+        if (is_string($memo)) {
+            return $memo;
+        }
+
+        $briefing = $this->buildBriefing($limit);
+        CoroutineLocal::set(self::BRIEFING_MEMO_KEY, $briefing);
+
+        return $briefing;
+    }
+
+    private function buildBriefing(int $limit): string
+    {
+        try {
+            $selfId = $this->self()->id;
+            $view = $this->graph()->neighborhood($selfId);
+            $neighbors = $view['neighbors'] ?? [];
+            if ($neighbors === []) {
+                return '';
+            }
+
+            $self = $this->selfNodeFrom($view);
+            $lines = [];
+            foreach (array_slice($neighbors, 0, $limit) as $neighbor) {
+                $lines[] = $this->recallLine($neighbor, [$self], $view['edges'] ?? [], $selfId, $neighbor->id);
+            }
+
+            return implode("\n", $lines);
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    /**
+     * One recall line: the thing, and — the part that used to be thrown away —
+     * how it actually relates to the rest of the world.
+     *
+     * A bare list of titles tells the assistant that "Дмитро" and "гітара" exist
+     * and nothing else, so it cannot answer that Дмитро teaches the user or that
+     * the guitar is an interest. The edges are already in hand from
+     * neighborhood(); this renders them.
+     *
+     * Relations are printed as the stored triple rather than turned into a
+     * sentence. The weaver emits both directions for the same pair (measured:
+     * "гітара interested_in <user>" alongside "<user> works_on Semitexa"), so any
+     * phrasing that assumed a direction would confidently state the reverse of
+     * what is recorded. The triple is honest about what the graph holds.
+     *
+     * @param list<Node> $others  nodes that may sit at the other end of an edge
+     * @param list<Edge> $edges   every edge in the view, filtered here
+     * @param string     $focusId the node whose edges to render (defaults to $node)
+     */
+    private function recallLine(Node $node, array $others, array $edges, string $selfId, string $focusId = ''): string
+    {
+        $focusId = $focusId !== '' ? $focusId : $node->id;
+        $titles = [$node->id => $node->title];
+        foreach ($others as $other) {
+            $titles[$other->id] = $other->title;
+        }
+        $titles[$selfId] = 'you';
+
+        $rendered = [];
+        foreach ($edges as $edge) {
+            if ($edge->fromId !== $focusId && $edge->toId !== $focusId) {
+                continue;
+            }
+            $from = $titles[$edge->fromId] ?? null;
+            $to = $titles[$edge->toId] ?? null;
+            if ($from === null || $to === null) {
+                continue;
+            }
+            $rendered[] = $from . ' ' . $edge->relation . ' ' . $to;
+            if (count($rendered) >= self::RECALL_RELATIONS_PER_NODE) {
+                break;
+            }
+        }
+
+        $line = '• ' . $node->title . ' (' . $node->kind->value . ')';
+
+        return $rendered === [] ? $line : $line . ' — ' . implode(', ', array_unique($rendered));
+    }
+
+    /** The owner node as it appears inside its own neighbourhood view. */
+    private function selfNodeFrom(array $view): Node
+    {
+        $node = $view['node'] ?? null;
+
+        return $node instanceof Node ? $node : $this->self();
     }
 
     private function graph(): GraphStoreInterface
