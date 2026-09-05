@@ -13,6 +13,7 @@ use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
 use Semitexa\Os\Application\Db\MySQL\Model\ConversationSummaryResource;
+use Semitexa\Os\Domain\Model\ConversationSummary;
 
 /**
  * The rolling summary of a tenant's OS conversation — one compacted view of
@@ -66,11 +67,11 @@ final class ConversationSummaryStore
         $empty = ['summary' => '', 'active_intent' => '', 'covered_through_id' => ''];
 
         try {
-            /** @var list<ConversationSummaryResource> $rows */
+            /** @var list<ConversationSummary> $rows */
             $rows = $this->scoped()->query()
                 ->where(ConversationSummaryResource::column('tenant_id'), Operator::Equals, $this->currentTenantId())
                 ->limit(1)
-                ->fetchAllAs(ConversationSummaryResource::class, $this->orm()->getMapperRegistry());
+                ->fetchAllAs(ConversationSummary::class, $this->orm()->getMapperRegistry());
         } catch (\Throwable $e) {
             // A read failure must degrade to "no summary" (the verbatim window
             // still carries recent context), never break the conversation loop.
@@ -88,9 +89,9 @@ final class ConversationSummaryStore
         }
 
         return [
-            'summary' => $row->summary_text,
-            'active_intent' => $row->active_intent,
-            'covered_through_id' => $row->covered_through_id,
+            'summary' => $row->getSummaryText(),
+            'active_intent' => $row->getActiveIntent(),
+            'covered_through_id' => $row->getCoveredThroughId(),
         ];
     }
 
@@ -167,7 +168,7 @@ final class ConversationSummaryStore
     {
         return $this->repository ??= $this->orm()->repository(
             ConversationSummaryResource::class,
-            ConversationSummaryResource::class,
+            ConversationSummary::class,
         );
     }
 
