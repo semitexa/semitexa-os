@@ -10,7 +10,7 @@ use Semitexa\Llm\Domain\Enum\AiArgumentPolicy;
 use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
 use Semitexa\Llm\Domain\Enum\AiRiskLevel;
 use Semitexa\Orm\Application\Service\Uuid7;
-use Semitexa\PlatformUi\Application\Db\MySQL\Model\CalendarEventResource;
+use Semitexa\PlatformUi\Domain\Model\CalendarEvent;
 use Semitexa\PlatformUi\Application\Db\MySQL\Repository\CalendarEventDbRepository;
 
 /**
@@ -60,7 +60,7 @@ final class CalendarCreateSkill implements InvocableSkillInterface
         }
 
         $allDayArg = strtolower(trim((string) ($arguments['all_day'] ?? '')));
-        $allDay = ($allDayArg === '1' || $allDayArg === 'true' || $allDayArg === 'yes') ? 1 : 0;
+        $allDay = $allDayArg === '1' || $allDayArg === 'true' || $allDayArg === 'yes';
 
         $end = $this->parse(trim((string) ($arguments['end'] ?? '')), $tz)
             ?? ($allDay ? $start->setTime(23, 59, 0) : $start->modify('+1 hour'));
@@ -70,19 +70,19 @@ final class CalendarCreateSkill implements InvocableSkillInterface
 
         $utc = new \DateTimeZone('UTC');
         $now = new \DateTimeImmutable('now', $utc);
-        (new CalendarEventDbRepository())->insert(new CalendarEventResource(
+        (new CalendarEventDbRepository())->insert(new CalendarEvent(
             id: Uuid7::generate(),
-            tenant_id: null,
-            user_id: null,
+            tenantId: null,
+            userId: null,
             title: $title,
-            starts_at: $start->setTimezone($utc),
-            ends_at: $end->setTimezone($utc),
-            all_day: $allDay,
+            startsAt: $start->setTimezone($utc),
+            endsAt: $end->setTimezone($utc),
+            allDay: $allDay,
             location: null,
             notes: null,
             color: 'blue',
-            created_at: $now,
-            updated_at: $now,
+            createdAt: $now,
+            updatedAt: $now,
         ));
 
         // Confirm in the user's local time (what they asked for), not UTC.
