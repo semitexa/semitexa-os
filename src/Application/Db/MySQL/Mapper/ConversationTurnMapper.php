@@ -22,7 +22,9 @@ final class ConversationTurnMapper implements ResourceModelMapperInterface
         $resourceModel instanceof ConversationTurnResource
             || throw new \InvalidArgumentException('Unexpected resource model.');
 
-        $meta = json_decode($resourceModel->meta_json, true);
+        $decoded = json_decode($resourceModel->meta_json, true);
+        /** @var array<string, mixed> $meta */
+        $meta = is_array($decoded) ? $decoded : [];
 
         return new ConversationTurn(
             id: $resourceModel->id,
@@ -30,7 +32,7 @@ final class ConversationTurnMapper implements ResourceModelMapperInterface
             role: $resourceModel->role,
             text: $resourceModel->text,
             // A malformed row must not break a transcript read.
-            meta: is_array($meta) ? $meta : [],
+            meta: $meta,
             createdAt: $resourceModel->created_at,
         );
     }

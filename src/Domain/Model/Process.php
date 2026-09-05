@@ -107,20 +107,28 @@ final readonly class Process
      */
     public function with(array $changes): self
     {
-        $take = fn (string $key, mixed $current): mixed => array_key_exists($key, $changes) ? $changes[$key] : $current;
-
         return new self(
             id: $this->id,
             tenantId: $this->tenantId,
-            source: $take('source', $this->source),
-            origin: $take('origin', $this->origin),
-            title: $take('title', $this->title),
-            status: $take('status', $this->status),
-            startedAt: $take('startedAt', $this->startedAt),
-            updatedAt: $take('updatedAt', $this->updatedAt),
-            progress: $take('progress', $this->progress),
-            detail: $take('detail', $this->detail),
-            completedAt: $take('completedAt', $this->completedAt),
+            source: is_string($changes['source'] ?? null) ? $changes['source'] : $this->source,
+            origin: is_string($changes['origin'] ?? null) ? $changes['origin'] : $this->origin,
+            title: is_string($changes['title'] ?? null) ? $changes['title'] : $this->title,
+            status: is_string($changes['status'] ?? null) ? $changes['status'] : $this->status,
+            startedAt: array_key_exists('startedAt', $changes)
+                ? ($changes['startedAt'] instanceof \DateTimeImmutable ? $changes['startedAt'] : null)
+                : $this->startedAt,
+            updatedAt: array_key_exists('updatedAt', $changes)
+                ? ($changes['updatedAt'] instanceof \DateTimeImmutable ? $changes['updatedAt'] : null)
+                : $this->updatedAt,
+            progress: array_key_exists('progress', $changes)
+                ? (is_int($changes['progress']) ? $changes['progress'] : null)
+                : $this->progress,
+            detail: array_key_exists('detail', $changes)
+                ? (is_string($changes['detail']) ? $changes['detail'] : null)
+                : $this->detail,
+            completedAt: array_key_exists('completedAt', $changes)
+                ? ($changes['completedAt'] instanceof \DateTimeImmutable ? $changes['completedAt'] : null)
+                : $this->completedAt,
         );
     }
 }
