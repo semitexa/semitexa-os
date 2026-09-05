@@ -46,7 +46,10 @@ final class ConversationTurnMapper implements ResourceModelMapperInterface
             tenant_id: $domainModel->getTenantId(),
             role: $domainModel->getRole(),
             text: $domainModel->getText(),
-            meta_json: (string) json_encode($domainModel->getMeta(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            meta_json: (string) json_encode(
+                $domainModel->getMeta(),
+                JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
+            ),
             created_at: $domainModel->getCreatedAt() ?? new \DateTimeImmutable(),
         );
     }

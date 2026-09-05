@@ -166,7 +166,31 @@ final class OsPreferences
             $locale = \Semitexa\Locale\Context\LocaleContextStore::getLocale();
         }
 
-        return $locale;
+        return self::canonicalLanguage($locale);
+    }
+
+    /**
+     * The bare language subtag: 'en-US', 'en_US' and 'EN' all answer 'en'.
+     *
+     * Only `locale()` reads a stored preference that was checked against the
+     * supported list; the env override and the ambient locale arrive in
+     * whatever shape they were written, and both callers of `language()` look
+     * their answer up in a map keyed by the bare subtag — the reply-language
+     * instruction and the shell's string catalog. An unnormalised 'en-US'
+     * missed both silently. The shape is normalised, not the value: an override
+     * naming a language the install does not ship is still honoured, because
+     * pinning a console to one language is what the override is for.
+     */
+    private static function canonicalLanguage(string $locale): string
+    {
+        $locale = strtolower(trim($locale));
+        if ($locale === '') {
+            return '';
+        }
+
+        $separator = strcspn($locale, '-_');
+
+        return substr($locale, 0, $separator);
     }
 
     /**

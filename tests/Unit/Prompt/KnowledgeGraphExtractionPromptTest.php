@@ -71,6 +71,13 @@ final class KnowledgeGraphExtractionPromptTest extends TestCase
         self::assertStringContainsString('відеодзвінки', $fewShot[6]->content);
         self::assertStringContainsString('"relation":"avoids"', $fewShot[7]->content);
         self::assertStringContainsString('"kind":"goal"', $fewShot[7]->content);
+        // The goal NODE alone is not the example — the edge that ties it to the
+        // person is. Asserting only the kind lets a regression drop or rename
+        // the relation and still pass.
+        self::assertStringContainsString(
+            '{"from":"self","to":"переїхати до Португалії","relation":"wants"}',
+            $fewShot[7]->content,
+        );
         self::assertSame('{"entities":[],"relations":[]}', $fewShot[9]->content);
     }
 

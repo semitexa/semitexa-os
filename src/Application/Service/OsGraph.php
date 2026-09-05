@@ -7,6 +7,7 @@ namespace Semitexa\Os\Application\Service;
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Support\CoroutineLocal;
+use Semitexa\Core\Tenant\DefaultTenantContextStore;
 use Semitexa\Core\Tenant\TenantContextAccess;
 use Semitexa\Core\Tenant\TenantContextStoreInterface;
 use Semitexa\Platform\Settings\Application\Service\SettingsStore;
@@ -313,20 +314,38 @@ final class OsGraph
         // hand one tenant's private briefing to the next the moment anything
         // builds a persona under a fan-out. Same reasoning as the override
         // store's per-tenant memo.
-        $tenant = TenantContextAccess::tenantIdOrDefault(
-            isset($this->tenantContextStore) ? $this->tenantContextStore->tryGet() : null,
-        );
+        $tenant = TenantContextAccess::tenantIdOrDefault($this->tenantContextStore()->tryGet());
+
+        // Keyed by the LIMIT as well: a briefing built for worldBriefing(1) is
+        // not the answer to a later default-sized call in the same coroutine,
+        // and a default-sized one is not the answer to a smaller ask.
+        $key = $tenant . "\0" . $limit;
 
         /** @var array<string, string> $memo */
         $memo = CoroutineLocal::get(self::BRIEFING_MEMO_KEY, []);
-        if (isset($memo[$tenant])) {
-            return $memo[$tenant];
+        if (isset($memo[$key])) {
+            return $memo[$key];
         }
 
-        $memo[$tenant] = $this->buildBriefing($limit);
+        $memo[$key] = $this->buildBriefing($limit);
         CoroutineLocal::set(self::BRIEFING_MEMO_KEY, $memo);
 
-        return $memo[$tenant];
+        return $memo[$key];
+    }
+
+    /**
+     * The ambient tenant store, injected or built.
+     *
+     * The store keeps the context in a coroutine-local, so an instance built
+     * here reads exactly what an injected one would. That matters because the
+     * persona constructs OsGraph bare — personas are not container-built — so
+     * the old `isset() ? tryGet() : null` answered 'default' for every briefing
+     * ever rendered, and under a tenant fan-out would have keyed one tenant's
+     * standing memory under the next tenant's turn.
+     */
+    private function tenantContextStore(): TenantContextStoreInterface
+    {
+        return $this->tenantContextStore ??= new DefaultTenantContextStore();
     }
 
     private function buildBriefing(int $limit): string
