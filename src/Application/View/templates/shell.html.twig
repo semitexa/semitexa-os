@@ -15,7 +15,7 @@
     <div id="wm-layer" hidden></div>
     <div id="weave-layer" hidden></div>
 
-    <script type="application/json" id="os-boot">{{ { providerName: providerName|default('llm'), providerModel: providerModel|default('?'), providerHealthy: providerHealthy, skills: skills|default([]), assistantName: assistantName|default('Semi'), userName: userName|default(''), windowMode: windowMode|default('web'), bridgeUrl: bridgeUrl|default('http://127.0.0.1:8777'), locale: locale|default('en'), strings: strings|default({}), inputLayouts: inputLayouts|default(null) }|json_encode|raw }}</script>
+    <script type="application/json" id="os-boot">{{ { providerName: providerName|default('llm'), providerModel: providerModel|default('?'), providerHealthy: providerHealthy, skills: skills|default([]), assistantName: assistantName|default('Solomiia'), userName: userName|default(''), windowMode: windowMode|default('web'), bridgeUrl: bridgeUrl|default('http://127.0.0.1:8777'), locale: locale|default('en'), strings: strings|default({}), inputLayouts: inputLayouts|default(null) }|json_encode|raw }}</script>
     {# ui-core is an ESM+IIFE dual: as a module it populates window.SemitexaUi.core
        (openFeedChannel — the shared KISS live-feed transport). Module scripts and
        the deferred shell.js run in document order, so core lands first; shell.js

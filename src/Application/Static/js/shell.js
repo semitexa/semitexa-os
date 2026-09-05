@@ -14,7 +14,7 @@
  */
     (function () {
         const boot = JSON.parse(document.getElementById('os-boot').textContent || '{}');
-        if (!boot.assistantName) boot.assistantName = 'Semi'; // the name the user calls the assistant
+        if (!boot.assistantName) boot.assistantName = 'Solomiia'; // the name the user calls the assistant; the server spells it for the console language
 
         // i18n: server-resolved UI strings for the OS locale ride in on the
         // boot payload (#os-boot .strings); the inline English literal is the
@@ -719,14 +719,14 @@
                 + '</div></div>';
         }
 
-        // Chill = the leisure zone. Instead of a mock, Semi asks what you feel
+        // Chill = the leisure zone. Instead of a mock, the assistant asks what you feel
         // like and everything routes through the LLM (run-skill / intent bar →
         // /os/intent), so the planner catches context ("something relaxing" →
         // music, "let's play" → the game). Leisure UI-skills open as dialogs.
         // Chill = the "at rest, watch everything" zone: a live panel of what's
         // running (chillProcessesHTML) + leisure launchers (media / video / games).
         // The conversation is NOT inline here — it lives in the compact chat dock,
-        // so you can watch a video or a process and still talk to Semi. Leisure
+        // so you can watch a video or a process and still talk to her. Leisure
         // chips route through the LLM (run-skill → /os/intent); apps open as windows.
         function chillHTML() {
             const name = boot.userName ? (', ' + esc(boot.userName)) : '';
