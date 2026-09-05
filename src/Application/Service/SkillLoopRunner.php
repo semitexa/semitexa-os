@@ -1052,11 +1052,11 @@ final class SkillLoopRunner
     private function plannerPersona(): string
     {
         $persona = (new PersonaRegistry())->framing('os');
-        $locale = $this->prefs->locale();
-        if ($locale === '') {
-            $locale = \Semitexa\Locale\Context\LocaleContextStore::getLocale();
-        }
-        $language = self::LANGUAGE_NAMES[$locale] ?? null;
+        // The same answer the shell's strings and her name are built from —
+        // this used to be a third copy of the chain that skipped the
+        // SEMITEXA_OS_LOCALE override, so a console pinned to one language
+        // could be answered in another.
+        $language = self::LANGUAGE_NAMES[$this->prefs->language()] ?? null;
         if ($language !== null && $persona !== '') {
             $persona .= "\n" . $this->replyLanguageLine($language);
         }
