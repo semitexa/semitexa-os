@@ -8,6 +8,7 @@ use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Tenant\TenantContextAccess;
 use Semitexa\Core\Tenant\TenantContextStoreInterface;
+use Semitexa\Orm\Application\Service\OrmBackedStore;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Direction;
 use Semitexa\Orm\Repository\DomainRepository;
@@ -37,6 +38,8 @@ use Semitexa\Os\Domain\Enum\ProcessStatus;
 #[AsService]
 final class ProcessRegistry
 {
+    use OrmBackedStore;
+
     /** Heartbeat silence after which a running process is demoted to stalled. */
     public const STALL_TTL_SECONDS = 30;
 
@@ -51,8 +54,6 @@ final class ProcessRegistry
 
     #[InjectAsReadonly]
     protected TenantContextStoreInterface $tenantContextStore;
-
-    private ?DomainRepository $repository = null;
 
     /** Test seam — production path uses property injection. */
     public function withTenantContextStore(TenantContextStoreInterface $store): self
@@ -170,7 +171,7 @@ final class ProcessRegistry
         $rows = $this->scoped()->query()
             ->orderBy(ProcessResource::column('updated_at'), Direction::Desc)
             ->limit(self::MAX_LISTED)
-            ->fetchAllAs(Process::class, $this->orm()->getMapperRegistry());
+            ->fetchAllAs(Process::class, $this->mapperRegistry());
 
         $deadline = (new \DateTimeImmutable())->getTimestamp() - self::STALL_TTL_SECONDS;
         foreach ($rows as $i => $p) {
@@ -358,17 +359,6 @@ final class ProcessRegistry
 
     private function repository(): DomainRepository
     {
-        return $this->repository ??= $this->orm()->repository(ProcessResource::class, Process::class);
-    }
-
-    private function orm(): OrmManager
-    {
-        // isset() guard (not ??=) so the registry also works when constructed
-        // bare (`new ProcessRegistry()`) — invocable skills do that.
-        if (!isset($this->orm)) {
-            $this->orm = new OrmManager();
-        }
-
-        return $this->orm;
+        return $this->domainRepository(ProcessResource::class, Process::class);
     }
 }

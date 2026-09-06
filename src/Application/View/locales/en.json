@@ -175,5 +175,18 @@
     "shell.maximize": "Maximize",
     "shell.close": "Close",
     "shell.restore": "Restore",
-    "shell.switch_layout": "Switch input layout"
+    "shell.switch_layout": "Switch input layout",
+    "replies.theme.ask": "Would you like the interface dark, light, or automatic?",
+    "replies.theme.dark": "Done — switched to dark mode.",
+    "replies.theme.light": "Done — switched to light mode.",
+    "replies.theme.auto": "Done — the interface now follows your system (auto).",
+    "replies.locale.ask": "Which language would you like — українська, English, Deutsch, polski?",
+    "replies.weave.show.ask": "What should I focus your world on?",
+    "replies.weave.show.unknown": "I don't have \"{{query}}\" in your world yet — tell me about it and I'll remember.",
+    "replies.weave.show.focusing": "Focusing your world on \"{{title}}\" — opening the Workspace.",
+    "replies.weave.remember.ask": "What would you like me to remember about your world?",
+    "replies.weave.remember.failed": "I couldn't record that: {{reason}}",
+    "replies.weave.remember.added": "Added \"{{title}}\" to your world, linked to {{link}}. Open Workspace to see it.",
+    "replies.task.timer_eta": "timer · ~{{seconds}}s to auto-complete",
+    "replies.task.completed": "✅ Done — \"{{title}}\" finished."
 }

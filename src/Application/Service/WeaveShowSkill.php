@@ -43,14 +43,22 @@ final class WeaveShowSkill implements InvocableSkillInterface
     {
         $query = trim((string) ($arguments['query'] ?? ''));
         if ($query === '') {
-            return 'What should I focus your world on?';
+            return OsReplies::say('weave.show.ask', [], 'What should I focus your world on?');
         }
 
         $found = $this->graph->search($query, 1);
         if (!isset($found[0])) {
-            return 'I don\'t have "' . $query . '" in your world yet — tell me about it and I\'ll remember.';
+            return OsReplies::say(
+                'weave.show.unknown',
+                ['query' => $query],
+                'I don\'t have "{{query}}" in your world yet — tell me about it and I\'ll remember.',
+            );
         }
 
-        return 'Focusing your world on "' . $found[0]->getTitle() . '" — opening the Workspace.';
+        return OsReplies::say(
+            'weave.show.focusing',
+            ['title' => $found[0]->getTitle()],
+            'Focusing your world on "{{title}}" — opening the Workspace.',
+        );
     }
 }

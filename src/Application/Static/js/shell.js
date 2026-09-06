@@ -1657,7 +1657,10 @@
             // large, the game board is portrait-ish — everything else is default.
             const lg = (d.skill === 'Calendar' || (d.skill || '').indexOf('webapp:') === 0);
             const game = (d.skill === 'tic-tac-toe');
-            node.className = 'os-win' + (lg ? ' os-win--lg' : '') + (game ? ' os-win--game' : '');
+            // The content editor is a document surface: it gets the largest
+            // frame the desktop allows, not the dialog default.
+            const doc = (d.skill === 'Content');
+            node.className = 'os-win' + (doc ? ' os-win--doc' : lg ? ' os-win--lg' : '') + (game ? ' os-win--game' : '');
             node.dataset.id = d.id;
             node.innerHTML =
                 '<div class="os-win__bar"><span class="os-win__title">' + ico(d.icon || 'app-window', 15) + ' ' + esc(d.title) + '</span>'

@@ -175,5 +175,18 @@
     "shell.maximize": "Розгорнути",
     "shell.close": "Закрити",
     "shell.restore": "Відновити",
-    "shell.switch_layout": "Перемкнути розкладку"
+    "shell.switch_layout": "Перемкнути розкладку",
+    "replies.theme.ask": "Інтерфейс зробити темним, світлим чи автоматичним?",
+    "replies.theme.dark": "Готово — перемкнув на темний режим.",
+    "replies.theme.light": "Готово — перемкнув на світлий режим.",
+    "replies.theme.auto": "Готово — інтерфейс тепер стежить за системою (авто).",
+    "replies.locale.ask": "Якою мовою продовжимо — українська, English, Deutsch, polski?",
+    "replies.weave.show.ask": "На чому зосередити ваш світ?",
+    "replies.weave.show.unknown": "У вашому світі ще немає «{{query}}» — розкажіть, і я запам’ятаю.",
+    "replies.weave.show.focusing": "Зосереджую ваш світ на «{{title}}» — відкриваю Workspace.",
+    "replies.weave.remember.ask": "Що саме запам’ятати про ваш світ?",
+    "replies.weave.remember.failed": "Не вдалося записати: {{reason}}",
+    "replies.weave.remember.added": "Додав «{{title}}» до вашого світу, звʼязав із {{link}}. Відкрийте Workspace, щоб побачити.",
+    "replies.task.timer_eta": "таймер · ~{{seconds}} с до автозавершення",
+    "replies.task.completed": "✅ Готово — «{{title}}» завершено."
 }

@@ -43,7 +43,11 @@ final class SetLocaleSkill implements InvocableSkillInterface
     {
         $locale = $this->normalise((string) ($arguments['locale'] ?? ''));
         if ($locale === null) {
-            return 'Which language would you like — українська, English, Deutsch, polski?';
+            return OsReplies::say(
+                'locale.ask',
+                [],
+                'Which language would you like — українська, English, Deutsch, polski?',
+            );
         }
 
         try {

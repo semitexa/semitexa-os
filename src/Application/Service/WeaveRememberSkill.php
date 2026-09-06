@@ -43,7 +43,7 @@ final class WeaveRememberSkill implements InvocableSkillInterface
     {
         $what = trim((string) ($arguments['what'] ?? ''));
         if ($what === '') {
-            return 'What would you like me to remember about your world?';
+            return OsReplies::say('weave.remember.ask', [], 'What would you like me to remember about your world?');
         }
 
         try {
@@ -53,12 +53,20 @@ final class WeaveRememberSkill implements InvocableSkillInterface
                 (string) ($arguments['connect_to'] ?? ''),
             );
         } catch (\Throwable $e) {
-            return "I couldn't record that: " . $e->getMessage();
+            return OsReplies::say(
+                'weave.remember.failed',
+                ['reason' => $e->getMessage()],
+                "I couldn't record that: {{reason}}",
+            );
         }
 
         $parent = $result['parent'];
         $link = ($parent->getProperties()['is_self'] ?? false) === true ? 'you' : '"' . $parent->getTitle() . '"';
 
-        return 'Added "' . $result['node']->getTitle() . '" to your world, linked to ' . $link . '. Open Workspace to see it.';
+        return OsReplies::say(
+            'weave.remember.added',
+            ['title' => $result['node']->getTitle(), 'link' => $link],
+            'Added "{{title}}" to your world, linked to {{link}}. Open Workspace to see it.',
+        );
     }
 }
