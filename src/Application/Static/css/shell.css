@@ -473,6 +473,11 @@ body {
 }
 .os-win.focused { border-color: var(--accent); }   /* active window → cyan border (matches WM C_BORDER_ACT) */
 .os-win--lg { width: 840px; height: 600px; }
+/* Writing needs room: the content editor is a document, not a dialog, so it
+   opens as large as the desktop allows while staying a window you can move.
+   At 480x380 the body of a page sits below the fold and the author edits
+   through a letterbox. */
+.os-win--doc { width: min(1080px, 94vw); height: min(760px, 88vh); }
 .os-win--game { width: 440px; height: 560px; }
 .os-win.max { position: fixed; inset: 0; width: auto; height: auto; border-radius: 0; }
 @keyframes os-win-in { 0% { opacity: 0; transform: scale(.97); } 100% { opacity: 1; transform: scale(1); } }
