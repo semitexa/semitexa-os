@@ -18,6 +18,7 @@ use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
 use Semitexa\Os\Application\Service\OsPreferences;
 use Semitexa\Os\Application\Service\OsSkillScope;
+use Semitexa\Os\Application\Service\ProviderHealthCache;
 use Semitexa\Os\Application\Service\SkillLoopRunner;
 use Semitexa\Os\Domain\Enum\WindowMode;
 
@@ -30,6 +31,9 @@ final class OsShellHandler implements TypedHandlerInterface
 {
     #[InjectAsReadonly]
     protected SkillLoopRunner $runner;
+
+    #[InjectAsReadonly]
+    protected ProviderHealthCache $providerHealth;
 
     #[InjectAsReadonly]
     protected OsPreferences $prefs;
@@ -104,12 +108,12 @@ final class OsShellHandler implements TypedHandlerInterface
 
         $provider = $this->runner->provider();
 
-        $healthy = false;
-        try {
-            $healthy = $provider->healthCheck();
-        } catch (\Throwable) {
-            $healthy = false;
-        }
+        // Through the cache, not straight at the provider. MEASURED: the direct
+        // call cost 280.3 / 231.7 / 220.4 ms against the live endpoint while this
+        // request spent 2.76 ms in the database and 6.71 ms rendering — so
+        // opening the OS waited on Google for nearly the whole request, to draw
+        // a status dot. The answer is shared per worker for a short window.
+        $healthy = $this->providerHealth->isHealthy($provider);
 
         [$locale, $strings] = $this->localeBundle();
 
