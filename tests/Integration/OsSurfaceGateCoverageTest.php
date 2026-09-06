@@ -62,6 +62,40 @@ final class OsSurfaceGateCoverageTest extends TestCase
         $this->routes = $discovery->getRoutes();
     }
 
+    /**
+     * Whether a route path is the console app mount or something under it.
+     *
+     * A bare `str_starts_with($path, '/os/app')` also claims `/os/application`
+     * and `/os/appfoo` — different routes that would be dragged into this rule
+     * by the accident of a shared prefix. The boundary is the segment, so the
+     * mount itself and its descendants match and nothing else does.
+     */
+    private static function isConsolePath(string $path): bool
+    {
+        return $path === '/os/app' || str_starts_with($path, '/os/app/');
+    }
+
+    /**
+     * The rule above is only as good as the set of routes it looks at, so the
+     * boundary itself is pinned: a prefix match would have dragged
+     * `/os/application` into a rule it has nothing to do with, and a route that
+     * IS the mount would have to be matched exactly.
+     */
+    #[Test]
+    public function the_console_path_boundary_is_a_segment_not_a_prefix(): void
+    {
+        $inside = ['/os/app', '/os/app/tasks', '/os/app/cms/media/{assetId}'];
+        $outside = ['/os/application', '/os/appfoo', '/os/apps', '/os', '/os/login', '/osapp'];
+
+        foreach ($inside as $path) {
+            self::assertTrue(self::isConsolePath($path), $path . ' must be treated as a console route');
+        }
+
+        foreach ($outside as $path) {
+            self::assertFalse(self::isConsolePath($path), $path . ' must NOT be treated as a console route');
+        }
+    }
+
     #[Test]
     public function every_os_app_route_is_a_console_surface(): void
     {
@@ -69,7 +103,7 @@ final class OsSurfaceGateCoverageTest extends TestCase
 
         foreach ($this->routes as $route) {
             $path = (string) ($route['path'] ?? '');
-            if (!str_starts_with($path, '/os/app')) {
+            if (!self::isConsolePath($path)) {
                 continue;
             }
 
