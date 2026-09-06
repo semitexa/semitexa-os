@@ -9,6 +9,7 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Log\FallbackErrorLogger;
 use Semitexa\Core\Tenant\TenantContextAccess;
 use Semitexa\Core\Tenant\TenantContextStoreInterface;
+use Semitexa\Orm\Application\Service\OrmBackedStore;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
@@ -29,6 +30,8 @@ use Semitexa\Os\Domain\Model\ConversationSummary;
 #[AsService]
 final class ConversationSummaryStore
 {
+    use OrmBackedStore;
+
     #[InjectAsReadonly]
     protected OrmManager $orm;
 
@@ -36,21 +39,10 @@ final class ConversationSummaryStore
     #[InjectAsReadonly]
     protected TenantContextStoreInterface $tenantContextStore;
 
-    private ?DomainRepository $repository = null;
-
     /** Test seam — production path uses property injection. */
     public function withTenantContextStore(TenantContextStoreInterface $store): self
     {
         $this->tenantContextStore = $store;
-
-        return $this;
-    }
-
-    /** Test seam — production path uses property injection. */
-    public function withOrmManager(OrmManager $orm): self
-    {
-        $this->orm = $orm;
-        $this->repository = null;
 
         return $this;
     }
@@ -71,7 +63,7 @@ final class ConversationSummaryStore
             $rows = $this->scoped()->query()
                 ->where(ConversationSummaryResource::column('tenant_id'), Operator::Equals, $this->currentTenantId())
                 ->limit(1)
-                ->fetchAllAs(ConversationSummary::class, $this->orm()->getMapperRegistry());
+                ->fetchAllAs(ConversationSummary::class, $this->mapperRegistry());
         } catch (\Throwable $e) {
             // A read failure must degrade to "no summary" (the verbatim window
             // still carries recent context), never break the conversation loop.
@@ -166,14 +158,6 @@ final class ConversationSummaryStore
 
     private function repository(): DomainRepository
     {
-        return $this->repository ??= $this->orm()->repository(
-            ConversationSummaryResource::class,
-            ConversationSummary::class,
-        );
-    }
-
-    private function orm(): OrmManager
-    {
-        return $this->orm ??= new OrmManager();
+        return $this->domainRepository(ConversationSummaryResource::class, ConversationSummary::class);
     }
 }

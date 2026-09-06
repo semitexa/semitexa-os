@@ -10,6 +10,7 @@ use Semitexa\Core\Log\FallbackErrorLogger;
 use Semitexa\Core\Tenant\TenantContextAccess;
 use Semitexa\Core\Tenant\TenantContextStoreInterface;
 use Semitexa\Orm\Application\Service\Uuid7;
+use Semitexa\Orm\Application\Service\OrmBackedStore;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Direction;
 use Semitexa\Orm\Query\Operator;
@@ -36,6 +37,8 @@ use Semitexa\Os\Domain\Model\ConversationTurn;
 #[AsService]
 final class ConversationStore
 {
+    use OrmBackedStore;
+
     public const ROLE_USER = 'user';
     public const ROLE_ASSISTANT = 'assistant';
 
@@ -58,21 +61,10 @@ final class ConversationStore
     #[InjectAsReadonly]
     protected TenantContextStoreInterface $tenantContextStore;
 
-    private ?DomainRepository $repository = null;
-
     /** Test seam — production path uses property injection. */
     public function withTenantContextStore(TenantContextStoreInterface $store): self
     {
         $this->tenantContextStore = $store;
-
-        return $this;
-    }
-
-    /** Test seam — production path uses property injection. */
-    public function withOrmManager(OrmManager $orm): self
-    {
-        $this->orm = $orm;
-        $this->repository = null;
 
         return $this;
     }
@@ -142,7 +134,7 @@ final class ConversationStore
         $rows = $this->scoped()->query()
             ->orderBy(ConversationTurnResource::column('id'), Direction::Desc)
             ->limit($effective)
-            ->fetchAllAs(ConversationTurn::class, $this->orm()->getMapperRegistry());
+            ->fetchAllAs(ConversationTurn::class, $this->mapperRegistry());
         $rows = array_reverse($rows);
 
         return array_map(
@@ -172,7 +164,7 @@ final class ConversationStore
         $rows = $this->scoped()->query()
             ->orderBy(ConversationTurnResource::column('id'), Direction::Desc)
             ->limit(1)
-            ->fetchAllAs(ConversationTurn::class, $this->orm()->getMapperRegistry());
+            ->fetchAllAs(ConversationTurn::class, $this->mapperRegistry());
 
         return isset($rows[0]) ? $rows[0]->getId() : '';
     }
@@ -195,7 +187,7 @@ final class ConversationStore
         $rows = $query
             ->orderBy(ConversationTurnResource::column('id'), Direction::Asc)
             ->limit(max(1, $limit))
-            ->fetchAllAs(ConversationTurn::class, $this->orm()->getMapperRegistry());
+            ->fetchAllAs(ConversationTurn::class, $this->mapperRegistry());
 
         return array_map(
             static fn (ConversationTurn $row): array => [
@@ -222,7 +214,7 @@ final class ConversationStore
         $rows = $this->scoped()->query()
             ->orderBy(ConversationTurnResource::column('id'), Direction::Desc)
             ->limit($scan)
-            ->fetchAllAs(ConversationTurn::class, $this->orm()->getMapperRegistry());
+            ->fetchAllAs(ConversationTurn::class, $this->mapperRegistry());
 
         $out = [];
         foreach (array_reverse($rows) as $row) {
@@ -277,14 +269,6 @@ final class ConversationStore
 
     private function repository(): DomainRepository
     {
-        return $this->repository ??= $this->orm()->repository(
-            ConversationTurnResource::class,
-            ConversationTurn::class,
-        );
-    }
-
-    private function orm(): OrmManager
-    {
-        return $this->orm ??= new OrmManager();
+        return $this->domainRepository(ConversationTurnResource::class, ConversationTurn::class);
     }
 }
