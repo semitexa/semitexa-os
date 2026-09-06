@@ -40,13 +40,21 @@ final class ProviderHealthCache
      */
     private const TTL_SECONDS = 30.0;
 
-    /** @var array<string, array{0: bool, 1: float}> keyed by provider and model */
+    /** @var array<string, array{0: bool, 1: float}> keyed by provider, model and endpoint */
     private array $answers = [];
 
     public function isHealthy(LlmProviderInterface $provider, ?float $now = null): bool
     {
+        // A caller that supplies the clock owns it, and the entry is stamped
+        // with that value so a test reads back exactly what it set.
+        $clockSupplied = $now !== null;
         $now ??= microtime(true);
-        $key = $provider->name() . "\0" . $provider->model();
+
+        // The endpoint is part of the identity. Two providers can share a name
+        // and a model and answer from different hosts — a local Ollama and a
+        // remote one, staging against production — and one is not evidence
+        // about the other.
+        $key = $provider->name() . "\0" . $provider->model() . "\0" . $provider->baseUrl();
 
         $cached = $this->answers[$key] ?? null;
         if ($cached !== null && ($now - $cached[1]) < self::TTL_SECONDS) {
@@ -62,7 +70,11 @@ final class ProviderHealthCache
             $healthy = false;
         }
 
-        $this->answers[$key] = [$healthy, $now];
+        // Stamped when the answer ARRIVED, not when we began asking. The call is
+        // synchronous and CURLOPT_TIMEOUT is five seconds, so a slow provider
+        // would otherwise shorten its own cache window by however long it took —
+        // the case that costs the most gets cached for the least.
+        $this->answers[$key] = [$healthy, $clockSupplied ? $now : microtime(true)];
 
         return $healthy;
     }

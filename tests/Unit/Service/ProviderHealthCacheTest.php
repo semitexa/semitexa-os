@@ -92,22 +92,76 @@ final class ProviderHealthCacheTest extends TestCase
         self::assertSame(1, $provider->calls);
     }
 
-    private function provider(bool $healthy, string $name = 'gemini', string $model = 'gemini-2.5-flash'): object
+    /**
+     * Same name, same model, different host — a local Ollama and a remote one,
+     * or staging against production. One is not evidence about the other.
+     */
+    #[Test]
+    public function two_endpoints_are_two_facts(): void
     {
-        return new class($healthy, $name, $model) implements LlmProviderInterface {
+        $local = $this->provider(true, 'ollama', 'llama3', 'http://127.0.0.1:11434');
+        $remote = $this->provider(false, 'ollama', 'llama3', 'http://95.216.199.200:11434');
+        $cache = new ProviderHealthCache();
+
+        self::assertTrue($cache->isHealthy($local, 1_000.0));
+        self::assertFalse($cache->isHealthy($remote, 1_000.0), 'the remote host must be asked, not answered for');
+        self::assertSame(1, $local->calls);
+        self::assertSame(1, $remote->calls);
+    }
+
+    /**
+     * The window starts when the answer arrives, not when we began asking.
+     *
+     * Stamping before the call makes a slow provider shorten its own cache
+     * window by however long it took — with CURLOPT_TIMEOUT at five seconds,
+     * the call that costs the most would be cached for the least.
+     */
+    #[Test]
+    public function the_window_starts_when_the_answer_arrives(): void
+    {
+        $provider = $this->provider(true);
+        $provider->delaySeconds = 0.05;
+        $cache = new ProviderHealthCache();
+
+        $before = microtime(true);
+        $cache->isHealthy($provider);
+
+        $stamp = (new \ReflectionProperty(ProviderHealthCache::class, 'answers'))
+            ->getValue($cache)[array_key_first((new \ReflectionProperty(ProviderHealthCache::class, 'answers'))->getValue($cache))][1];
+
+        self::assertGreaterThanOrEqual(
+            $before + 0.05,
+            $stamp,
+            'the entry must be stamped after the call returned, not before it started',
+        );
+    }
+
+    private function provider(
+        bool $healthy,
+        string $name = 'gemini',
+        string $model = 'gemini-2.5-flash',
+        string $endpoint = 'https://generativelanguage.googleapis.com',
+    ): object {
+        return new class($healthy, $name, $model, $endpoint) implements LlmProviderInterface {
             public int $calls = 0;
             public bool $throw = false;
+
+            public float $delaySeconds = 0.0;
 
             public function __construct(
                 public bool $healthy,
                 private string $providerName,
                 private string $providerModel,
+                private string $providerEndpoint,
             ) {
             }
 
             public function healthCheck(): bool
             {
                 $this->calls++;
+                if ($this->delaySeconds > 0.0) {
+                    usleep((int) ($this->delaySeconds * 1_000_000));
+                }
                 if ($this->throw) {
                     throw new \RuntimeException('provider unreachable');
                 }
@@ -127,7 +181,7 @@ final class ProviderHealthCacheTest extends TestCase
 
             public function baseUrl(): string
             {
-                return 'https://example.invalid';
+                return $this->providerEndpoint;
             }
 
             public function complete(\Semitexa\Llm\Domain\Model\LlmRequest $request): \Semitexa\Llm\Domain\Model\LlmResponse
