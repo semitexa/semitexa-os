@@ -39,15 +39,15 @@ final class SetThemeModeSkill implements InvocableSkillInterface
     {
         $mode = $this->normalise((string) ($arguments['mode'] ?? ''));
         if ($mode === null) {
-            return 'Would you like the interface dark, light, or automatic?';
+            return OsReplies::say('theme.ask', [], 'Would you like the interface dark, light, or automatic?');
         }
 
         (new OsPreferences())->setThemeMode($mode);
 
         return match ($mode) {
-            'dark' => 'Done — switched to dark mode.',
-            'light' => 'Done — switched to light mode.',
-            default => 'Done — the interface now follows your system (auto).',
+            'dark' => OsReplies::say('theme.dark', [], 'Done — switched to dark mode.'),
+            'light' => OsReplies::say('theme.light', [], 'Done — switched to light mode.'),
+            default => OsReplies::say('theme.auto', [], 'Done — the interface now follows your system (auto).'),
         };
     }
 
