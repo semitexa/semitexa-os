@@ -89,10 +89,15 @@ final class OsShellHandler implements TypedHandlerInterface
         // What the shell lists is what this admin may run: the manifest is
         // scoped to their tenant, so a museum's admin never sees — and the
         // planner never proposes — the clinic's skills.
+        //
+        // It is also scoped to the surfaces the OS can execute on. It was not,
+        // and the sentence above was false for console-only skills: the shell
+        // offered them and SkillLoopRunner, which narrows to the same channels
+        // before planning, refused to run them.
         $scope = $this->skillScope->forSession($session);
         $manifest = $scope === null
             ? new \Semitexa\Llm\Domain\Model\SkillManifest('semitexa.ai-skills/v1', gmdate('c'), [])
-            : $this->skills->manifestFor($scope);
+            : $this->skills->manifestFor($scope, SkillLoopRunner::OS_CHANNELS);
 
         $skills = [];
         foreach ($manifest->skills as $skill) {

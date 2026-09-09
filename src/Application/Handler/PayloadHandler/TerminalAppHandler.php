@@ -37,10 +37,13 @@ final class TerminalAppHandler implements TypedHandlerInterface
         $scope = $this->skillScope->forSession(isset($this->session) ? $this->session : null);
         $manifest = $scope === null
             ? new \Semitexa\Llm\Domain\Model\SkillManifest('semitexa.ai-skills/v1', gmdate('c'), [])
-            : $this->skills->manifestFor($scope);
+            : $this->skills->manifestFor($scope, ['console']);
         $console = [];
         foreach ($manifest->skills as $skill) {
-            if (!$skill->isUi() && in_array('console', $skill->channels, true)) {
+            // The manifest is already scoped to 'console'; isUi() still matters
+            // because a skill may declare both and a UI skill has no command to
+            // type at a terminal.
+            if (!$skill->isUi()) {
                 $console[] = [
                     'name' => $skill->name,
                     'summary' => $skill->summary,

@@ -753,7 +753,12 @@ final class SkillLoopRunner
      * system prompt — a large win on the slow CPU model, where every prompt token
      * is prefill time.
      */
-    private const OS_CHANNELS = ['web', 'ui'];
+    /**
+     * The surfaces the OS can actually execute on. Public because the shell must
+     * list exactly what the runner will run — when the two disagreed, the shell
+     * advertised console-only skills that this class then refused.
+     */
+    public const OS_CHANNELS = ['web', 'ui'];
 
     /**
      * The one place the loop learns which skills exist — and therefore the one
@@ -764,7 +769,7 @@ final class SkillLoopRunner
      */
     private function manifest(SkillScope $scope): SkillManifest
     {
-        return $this->scopes->manifestFor($scope)->forChannels(self::OS_CHANNELS);
+        return $this->scopes->manifestFor($scope, self::OS_CHANNELS);
     }
 
     /**

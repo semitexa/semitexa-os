@@ -45,7 +45,7 @@ final class OpenDialogHandler implements TypedHandlerInterface
         $scope = $this->skillScope->forSession(isset($this->session) ? $this->session : null);
         $manifest = $scope === null
             ? new \Semitexa\Llm\Domain\Model\SkillManifest('semitexa.ai-skills/v1', gmdate('c'), [])
-            : $this->skills->manifestFor($scope);
+            : $this->skills->manifestFor($scope, ['ui']);
         $entry = $manifest->findSkill($skill);
 
         if ($entry === null || !$entry->isUi()) {
