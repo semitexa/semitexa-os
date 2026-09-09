@@ -12,6 +12,7 @@ use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Core\Session\SessionInterface;
 use Semitexa\Llm\Application\Service\TenantSkillScope;
 use Semitexa\Os\Application\Payload\Request\TerminalAppPayload;
+use Semitexa\Os\Application\Service\OsSkillText;
 use Semitexa\Os\Application\Service\OsSkillScope;
 
 /**
@@ -46,7 +47,7 @@ final class TerminalAppHandler implements TypedHandlerInterface
             if (!$skill->isUi()) {
                 $console[] = [
                     'name' => $skill->name,
-                    'summary' => $skill->summary,
+                    'summary' => OsSkillText::summary($skill),
                     'risk' => $skill->riskLevel->value,
                 ];
             }

@@ -13,6 +13,7 @@ use Semitexa\Core\Session\SessionInterface;
 use Semitexa\Llm\Application\Service\TenantSkillScope;
 use Semitexa\Os\Application\Payload\Request\OsShellPayload;
 use Semitexa\Os\Application\Resource\Response\OsShellResource;
+use Semitexa\Os\Application\Service\OsSkillText;
 use Semitexa\Os\Application\Service\InputLayoutStore;
 use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
@@ -103,7 +104,7 @@ final class OsShellHandler implements TypedHandlerInterface
         foreach ($manifest->skills as $skill) {
             $skills[] = [
                 'name' => $skill->name,
-                'summary' => $skill->summary,
+                'summary' => OsSkillText::summary($skill),
                 'risk' => $skill->riskLevel->value,
                 'icon' => $skill->icon,
                 'entry' => $skill->entry,
