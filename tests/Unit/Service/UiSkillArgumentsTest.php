@@ -129,6 +129,34 @@ final class UiSkillArgumentsTest extends TestCase
     }
 
     #[Test]
+    public function the_window_is_named_after_what_the_person_asked_for(): void
+    {
+        // Five pages opened from chat used to give five windows called 'Content'
+        // — the app's name, not the place's — so there was nothing to switch by.
+        // The chat path cannot look the record up here (the argument is still
+        // what the person SAID), so it shows exactly that beside the app rather
+        // than claiming a title it has not resolved.
+        $this->assertSame('Content — Контакти', $this->call('dialogTitle', 'Content', ['name' => 'Контакти']));
+    }
+
+    #[Test]
+    public function an_argument_less_window_keeps_the_plain_skill_name(): void
+    {
+        $this->assertSame('Notes', $this->call('dialogTitle', 'Notes', []));
+        $this->assertSame('Notes', $this->call('dialogTitle', 'Notes', ['name' => '  ']));
+    }
+
+    #[Test]
+    public function a_long_argument_does_not_run_away_with_the_title_bar(): void
+    {
+        $title = $this->call('dialogTitle', 'Content', ['name' => str_repeat('x', 80)]);
+
+        $this->assertStringStartsWith('Content — ', $title);
+        $this->assertStringEndsWith('…', $title);
+        $this->assertSame(40, mb_strlen(explode(' — ', $title, 2)[1]));
+    }
+
+    #[Test]
     public function non_scalar_and_null_arguments_are_skipped_and_flags_survive_the_url(): void
     {
         $entry = $this->entry([

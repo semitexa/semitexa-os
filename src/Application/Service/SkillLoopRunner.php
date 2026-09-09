@@ -668,8 +668,15 @@ final class SkillLoopRunner
         ?string $reason,
         ?float $confidence,
     ): IntentOutcome {
+        $applied = $this->uiSkillQuery($entry, $arguments);
+        $entryUrl = $this->appendQuery($entry->entry, $applied);
+
         foreach ($this->dialogs->list() as $dialog) {
-            if (($dialog['skill'] ?? null) === $entry->name) {
+            // Same skill AND same entry. Two different pages of the same editor
+            // are two dialogs, not a duplicate — the guard exists to stop a
+            // second window onto the SAME thing, and once a UI skill can carry
+            // arguments, the skill name alone stopped saying which thing.
+            if (($dialog['skill'] ?? null) === $entry->name && ($dialog['entry'] ?? null) === $entryUrl) {
                 return new IntentOutcome(
                     intent: $intent,
                     decision: IntentDecision::DialogExists,
@@ -683,13 +690,11 @@ final class SkillLoopRunner
             }
         }
 
-        $applied = $this->uiSkillQuery($entry, $arguments);
-
         $this->dialogs->open(
             skill: $entry->name,
-            title: $entry->name,
+            title: self::dialogTitle($entry->name, $applied),
             icon: $entry->icon,
-            entry: $this->appendQuery($entry->entry, $applied),
+            entry: $entryUrl,
         );
 
         return new IntentOutcome(
@@ -738,6 +743,37 @@ final class SkillLoopRunner
         }
 
         return $applied;
+    }
+
+    /**
+     * What the window is called.
+     *
+     * Opening five pages from chat used to give five windows called 'Content',
+     * which is the app's name and not the place's — a person switching between
+     * them had nothing to switch BY. The shell path already names the window
+     * after the place (OpenDialogHandler resolves the ref through the graph);
+     * the chat path cannot, because at this point the argument is still what the
+     * person said rather than a resolved record. So it shows exactly that, next
+     * to the app it belongs to, instead of claiming a title it has not looked up.
+     *
+     * The first declared input is the label: declaration order is the contract
+     * {@see uiSkillQuery()} already relies on, and a skill lists what identifies
+     * a record first.
+     *
+     * @param array<string, string> $applied
+     */
+    private static function dialogTitle(string $skill, array $applied): string
+    {
+        $first = trim((string) (reset($applied) ?: ''));
+        if ($first === '') {
+            return $skill;
+        }
+
+        if (mb_strlen($first) > 40) {
+            $first = mb_substr($first, 0, 39) . '…';
+        }
+
+        return $skill . ' — ' . $first;
     }
 
     /**
