@@ -199,6 +199,7 @@ final class SkillLoopRunner
 
         $needsConfirmation = false;
         $firstUi = null;
+        $firstUiArguments = [];
         foreach ($steps as $step) {
             $entry = $manifest->findSkill($step['skill']);
             if ($entry === null) {
@@ -212,6 +213,10 @@ final class SkillLoopRunner
             }
             if ($firstUi === null && $entry->isUi()) {
                 $firstUi = $entry;
+                // The step, not just the entry: which record the dialog opens at
+                // lives in the step's arguments, and reading only the entry threw
+                // that away before the dialog was ever built.
+                $firstUiArguments = $step['arguments'] ?? [];
             }
             if ($entry->confirmation !== AiConfirmationMode::Never) {
                 $needsConfirmation = true;
@@ -224,7 +229,7 @@ final class SkillLoopRunner
         // one dialog (or asks, if one is already running) rather than spawning a
         // duplicate per step.
         if ($firstUi !== null) {
-            return $this->handleUiSkill($intent, $firstUi, $response->reason, $response->confidence);
+            return $this->handleUiSkill($intent, $firstUi, $firstUiArguments, $response->reason, $response->confidence);
         }
 
         if ($needsConfirmation) {
@@ -416,7 +421,7 @@ final class SkillLoopRunner
             // UI + confirmation skills hand off to the user, so they can't be
             // auto-continued — return them as terminal outcomes (single-shot parity).
             if ($entry->isUi()) {
-                return $this->handleUiSkill($intent, $entry, $response->reason, $response->confidence);
+                return $this->handleUiSkill($intent, $entry, $response->arguments, $response->reason, $response->confidence);
             }
             if ($entry->confirmation !== AiConfirmationMode::Never) {
                 return new IntentOutcome(
@@ -653,9 +658,13 @@ final class SkillLoopRunner
      * instead ({@see IntentDecision::DialogExists}): open another, or switch to
      * the running one. Only when none is open do we open a fresh dialog.
      */
+    /**
+     * @param array<string, mixed> $arguments as proposed by the planner
+     */
     private function handleUiSkill(
         string $intent,
         SkillEntry $entry,
+        array $arguments,
         ?string $reason,
         ?float $confidence,
     ): IntentOutcome {
@@ -674,11 +683,13 @@ final class SkillLoopRunner
             }
         }
 
+        $applied = $this->uiSkillQuery($entry, $arguments);
+
         $this->dialogs->open(
             skill: $entry->name,
             title: $entry->name,
             icon: $entry->icon,
-            entry: $entry->entry,
+            entry: $this->appendQuery($entry->entry, $applied),
         );
 
         return new IntentOutcome(
@@ -690,8 +701,59 @@ final class SkillLoopRunner
             confidence: $confidence,
             providerName: $this->provider()->name(),
             providerModel: $this->provider()->model(),
-            pipeline: [['skill' => $entry->name, 'arguments' => []]],
+            // What the dialog was actually opened with, not what was proposed:
+            // an argument the skill never declared is dropped, and the trail has
+            // to show the dropping rather than imply it was honoured.
+            arguments: $applied,
+            pipeline: [['skill' => $entry->name, 'arguments' => $applied]],
         );
+    }
+
+    /**
+     * The planner's arguments, narrowed to the ones this skill actually declares.
+     *
+     * An allowlist, not a pass-through. The entry is a URL the OS opens in a
+     * window, so anything reaching it is being appended to that app's own query
+     * string; a planner is a language model and its proposed argument names are
+     * a suggestion, not a contract. Declaration order is the iteration order, so
+     * the same plan always produces the same URL.
+     *
+     * @param array<string, mixed> $arguments
+     * @return array<string, string>
+     */
+    private function uiSkillQuery(SkillEntry $entry, array $arguments): array
+    {
+        $applied = [];
+        foreach (array_keys($entry->inputs) as $name) {
+            if (!array_key_exists($name, $arguments)) {
+                continue;
+            }
+            $value = $arguments[$name];
+            if ($value === null || is_array($value) || is_object($value)) {
+                continue;
+            }
+            // A flag reaching a URL has to be readable on the other side; '1'/'0'
+            // survives a plain string comparison where 'true'/'' does not.
+            $applied[$name] = is_bool($value) ? ($value ? '1' : '0') : (string) $value;
+        }
+
+        return $applied;
+    }
+
+    /**
+     * @param array<string, string> $query
+     */
+    private function appendQuery(?string $entry, array $query): ?string
+    {
+        // An argument-less UI skill — Notes, Calendar, Terminal — opens at exactly
+        // the URL it always did, untouched.
+        if ($entry === null || $query === []) {
+            return $entry;
+        }
+
+        return $entry
+            . (str_contains($entry, '?') ? '&' : '?')
+            . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
     }
 
     /**
