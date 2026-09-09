@@ -15,7 +15,6 @@ use Semitexa\Os\Application\Resource\Response\OsLoginResource;
 use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
 use Semitexa\Platform\User\Application\Service\UserAuthenticator;
-use Semitexa\Platform\User\Domain\Enum\UserRole;
 
 /**
  * Checks one submitted pair and, if it holds up, opens the console.
@@ -72,12 +71,6 @@ final class OsLoginSubmitHandler implements TypedHandlerInterface
                 : self::REJECTED;
 
             return $this->form($resource, $email, $next, $message);
-        }
-
-        // An editor of one site is still not an operator of the console. The
-        // role is checked here, at the door, so no later screen has to remember.
-        if ($attempt->user->getRole() === UserRole::Editor) {
-            return $this->form($resource, $email, $next, self::REJECTED);
         }
 
         $this->admins->signIn($this->session, $attempt->user);

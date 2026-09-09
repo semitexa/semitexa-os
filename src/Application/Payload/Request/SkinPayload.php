@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\Os\Application\Payload\Request;
 
 use Semitexa\Authorization\Attribute\AsProtectedPayload;
-use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
+use Semitexa\Os\Domain\Contract\OsContentSurfaceInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
 /**
@@ -18,6 +18,6 @@ use Semitexa\Core\Http\Response\ResourceResponse;
     responseWith: ResourceResponse::class,
     produces: ['application/json'],
 )]
-final class SkinPayload implements OsSurfacePayloadInterface
+final class SkinPayload implements OsContentSurfaceInterface
 {
 }

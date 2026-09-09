@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\Os\Application\Payload\Request;
 
 use Semitexa\Authorization\Attribute\AsProtectedPayload;
-use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
+use Semitexa\Os\Domain\Contract\OsContentSurfaceInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -15,7 +15,7 @@ use Semitexa\Core\Http\Response\ResourceResponse;
  *
  * The most consequential route in the console: an intent here plans and runs
  * Skills, which is to say it edits the site. It is gated for exactly that
- * reason — see {@see \Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface}.
+ * reason — see {@see \Semitexa\Os\Domain\Contract\OsContentSurfaceInterface}.
  */
 #[AsProtectedPayload(
     path: '/os/intent',
@@ -24,7 +24,7 @@ use Semitexa\Core\Http\Response\ResourceResponse;
     consumes: ['application/json', 'application/x-www-form-urlencoded'],
     produces: ['application/json'],
 )]
-final class IntentPayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
+final class IntentPayload implements ValidatablePayloadInterface, OsContentSurfaceInterface
 {
     private string $intent = '';
 
