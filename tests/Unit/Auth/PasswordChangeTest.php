@@ -17,6 +17,7 @@ use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Platform\User\Application\Service\PasswordHasher;
 use Semitexa\Platform\User\Domain\Contract\PlatformUserRepositoryInterface;
 use Semitexa\Platform\User\Domain\Model\PlatformUser;
+use Semitexa\Testing\Traits\BuildsContainerManagedObjects;
 
 /**
  * Changing a password used to mean asking an operator to run a CLI command,
@@ -29,6 +30,8 @@ use Semitexa\Platform\User\Domain\Model\PlatformUser;
  */
 final class PasswordChangeTest extends TestCase
 {
+    use BuildsContainerManagedObjects;
+
     private ?PlatformUser $saved = null;
 
     private function user(string $password): PlatformUser
@@ -64,8 +67,7 @@ final class PasswordChangeTest extends TestCase
             public function delete(string $id): void {}
         };
 
-        $admins = (new \ReflectionClass(OsAdminSession::class))->newInstanceWithoutConstructor();
-        (new \ReflectionProperty(OsAdminSession::class, 'users'))->setValue($admins, $users);
+        $admins = $this->createWithDependencies(OsAdminSession::class, ['users' => $users]);
 
         $segment = new OsAdminSessionSegment();
         if ($current !== null) {
@@ -89,10 +91,11 @@ final class PasswordChangeTest extends TestCase
             public function save(): void {}
         };
 
-        $handler = (new \ReflectionClass(PasswordChangeHandler::class))->newInstanceWithoutConstructor();
-        (new \ReflectionProperty(PasswordChangeHandler::class, 'admins'))->setValue($handler, $admins);
-        (new \ReflectionProperty(PasswordChangeHandler::class, 'users'))->setValue($handler, $users);
-        (new \ReflectionProperty(PasswordChangeHandler::class, 'hasher'))->setValue($handler, new PasswordHasher());
+        $handler = $this->createWithDependencies(PasswordChangeHandler::class, [
+            'admins' => $admins,
+            'users' => $users,
+            'hasher' => new PasswordHasher(),
+        ]);
         (new \ReflectionProperty(PasswordChangeHandler::class, 'session'))->setValue($handler, $session);
 
         return [$handler, $session];
