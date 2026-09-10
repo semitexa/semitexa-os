@@ -8,7 +8,7 @@
   "shell.actions_on_device": "дій на цьому пристрої",
   "shell.no_prior_actions": "ще немає жодних дій",
   "shell.state_snapshot": "Знімок стану",
-  "shell.snapshot_restored": "відновлено з var/os/session",
+  "shell.snapshot_restored": "з вашого минулого візиту",
   "shell.new_device": "новий пристрій",
   "shell.continue_where_you_were": "Продовжте там, де зупинилися",
   "shell.a_clean_slate": "З чистого аркуша",
@@ -199,5 +199,10 @@
   "skills.terminal.summary": "Відкрити термінал, щоб запускати консольні скіли напряму.",
   "skills.updates.summary": "Відкрити «Оновлення», щоб побачити нове — застосовані зміни, нотатки до випусків та історію.",
   "skills.music.summary": "Відкрити музичний плеєр із вбудованим ambient-плейлистом.",
-  "skills.tic-tac-toe.summary": "Зіграти в хрестики-нолики проти асистента."
+  "skills.tic-tac-toe.summary": "Зіграти в хрестики-нолики проти асистента.",
+  "shell.no_apps_installed": "На цій системі не встановлено застосунків.",
+  "shell.waking": "Прокидаюсь…",
+  "shell.assistant_local": "Асистент · на цій машині",
+  "shell.assistant_remote": "Асистент",
+  "shell.this_device": "Цей пристрій"
 }

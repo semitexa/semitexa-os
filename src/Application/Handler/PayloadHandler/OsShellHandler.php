@@ -14,6 +14,7 @@ use Semitexa\Llm\Application\Service\TenantSkillScope;
 use Semitexa\Os\Application\Payload\Request\OsShellPayload;
 use Semitexa\Os\Application\Resource\Response\OsShellResource;
 use Semitexa\Llm\Domain\Model\SkillManifest;
+use Semitexa\Platform\User\Domain\Enum\UserRole;
 use Semitexa\Os\Application\Service\OsSkillText;
 use Semitexa\Os\Application\Service\InputLayoutStore;
 use Semitexa\Os\Application\Service\OsAdminSession;
@@ -31,6 +32,13 @@ use Semitexa\Os\Domain\Enum\WindowMode;
 #[AsPayloadHandler(payload: OsShellPayload::class, resource: OsShellResource::class)]
 final class OsShellHandler implements TypedHandlerInterface
 {
+    /**
+     * The route the launcher's "Your apps" section is fed by. Lives in
+     * semitexa/webapps, which is neither a dependency of this package nor part
+     * of ultimate — so a normal install does not have it.
+     */
+    private const WEB_APPS_PAYLOAD = 'Semitexa\\WebApps\\Application\\Payload\\Request\\WebAppsListPayload';
+
     #[InjectAsReadonly]
     protected SkillLoopRunner $runner;
 
@@ -126,7 +134,8 @@ final class OsShellHandler implements TypedHandlerInterface
 
         return $resource
             ->withSkills($skills)
-            ->withProvider($provider->name(), $provider->model(), $healthy)
+            ->withFeatures($this->features($session))
+            ->withProvider($provider->name(), $provider->model(), $healthy, self::isLocal($provider->baseUrl()))
             ->withAssistantName($this->prefs->assistantName())
             ->withUserName($this->prefs->userName())
             ->withLocale($locale, $strings)
@@ -145,6 +154,50 @@ final class OsShellHandler implements TypedHandlerInterface
      *
      * @return array{string, array<string, string>}
      */
+    /**
+     * Optional packages this install actually has.
+     *
+     * Asked by class rather than by route because it is the honest question —
+     * the payload class existing IS the package being installed — and because
+     * the name is a constant here, never something a caller supplied.
+     *
+     * Carries the role too, so the shell can keep an operator surface out of a
+     * content editor's way rather than showing everyone everything.
+     *
+     * @return array<string, bool>
+     */
+    /**
+     * Whether the model answers from this machine.
+     *
+     * Decided from the base URL rather than from a list of provider names: a
+     * remote Ollama is not local however it is spelled, and a list would need
+     * editing every time a provider is added — which is how the claim would go
+     * stale again.
+     */
+    private static function isLocal(string $baseUrl): bool
+    {
+        $host = strtolower((string) (parse_url($baseUrl, PHP_URL_HOST) ?: ''));
+
+        return $host === 'localhost'
+            || $host === '::1'
+            || str_starts_with($host, '127.')
+            || $host === 'host.docker.internal';
+    }
+
+    private function features(?SessionInterface $session): array
+    {
+        $role = $this->admins->currentPrincipal($session)?->user->getRole();
+
+        return [
+            'webApps' => class_exists(self::WEB_APPS_PAYLOAD),
+            // X-Ray is observability: loop internals, provider health, a live
+            // trace. Useful to whoever runs the install and noise to whoever
+            // uses it — a museum employee reading "Planner over the
+            // SkillManifest" learns nothing except that this is not for them.
+            'operator' => $role === UserRole::Owner || $role === UserRole::Admin,
+        ];
+    }
+
     private function localeBundle(): array
     {
         $locale = $this->prefs->language();

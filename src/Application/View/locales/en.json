@@ -8,7 +8,7 @@
   "shell.actions_on_device": "actions on this device",
   "shell.no_prior_actions": "no prior actions yet",
   "shell.state_snapshot": "State Snapshot",
-  "shell.snapshot_restored": "restored from var/os/session",
+  "shell.snapshot_restored": "from your last visit",
   "shell.new_device": "new device",
   "shell.continue_where_you_were": "Continue where you were",
   "shell.a_clean_slate": "A clean slate",
@@ -199,5 +199,10 @@
   "skills.terminal.summary": "Open a terminal to run console skills directly.",
   "skills.updates.summary": "Open Updates to see what is new — applied changes, release notes, and update history.",
   "skills.music.summary": "Open the music player with the built-in ambient playlist.",
-  "skills.tic-tac-toe.summary": "Play a game of tic-tac-toe against the assistant."
+  "skills.tic-tac-toe.summary": "Play a game of tic-tac-toe against the assistant.",
+  "shell.no_apps_installed": "No apps are installed on this system.",
+  "shell.waking": "Waking…",
+  "shell.assistant_local": "Assistant · on this machine",
+  "shell.assistant_remote": "Assistant",
+  "shell.this_device": "This device"
 }
