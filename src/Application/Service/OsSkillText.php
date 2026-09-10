@@ -39,8 +39,12 @@ final class OsSkillText
     /** `os.skills.tic-tac-toe.summary` — `os.` is the module the catalog is filed under. */
     private static function key(string $name, string $part): string
     {
-        $slug = strtolower(trim($name));
-        $slug = (string) preg_replace('/[^a-z0-9]+/u', '-', $slug);
+        // Split lower-to-upper first: 'TicTacToe' has no separator to normalise,
+        // so lowercasing alone made it 'tictactoe' while the catalog carries
+        // 'tic-tac-toe'. The author would have written the line and seen no
+        // translation, with nothing to explain it.
+        $slug = (string) preg_replace('/([a-z0-9])([A-Z])/u', '$1-$2', trim($name));
+        $slug = (string) preg_replace('/[^a-z0-9]+/u', '-', strtolower($slug));
 
         return 'os.skills.' . trim($slug, '-') . '.' . $part;
     }

@@ -681,6 +681,12 @@ final class SkillLoopRunner
                 confidence: $confidence,
                 providerName: $this->provider()->name(),
                 providerModel: $this->provider()->model(),
+                // The matched target, exactly as the open branch reports it.
+                // Without these a caller learns that SOMETHING was already
+                // open and not which record — and the guard now matches on the
+                // entry, so which record is the whole answer.
+                arguments: $applied,
+                pipeline: [['skill' => $entry->name, 'arguments' => $applied]],
             );
         }
 

@@ -176,7 +176,10 @@ final class OsShellHandler implements TypedHandlerInterface
      */
     private static function isLocal(string $baseUrl): bool
     {
-        $host = strtolower((string) (parse_url($baseUrl, PHP_URL_HOST) ?: ''));
+        // parse_url keeps the brackets on an IPv6 host: 'http://[::1]:11434'
+        // yields '[::1]', so comparing against '::1' never matched and a
+        // loopback install was reported as remote.
+        $host = trim(strtolower((string) (parse_url($baseUrl, PHP_URL_HOST) ?: '')), '[]');
 
         return $host === 'localhost'
             || $host === '::1'

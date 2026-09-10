@@ -103,7 +103,10 @@ final class UiSkillDialog
      */
     public static function title(string $skill, array $applied): string
     {
-        $first = trim((string) (reset($applied) ?: ''));
+        // Not `?: ''` — that treats the string '0' as absent, and query()
+        // serialises a false flag to exactly that. 'Content — 0' became
+        // 'Content'.
+        $first = $applied === [] ? '' : trim((string) reset($applied));
         if ($first === '') {
             return $skill;
         }

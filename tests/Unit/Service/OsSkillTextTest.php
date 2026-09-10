@@ -72,10 +72,17 @@ final class OsSkillTextTest extends TestCase
         // 'TicTacToe', 'tic-tac-toe' and 'tic tac toe' are one app, and a
         // launcher entry that translated under one spelling and not another
         // would look like a missing translation rather than a naming slip.
-        $this->assertSame(
-            $key->invoke(null, 'tic-tac-toe', 'summary'),
-            $key->invoke(null, 'Tic Tac Toe', 'summary'),
-        );
+        foreach (['Tic Tac Toe', 'TicTacToe', 'tic_tac_toe', 'TIC-TAC-TOE'] as $spelling) {
+            $this->assertSame(
+                $key->invoke(null, 'tic-tac-toe', 'summary'),
+                $key->invoke(null, $spelling, 'summary'),
+                $spelling . ' resolves to a different key',
+            );
+        }
+
+        // A single word keeps its shape — the boundary split must not chop a
+        // name that never had one.
+        $this->assertSame('os.skills.content.summary', $key->invoke(null, 'Content', 'summary'));
         $this->assertSame('os.skills.content-list.summary', $key->invoke(null, 'content_list', 'summary'));
     }
 
