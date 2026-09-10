@@ -30,14 +30,14 @@ use Semitexa\Llm\Domain\Model\LlmResponse;
 use Semitexa\Llm\Domain\Model\PlannerResponse;
 use Semitexa\Llm\Domain\Model\SkillEntry;
 use Semitexa\Llm\Application\Service\TenantSkillScope;
-use Semitexa\Llm\Domain\Model\SkillManifest;
+use Semitexa\Llm\Domain\Model\ScopedSkillManifest;
 use Semitexa\Llm\Domain\Model\SkillScope;
 use Semitexa\Os\Domain\Enum\IntentDecision;
 use Semitexa\Os\Domain\Model\IntentOutcome;
 
 /**
  * Drives one user intent through the Semitexa OS Skill loop:
- * Intent -> Plan ({@see Planner} over the {@see SkillManifest}) -> Execute
+ * Intent -> Plan ({@see Planner} over the {@see ScopedSkillManifest}) -> Execute
  * ({@see SkillExecutor}) -> Observe ({@see IntentOutcome}).
  *
  * This is the generalisation of `semitexa-llm`'s console REPL
@@ -185,7 +185,7 @@ final class SkillLoopRunner
      * is gated ({@see IntentDecision::NeedsConfirmation}) and {@see self::executePipeline()}
      * is called only after approval; otherwise it runs immediately.
      */
-    private function handlePipeline(string $intent, PlannerResponse $response, SkillManifest $manifest, SkillScope $scope): IntentOutcome
+    private function handlePipeline(string $intent, PlannerResponse $response, ScopedSkillManifest $manifest, SkillScope $scope): IntentOutcome
     {
         $steps = $response->steps;
         if ($steps === []) {
@@ -199,6 +199,7 @@ final class SkillLoopRunner
 
         $needsConfirmation = false;
         $firstUi = null;
+        $firstUiArguments = [];
         foreach ($steps as $step) {
             $entry = $manifest->findSkill($step['skill']);
             if ($entry === null) {
@@ -212,6 +213,10 @@ final class SkillLoopRunner
             }
             if ($firstUi === null && $entry->isUi()) {
                 $firstUi = $entry;
+                // The step, not just the entry: which record the dialog opens at
+                // lives in the step's arguments, and reading only the entry threw
+                // that away before the dialog was ever built.
+                $firstUiArguments = $step['arguments'] ?? [];
             }
             if ($entry->confirmation !== AiConfirmationMode::Never) {
                 $needsConfirmation = true;
@@ -224,7 +229,7 @@ final class SkillLoopRunner
         // one dialog (or asks, if one is already running) rather than spawning a
         // duplicate per step.
         if ($firstUi !== null) {
-            return $this->handleUiSkill($intent, $firstUi, $response->reason, $response->confidence);
+            return $this->handleUiSkill($intent, $firstUi, $firstUiArguments, $response->reason, $response->confidence);
         }
 
         if ($needsConfirmation) {
@@ -359,7 +364,7 @@ final class SkillLoopRunner
      * real chain; the weak local model stays effectively single-shot — degraded,
      * but never worse than the pre-loop behavior.
      */
-    private function orchestrate(string $intent, SkillManifest $manifest, string $currentTurnId, SkillScope $scope): IntentOutcome
+    private function orchestrate(string $intent, ScopedSkillManifest $manifest, string $currentTurnId, SkillScope $scope): IntentOutcome
     {
         $maxSteps = $this->maxAgentSteps();
 
@@ -416,7 +421,7 @@ final class SkillLoopRunner
             // UI + confirmation skills hand off to the user, so they can't be
             // auto-continued — return them as terminal outcomes (single-shot parity).
             if ($entry->isUi()) {
-                return $this->handleUiSkill($intent, $entry, $response->reason, $response->confidence);
+                return $this->handleUiSkill($intent, $entry, $response->arguments, $response->reason, $response->confidence);
             }
             if ($entry->confirmation !== AiConfirmationMode::Never) {
                 return new IntentOutcome(
@@ -653,32 +658,43 @@ final class SkillLoopRunner
      * instead ({@see IntentDecision::DialogExists}): open another, or switch to
      * the running one. Only when none is open do we open a fresh dialog.
      */
+    /**
+     * @param array<string, mixed> $arguments as proposed by the planner
+     */
     private function handleUiSkill(
         string $intent,
         SkillEntry $entry,
+        array $arguments,
         ?string $reason,
         ?float $confidence,
     ): IntentOutcome {
-        foreach ($this->dialogs->list() as $dialog) {
-            if (($dialog['skill'] ?? null) === $entry->name) {
-                return new IntentOutcome(
-                    intent: $intent,
-                    decision: IntentDecision::DialogExists,
-                    skill: $entry->name,
-                    reason: $reason,
-                    message: $entry->name . ' is already open. Open another, or switch to the one in Focus?',
-                    confidence: $confidence,
-                    providerName: $this->provider()->name(),
-                    providerModel: $this->provider()->model(),
-                );
-            }
+        $applied = UiSkillDialog::query($entry, $arguments);
+        $entryUrl = UiSkillDialog::entryUrl($entry->entry, $applied);
+
+        if (UiSkillDialog::isAlreadyOpen($this->dialogs->list(), $entry->name, $entryUrl)) {
+            return new IntentOutcome(
+                intent: $intent,
+                decision: IntentDecision::DialogExists,
+                skill: $entry->name,
+                reason: $reason,
+                message: $entry->name . ' is already open. Open another, or switch to the one in Focus?',
+                confidence: $confidence,
+                providerName: $this->provider()->name(),
+                providerModel: $this->provider()->model(),
+                // The matched target, exactly as the open branch reports it.
+                // Without these a caller learns that SOMETHING was already
+                // open and not which record — and the guard now matches on the
+                // entry, so which record is the whole answer.
+                arguments: $applied,
+                pipeline: [['skill' => $entry->name, 'arguments' => $applied]],
+            );
         }
 
         $this->dialogs->open(
             skill: $entry->name,
-            title: $entry->name,
+            title: UiSkillDialog::title($entry->name, $applied),
             icon: $entry->icon,
-            entry: $entry->entry,
+            entry: $entryUrl,
         );
 
         return new IntentOutcome(
@@ -690,9 +706,14 @@ final class SkillLoopRunner
             confidence: $confidence,
             providerName: $this->provider()->name(),
             providerModel: $this->provider()->model(),
-            pipeline: [['skill' => $entry->name, 'arguments' => []]],
+            // What it was opened WITH, not what was proposed — see UiSkillDialog.
+            arguments: $applied,
+            pipeline: [['skill' => $entry->name, 'arguments' => $applied]],
         );
     }
+
+
+
 
     /**
      * @param array<string, scalar|null> $arguments
@@ -703,7 +724,7 @@ final class SkillLoopRunner
         array $arguments,
         ?string $riskLevel,
         ?float $confidence,
-        SkillManifest $manifest,
+        ScopedSkillManifest $manifest,
     ): IntentOutcome {
         $entry = $manifest->findSkill($skill);
         $result = $this->executor()->execute($skill, $arguments, $manifest, $this->channelFor($entry));
@@ -753,7 +774,12 @@ final class SkillLoopRunner
      * system prompt — a large win on the slow CPU model, where every prompt token
      * is prefill time.
      */
-    private const OS_CHANNELS = ['web', 'ui'];
+    /**
+     * The surfaces the OS can actually execute on. Public because the shell must
+     * list exactly what the runner will run — when the two disagreed, the shell
+     * advertised console-only skills that this class then refused.
+     */
+    public const OS_CHANNELS = ['web', 'ui'];
 
     /**
      * The one place the loop learns which skills exist — and therefore the one
@@ -762,9 +788,9 @@ final class SkillLoopRunner
      * anything missing from it, so narrowing it here narrows execution too, not
      * just what the shell lists.
      */
-    private function manifest(SkillScope $scope): SkillManifest
+    private function manifest(SkillScope $scope): ScopedSkillManifest
     {
-        return $this->scopes->manifestFor($scope)->forChannels(self::OS_CHANNELS);
+        return $this->scopes->manifestFor($scope, self::OS_CHANNELS);
     }
 
     /**
@@ -1004,7 +1030,7 @@ final class SkillLoopRunner
      *        focus. Empty for {@see warmPlanner()} — the warm-up primes the static
      *        system prefix, and history is separate messages that don't touch it.
      */
-    private function plannerRequest(string $userMessage, SkillManifest $manifest, array $history = []): LlmRequest
+    private function plannerRequest(string $userMessage, ScopedSkillManifest $manifest, array $history = []): LlmRequest
     {
         $persona = $this->plannerPersona();
 
@@ -1028,7 +1054,7 @@ final class SkillLoopRunner
      *
      * @param list<array{role: string, content: string}> $history
      */
-    private function plannerToolRequest(string $userMessage, SkillManifest $manifest, array $history): LlmRequest
+    private function plannerToolRequest(string $userMessage, ScopedSkillManifest $manifest, array $history): LlmRequest
     {
         $persona = $this->plannerPersona();
 
@@ -1073,7 +1099,7 @@ final class SkillLoopRunner
      *
      * @param list<array{role: string, content: string}> $working
      */
-    private function plan(string $userMessage, SkillManifest $manifest, array $working): PlannerResponse
+    private function plan(string $userMessage, ScopedSkillManifest $manifest, array $working): PlannerResponse
     {
         if ($this->provider() instanceof GeminiProvider) {
             $response = $this->completePlanner($this->plannerToolRequest($userMessage, $manifest, $working));

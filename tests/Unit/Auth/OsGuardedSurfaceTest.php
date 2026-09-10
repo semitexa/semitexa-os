@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Semitexa\Authorization\Attribute\AsProtectedPayload;
 use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Os\Domain\Contract\OsContentSurfaceInterface;
 use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 
 /**
@@ -48,13 +49,30 @@ final class OsGuardedSurfaceTest extends TestCase
                 $public[] = $file;
             }
 
-            if (!str_contains($source, self::shortName(OsSurfacePayloadInterface::class))) {
+            // Either marker counts: OsContentSurfaceInterface extends the other,
+            // so a payload carrying it is just as visible to OsAdminGate — it
+            // has additionally said which audience it belongs to. Checking only
+            // the base name would read every content surface as unmarked.
+            $marked = str_contains($source, self::shortName(OsSurfacePayloadInterface::class))
+                || str_contains($source, self::shortName(OsContentSurfaceInterface::class));
+
+            if (!$marked) {
                 $unmarked[] = $file;
             }
         }
 
         self::assertSame([], $public, 'These console routes still answer anonymous callers: ' . implode(', ', $public));
         self::assertSame([], $unmarked, 'These routes are protected but invisible to OsAdminGate, so a signed-in site customer passes: ' . implode(', ', $unmarked));
+    }
+
+    #[Test]
+    public function the_content_marker_is_still_a_console_marker(): void
+    {
+        // The check above accepts either name because one extends the other. If
+        // that ever stopped being true, every content surface would silently
+        // fall out of OsAdminGate's reach and answer any signed-in site
+        // customer — the exact hole this suite exists to keep closed.
+        self::assertTrue(is_a(OsContentSurfaceInterface::class, OsSurfacePayloadInterface::class, true));
     }
 
     #[Test]

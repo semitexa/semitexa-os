@@ -25,12 +25,35 @@ final class OsShellResource extends HtmlResponse implements ResourceInterface
         return $this->with('skills', $skills);
     }
 
-    public function withProvider(string $name, string $model, bool $healthy): static
+    /**
+     * @param bool $local whether the model runs on this machine. The shell said
+     *        "Local LLM deployment" unconditionally, which is a claim about
+     *        where a person's words go — false on remote Ollama and false on
+     *        Gemini. It is now stated only when it is true.
+     */
+    public function withProvider(string $name, string $model, bool $healthy, bool $local = false): static
     {
         return $this
             ->with('providerName', $name)
             ->with('providerModel', $model)
-            ->with('providerHealthy', $healthy);
+            ->with('providerHealthy', $healthy)
+            ->with('providerLocal', $local);
+    }
+
+    /**
+     * Which optional surfaces this install actually has.
+     *
+     * The shell ships in semitexa/os and some of what it offers lives in
+     * packages a project need not install — semitexa/webapps is not a
+     * dependency of this package and is not in ultimate. Without this the shell
+     * polls a route that is not there, swallows the 404, and still tells the
+     * person to ask for a capability the install does not have.
+     *
+     * @param array<string, bool> $features
+     */
+    public function withFeatures(array $features): static
+    {
+        return $this->with('features', $features);
     }
 
     /** The name the user calls their assistant (defaults to Solomiia). */

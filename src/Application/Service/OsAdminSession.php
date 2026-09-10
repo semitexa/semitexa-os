@@ -25,6 +25,9 @@ use Semitexa\Platform\User\Domain\Model\PlatformUser;
 #[AsService]
 final class OsAdminSession
 {
+    /** Set only by a test; production builds it lazily. */
+    private ?OsPreferences $preferences = null;
+
     #[InjectAsReadonly]
     protected PlatformUserRepositoryInterface $users;
 
@@ -80,6 +83,41 @@ final class OsAdminSession
         $segment = $session->getPayload(OsAdminSessionSegment::class);
         $segment->signIn($user->getId());
         $session->setPayload($segment);
+
+        $this->seedUserName($user);
+    }
+
+    /**
+     * Give the OS the name the account already carries.
+     *
+     * The console greeted a signed-in person with nothing, because the name it
+     * greets by is an OS preference and the preference started empty — while the
+     * identity that had just signed in was carrying a display name the whole
+     * time. Nobody had to be asked; nobody had asked.
+     *
+     * Seeded once, never overwritten: `set-user-name` is how a person says what
+     * to call them, and re-applying the account's name on every sign-in would
+     * quietly undo that on the next visit.
+     */
+    private function seedUserName(PlatformUser $user): void
+    {
+        // Lazily built rather than injected: OsPreferences is itself
+        // container-managed and this is the only thing here that needs it, so
+        // taking it as a property would make every construction of the session
+        // service drag it along.
+        $prefs = $this->preferences ?? new OsPreferences();
+
+        if ($prefs->userName() !== '') {
+            return;
+        }
+
+        try {
+            $prefs->setUserName($user->getDisplayName());
+        } catch (\InvalidArgumentException) {
+            // getDisplayName() falls back to the email, so this only fires for
+            // an identity with neither. Signing in must not fail over a
+            // greeting.
+        }
     }
 
     public function signOut(SessionInterface $session): void

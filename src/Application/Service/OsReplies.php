@@ -43,9 +43,23 @@ final class OsReplies
      */
     public static function say(string $key, array $params, string $fallback): string
     {
+        return self::resolve(self::PREFIX . $key, $params, $fallback);
+    }
+
+    /**
+     * The same bargain for a key that is not a chat reply.
+     *
+     * Kept here rather than copied because the fallback semantics ARE the
+     * contract — catalog(locale), then catalog(en), then the caller's English,
+     * and never the raw key — and a second implementation of that is a second
+     * chance to get it wrong. {@see OsSkillText} uses it for the launcher.
+     *
+     * @param array<string, string|int|float> $params
+     */
+    public static function resolve(string $full, array $params, string $fallback): string
+    {
         try {
             $locale = new OsPreferences()->language();
-            $full = self::PREFIX . $key;
             $service = Translator::getService();
 
             $text = $service->trans($full, $params, $locale);

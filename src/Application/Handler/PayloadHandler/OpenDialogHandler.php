@@ -11,6 +11,7 @@ use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Core\Session\SessionInterface;
 use Semitexa\Llm\Application\Service\TenantSkillScope;
+use Semitexa\Llm\Domain\Model\SkillManifest;
 use Semitexa\Os\Application\Payload\Request\OpenDialogPayload;
 use Semitexa\Os\Application\Service\OpenDialogStore;
 use Semitexa\Os\Application\Service\OsSkillScope;
@@ -44,8 +45,8 @@ final class OpenDialogHandler implements TypedHandlerInterface
         $skill = $payload->getSkill();
         $scope = $this->skillScope->forSession(isset($this->session) ? $this->session : null);
         $manifest = $scope === null
-            ? new \Semitexa\Llm\Domain\Model\SkillManifest('semitexa.ai-skills/v1', gmdate('c'), [])
-            : $this->skills->manifestFor($scope);
+            ? SkillManifest::emptyFor(['ui'])
+            : $this->skills->manifestFor($scope, ['ui']);
         $entry = $manifest->findSkill($skill);
 
         if ($entry === null || !$entry->isUi()) {

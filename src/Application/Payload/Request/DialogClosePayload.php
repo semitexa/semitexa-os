@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\Os\Application\Payload\Request;
 
 use Semitexa\Authorization\Attribute\AsProtectedPayload;
-use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
+use Semitexa\Os\Domain\Contract\OsContentSurfaceInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -19,7 +19,7 @@ use Semitexa\Core\Http\Response\ResourceResponse;
     consumes: ['application/json'],
     produces: ['application/json'],
 )]
-final class DialogClosePayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
+final class DialogClosePayload implements ValidatablePayloadInterface, OsContentSurfaceInterface
 {
     private string $id = '';
 

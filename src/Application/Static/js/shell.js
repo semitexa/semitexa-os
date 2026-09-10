@@ -36,6 +36,20 @@
         const DESKTOP = new URLSearchParams(location.search).has('desktop');
         if (DESKTOP) document.title = 'SemitexaDesktop';
         const OS_PERMITTED = boot.windowMode === 'os' && DESKTOP;
+        // Optional packages. The shell ships in semitexa/os; semitexa/webapps is
+        // neither its dependency nor part of ultimate, so a normal install does
+        // not serve /os/webapps. Asking the server once beats polling a route
+        // that is not there and swallowing the 404 — which is what this did, and
+        // is why the empty launcher still told people to add a site.
+        const HAS = (boot.features && typeof boot.features === 'object') ? boot.features : {};
+        const HAS_WEB_APPS = HAS.webApps === true;
+        // X-Ray is observability — loop internals, provider health, a live
+        // trace. It is the operator's surface, and a content editor reading
+        // "Planner over the SkillManifest" learns nothing except that this is
+        // not for them.
+        const IS_OPERATOR = HAS.operator === true;
+        // A leisure chip is only worth offering if something can answer it.
+        const hasSkill = (name) => (boot.skills || []).some(s => s.name === name);
         const BRIDGE = boot.bridgeUrl || 'http://127.0.0.1:8777';
         // The bridge requires a shared token on every side-effecting call
         // (blind cross-origin GETs fire regardless of CORS; the token is the
@@ -263,28 +277,37 @@
         function awakeningHTML() {
             let cap = '';
             if (S.awake === 'idle') cap = '<div class="os-awaken__cap"><h1>' + t('hi', '"Hi, ') + esc(boot.assistantName) + '"</h1><p>' + t('touch_to_begin', 'Touch to begin.') + '</p></div>';
-            else if (S.awake === 'auth') cap = '<div class="os-awaken__auth">' + t('recognising_voice', 'Recognising voice biometrics…') + '</div>';
+            // Was "Recognising voice biometrics…" over a microphone icon. The
+            // shell has never touched a microphone — there is no getUserMedia,
+            // no SpeechRecognition, nothing — and this phase is a 1500ms
+            // setTimeout. The pause is worth keeping as a deliberate way into
+            // the session; naming a capability to fill it is not.
+            else if (S.awake === 'auth') cap = '<div class="os-awaken__auth">' + t('waking', 'Waking…') + '</div>';
             else if (S.awake === 'snapshot') cap = snapshotHTML();
             return '<div class="os-awaken">'
                 + '<div class="os-awaken__grid"></div>'
                 + '<div class="os-orb" data-act="awaken"><div class="os-orb__ring"></div><div class="os-orb__ring delay"></div>'
-                + '<div class="os-orb__core">' + ico('mic', 46) + '</div></div>'
+                + '<div class="os-orb__core">' + ico('sparkles', 46) + '</div></div>'
                 + cap + '</div>';
         }
         function snapshotHTML() {
             const s = S.snapshot || {};
             const has = (s.count || 0) > 0;
             const trim = (t) => (t && t.length > 48) ? t.slice(0, 46) + '…' : (t || '');
-            let rows = '<div class="os-snapshot__row"><span class="dot"></span> ' + t('local_llm_deployment', 'Local LLM deployment') + ' · <span class="sub">' + esc(boot.providerName) + ' · ' + esc(boot.providerModel) + '</span></div>';
+            // "Local LLM deployment" was printed whatever the provider was — a
+            // claim about where a person's words GO, and false on remote Ollama
+            // and on Gemini. Said only when the server says it is true.
+            const where = boot.providerLocal ? t('assistant_local', 'Assistant · on this machine') : t('assistant_remote', 'Assistant');
+            let rows = '<div class="os-snapshot__row"><span class="dot"></span> ' + where + ' · <span class="sub">' + esc(boot.providerName) + ' · ' + esc(boot.providerModel) + '</span></div>';
             if (has) {
                 if (s.last_skill) rows += '<div class="os-snapshot__row"><span class="dot"></span> ' + t('last_skill', 'Last skill') + ' · <span class="sub">' + esc(s.last_skill) + '</span></div>';
                 if (s.last_intent) rows += '<div class="os-snapshot__row"><span class="dot"></span> ' + t('last_intent', 'Last intent') + ' · <span class="sub">"' + esc(trim(s.last_intent)) + '"</span></div>';
-                rows += '<div class="os-snapshot__row"><span class="dot mute"></span> os:session · <span class="sub">' + s.count + ' ' + t('actions_on_device', 'actions on this device') + '</span></div>';
+                rows += '<div class="os-snapshot__row"><span class="dot mute"></span> ' + t('this_device', 'This device') + ' · <span class="sub">' + s.count + ' ' + t('actions_on_device', 'actions on this device') + '</span></div>';
             } else {
-                rows += '<div class="os-snapshot__row"><span class="dot mute"></span> os:session · <span class="sub">' + t('no_prior_actions', 'no prior actions yet') + '</span></div>';
+                rows += '<div class="os-snapshot__row"><span class="dot mute"></span> ' + t('this_device', 'This device') + ' · <span class="sub">' + t('no_prior_actions', 'no prior actions yet') + '</span></div>';
             }
             return '<div class="os-snapshot">'
-                + '<div class="os-snapshot__eyebrow">' + ico('history') + ' ' + t('state_snapshot', 'State Snapshot') + ' · ' + (has ? t('snapshot_restored', 'restored from var/os/session') : t('new_device', 'new device')) + '</div>'
+                + '<div class="os-snapshot__eyebrow">' + ico('history') + ' ' + t('state_snapshot', 'State Snapshot') + ' · ' + (has ? t('snapshot_restored', 'from your last visit') : t('new_device', 'new device')) + '</div>'
                 + '<div class="os-snapshot__title">' + (has ? t('continue_where_you_were', 'Continue where you were') : t('a_clean_slate', 'A clean slate')) + '</div>'
                 + '<div class="os-snapshot__rows">' + rows + '</div>'
                 + '<div class="os-snapshot__actions">'
@@ -314,7 +337,7 @@
                 + '</button>'
                 + '<div class="os-modeswitch">' + btns + '</div>'
                 + '<div class="os-topbar__right">' + layoutSwitchHTML() + themeSwitchHTML()
-                + '<button class="os-xray-toggle' + (S.xray?' active':'') + '" data-act="xray">' + ico('scan-eye',16) + t('xray_label', ' X-Ray') + '</button>'
+                + (IS_OPERATOR ? '<button class="os-xray-toggle' + (S.xray?' active':'') + '" data-act="xray">' + ico('scan-eye',16) + t('xray_label', ' X-Ray') + '</button>' : '')
                 + '</div></header>';
         }
 
@@ -693,10 +716,14 @@
             if (recents.length) browse += launcherSection(t('recently_opened', 'Recently opened'),
                 recents.map(s => skillBtn({ name: s.name, icon: s.icon }, 'recent')).join(''));
             if (apps.length) browse += launcherSection(t('your_apps', 'Your apps'), apps.map(webAppTile).join(''),
-                t('ask_open_prefix', 'Ask ') + esc(boot.assistantName) + t('open_any_site', ' to “open …” any site to add one.'));
+                HAS_WEB_APPS ? t('ask_open_prefix', 'Ask ') + esc(boot.assistantName) + t('open_any_site', ' to “open …” any site to add one.') : '');
+            // The invitation to add a site is only true where the install can.
+            const emptyLauncher = HAS_WEB_APPS
+                ? t('no_apps_yet_ask', 'No apps yet. Ask ') + esc(boot.assistantName) + t('to_open_site', ' to open a site to add one.')
+                : t('no_apps_installed', 'No apps are installed on this system.');
             browse += skills.length
                 ? launcherSection(t('all_apps', 'All apps'), skills.map(s => skillBtn(s)).join(''))
-                : '<div class="os-launcher-empty">' + ico('layout-grid', 20) + ' <span>' + t('no_apps_yet_ask', 'No apps yet. Ask ') + esc(boot.assistantName) + t('to_open_site', ' to open a site to add one.') + '</span></div>';
+                : '<div class="os-launcher-empty">' + ico('layout-grid', 20) + ' <span>' + emptyLauncher + '</span></div>';
 
             // ---- results view (flat, filtered across everything) ----
             const tile = (dataName, inner) => {
@@ -735,21 +762,34 @@
             // music app") routes through the LLM and the opened app sticks.
             const chip = (icon, label, text, activity) => '<button class="os-chill-chip" data-act="run-skill" data-text="' + esc(text) + '"'
                 + (activity ? ' data-chill="' + activity + '"' : '') + '>' + ico(icon, 18) + '<span>' + esc(label) + '</span></button>';
-            const chips = '<div class="os-chill-chips">'
-                + chip('gamepad-2', t('tictactoe_with', 'Tic-tac-toe with ') + boot.assistantName, "Let's play tic-tac-toe", 'game')
-                + chip('music', t('music_label', 'Music'), 'Put on some relaxing music', 'music')
-                + chip('youtube', 'YouTube', 'Open YouTube to watch something', 'video')
-                + chip('dices', t('surprise_me', 'Surprise me'), 'Surprise me with something fun to do')
-                + '</div>';
-            const leisure = '<div class="os-chill-leisure">'
-                + '<div class="os-chill-hero__greet">' + t('in_the_mood', 'In the mood for something') + name + '?</div>'
-                + '<div class="os-chill-hero__sub">' + t('watch_play_relax', 'Watch, play, or just relax — pick something, or ask ') + esc(boot.assistantName) + t('in_the_chat', ' in the chat.') + '</div>'
-                + chips + '</div>';
+            // Derived from what this install has. Four were hardcoded, and on an
+            // install without semitexa/tictactoe, semitexa/music or
+            // semitexa/webapps three of them opened nothing — the chip is the
+            // promise, and a promise nothing can keep is worse than a shorter
+            // list.
+            const offered = [];
+            if (hasSkill('tic-tac-toe')) offered.push(chip('gamepad-2', t('tictactoe_with', 'Tic-tac-toe with ') + boot.assistantName, "Let's play tic-tac-toe", 'game'));
+            if (hasSkill('music')) offered.push(chip('music', t('music_label', 'Music'), 'Put on some relaxing music', 'music'));
+            if (HAS_WEB_APPS) offered.push(chip('youtube', 'YouTube', 'Open YouTube to watch something', 'video'));
+            // "Surprise me" asks the assistant for a leisure app; with none
+            // installed there is nothing for it to surprise anyone with, so it
+            // rides along with the others rather than standing alone.
+            if (offered.length) offered.push(chip('dices', t('surprise_me', 'Surprise me'), 'Surprise me with something fun to do'));
+
+            const leisure = offered.length
+                ? '<div class="os-chill-leisure">'
+                    + '<div class="os-chill-hero__greet">' + t('in_the_mood', 'In the mood for something') + name + '?</div>'
+                    + '<div class="os-chill-hero__sub">' + t('watch_play_relax', 'Watch, play, or just relax — pick something, or ask ') + esc(boot.assistantName) + t('in_the_chat', ' in the chat.') + '</div>'
+                    + '<div class="os-chill-chips">' + offered.join('') + '</div></div>'
+                : '';
             const inner = chillProcessesHTML() + leisure;
             return '<div class="os-scroll" id="os-scroll"><div class="os-chill">' + inner + '</div></div>' + chatDockHTML();
         }
 
         function xrayHTML() {
+            // Never rendered for a content editor: the toggle is hidden for
+            // them, and a hidden toggle is not a gate — the panel refuses too.
+            if (!IS_OPERATOR) return '';
             const unit = (name, status, busy) => '<div class="os-unit' + (busy?' busy':'') + '"><div class="os-unit__head">' + ico('box',19) + '<span class="os-unit__name">' + esc(name) + '</span><span class="os-unit__dot"></span></div><div class="os-unit__status">' + esc(status) + '</div></div>';
             let units;
             if (S.units.length) {
@@ -1374,6 +1414,7 @@
         }
         // The user's registered external apps (for the "Your apps" launcher).
         async function fetchWebApps() {
+            if (!HAS_WEB_APPS) return;
             try {
                 const r = await fetch('/os/webapps', { headers: { 'Accept': 'application/json' } });
                 const j = await r.json();
@@ -1381,6 +1422,7 @@
             } catch (e) {}
         }
         async function openWebApp(id) {
+            if (!HAS_WEB_APPS) return;
             if (isOsMode()) {
                 if (!(S.webApps || []).length) await fetchWebApps();
                 const app = (S.webApps || []).find(a => a.id === id);
@@ -1392,6 +1434,7 @@
             if ((S.dialogs || []).length >= before) { if (S.mode !== 'chill') S.mode = 'focus'; render(); }
         }
         async function removeWebApp(id) {
+            if (!HAS_WEB_APPS) return;
             await post('/os/webapp/remove', { id });
             await fetchWebApps();
             render();

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\Os\Application\Payload\Request;
 
 use Semitexa\Authorization\Attribute\AsProtectedPayload;
-use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
+use Semitexa\Os\Domain\Contract\OsContentSurfaceInterface;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -20,7 +20,7 @@ use Semitexa\Core\Http\Response\ResourceResponse;
     responseWith: ResourceResponse::class,
     produces: ['application/json'],
 )]
-final class ProactivePayload implements ValidatablePayloadInterface, OsSurfacePayloadInterface
+final class ProactivePayload implements ValidatablePayloadInterface, OsContentSurfaceInterface
 {
     private string $since = '';
 

@@ -12,6 +12,9 @@ use Semitexa\Core\Pipeline\Exception\AuthenticationRequiredException;
 use Semitexa\Core\Pipeline\PipelineListenerInterface;
 use Semitexa\Core\Pipeline\RequestPipelineContext;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
+use Semitexa\Os\Application\Payload\Request\PasswordChangePayload;
+use Semitexa\Os\Application\Payload\Request\SettingsAppPayload;
+use Semitexa\Os\Domain\Contract\OsContentSurfaceInterface;
 use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Platform\User\Auth\UserPrincipal;
 use Semitexa\Platform\User\Domain\Enum\UserRole;
@@ -29,6 +32,10 @@ use Semitexa\Platform\User\Domain\Enum\UserRole;
  * Runs after AuthorizationListener (priority 0), which has already resolved the
  * principal, and before CsrfListener (priority 10), so a request that has no
  * business here is turned away before anything else spends time on it.
+ *
+ * Owner and Admin open the whole console. An Editor opens the surfaces marked
+ * {@see OsContentSurfaceInterface} and nothing else — which is what makes the
+ * role usable at all without making it a second Admin.
  */
 #[AsPipelineListener(phase: AuthCheck::class, priority: 5)]
 final class OsAdminGate implements PipelineListenerInterface
@@ -60,8 +67,35 @@ final class OsAdminGate implements PipelineListenerInterface
             throw new AccessDeniedException('This account is not an operator of this console.');
         }
 
-        if (!in_array($principal->user->getRole(), [UserRole::Owner, UserRole::Admin], true)) {
-            throw new AccessDeniedException('This account is not an operator of this console.');
+        // A password somebody else chose is a password the account's owner has
+        // not. Until they replace it, the console opens only the two surfaces
+        // that let them: the settings form and the route it posts to. Checked
+        // here rather than only at the login redirect, because a redirect is a
+        // suggestion — the address bar is not.
+        if ($principal->user->isPasswordIssuedByOperator()
+            && !$context->requestDto instanceof PasswordChangePayload
+            && !$context->requestDto instanceof SettingsAppPayload
+        ) {
+            throw new AccessDeniedException(
+                'Replace the password your operator issued before using the console.',
+            );
         }
+
+        $role = $principal->user->getRole();
+
+        if ($role === UserRole::Owner || $role === UserRole::Admin) {
+            return;
+        }
+
+        // An editor's rights are content rights, so they reach the surfaces of
+        // that job and nothing else. The alternative — admitting the role to
+        // everything OsSurfacePayloadInterface covers — would hand a client's
+        // editor the terminal, the assistant's prompts, the process registry and
+        // the update surface along with their pages.
+        if ($role === UserRole::Editor && $context->requestDto instanceof OsContentSurfaceInterface) {
+            return;
+        }
+
+        throw new AccessDeniedException('This account is not an operator of this console.');
     }
 }
