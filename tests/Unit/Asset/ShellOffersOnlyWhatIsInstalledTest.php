@@ -7,6 +7,7 @@ namespace Semitexa\Os\Tests\Unit\Asset;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Semitexa\Os\Application\Handler\PayloadHandler\OsShellHandler;
+use Semitexa\Testing\Traits\BuildsContainerManagedObjects;
 
 /**
  * The shell ships in semitexa/os and offers things that live elsewhere.
@@ -19,6 +20,8 @@ use Semitexa\Os\Application\Handler\PayloadHandler\OsShellHandler;
  */
 final class ShellOffersOnlyWhatIsInstalledTest extends TestCase
 {
+    use BuildsContainerManagedObjects;
+
     private const SHELL_JS = __DIR__ . '/../../../src/Application/Static/js/shell.js';
 
     private function shell(): string
@@ -32,9 +35,9 @@ final class ShellOffersOnlyWhatIsInstalledTest extends TestCase
     #[Test]
     public function the_boot_payload_reports_which_optional_packages_are_here(): void
     {
-        $handler = (new \ReflectionClass(OsShellHandler::class))->newInstanceWithoutConstructor();
-        $admins = (new \ReflectionClass(\Semitexa\Os\Application\Service\OsAdminSession::class))->newInstanceWithoutConstructor();
-        (new \ReflectionProperty(OsShellHandler::class, 'admins'))->setValue($handler, $admins);
+        $handler = $this->createWithDependencies(OsShellHandler::class, [
+            'admins' => $this->createWithDependencies(\Semitexa\Os\Application\Service\OsAdminSession::class),
+        ]);
 
         $features = (new \ReflectionMethod(OsShellHandler::class, 'features'))->invoke($handler, null);
 

@@ -18,6 +18,7 @@ use Semitexa\Platform\User\Auth\UserPrincipal;
 use Semitexa\Platform\User\Domain\Enum\UserRole;
 use Semitexa\Platform\User\Domain\Enum\UserStatus;
 use Semitexa\Platform\User\Domain\Model\PlatformUser;
+use Semitexa\Testing\Traits\BuildsContainerManagedObjects;
 
 /**
  * A password somebody else chose is a password the account's owner has not.
@@ -33,14 +34,15 @@ use Semitexa\Platform\User\Domain\Model\PlatformUser;
  */
 final class MustChangePasswordGateTest extends TestCase
 {
+    use BuildsContainerManagedObjects;
+
     private function gate(): OsAdminGate
     {
-        $gate = (new \ReflectionClass(OsAdminGate::class))->newInstanceWithoutConstructor();
-        $policy = (new \ReflectionClass(OsAuthPolicy::class))->newInstanceWithoutConstructor();
-        (new \ReflectionProperty(OsAuthPolicy::class, 'authFlag'))->setValue($policy, '1');
-        (new \ReflectionProperty(OsAdminGate::class, 'policy'))->setValue($gate, $policy);
+        // OsAuthPolicy is final, so the real one is built and told to require
+        // auth through the flag it already reads.
+        $policy = $this->createWithDependencies(OsAuthPolicy::class, ['authFlag' => '1']);
 
-        return $gate;
+        return $this->createWithDependencies(OsAdminGate::class, ['policy' => $policy]);
     }
 
     private function context(bool $mustChange, object $payload): RequestPipelineContext
@@ -54,8 +56,11 @@ final class MustChangePasswordGateTest extends TestCase
             passwordIssuedByOperator: $mustChange,
         );
 
-        $principal = (new \ReflectionClass(UserPrincipal::class))->newInstanceWithoutConstructor();
-        (new \ReflectionProperty(UserPrincipal::class, 'user'))->setValue($principal, $user);
+        // Its own constructor, not reflection: UserPrincipal is a value object,
+        // and one assembled by reflection silently keeps working when a required
+        // property is added — which is how two PlatformUser tests failed on a
+        // change that was correct.
+        $principal = new UserPrincipal($user);
 
         $context = (new \ReflectionClass(RequestPipelineContext::class))->newInstanceWithoutConstructor();
         (new \ReflectionProperty(RequestPipelineContext::class, 'requestDto'))->setValue($context, $payload);

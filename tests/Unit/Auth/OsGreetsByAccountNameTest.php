@@ -10,6 +10,7 @@ use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsPreferences;
 use Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface;
 use Semitexa\Platform\User\Domain\Model\PlatformUser;
+use Semitexa\Testing\Traits\BuildsContainerManagedObjects;
 
 /**
  * The console greeted a signed-in person with an empty name.
@@ -21,6 +22,8 @@ use Semitexa\Platform\User\Domain\Model\PlatformUser;
  */
 final class OsGreetsByAccountNameTest extends TestCase
 {
+    use BuildsContainerManagedObjects;
+
     private function user(string $displayName, string $email): PlatformUser
     {
         // Through the real constructor: a model reflected into shape breaks the
@@ -74,11 +77,8 @@ final class OsGreetsByAccountNameTest extends TestCase
             public function hasForUser(string $moduleKey, string $key, string $userId): bool { return $this->has($moduleKey, $key); }
         };
 
-        $prefs = (new \ReflectionClass(OsPreferences::class))->newInstanceWithoutConstructor();
-        (new \ReflectionProperty(OsPreferences::class, 'settings'))->setValue($prefs, $store);
-
-        $session = (new \ReflectionClass(OsAdminSession::class))->newInstanceWithoutConstructor();
-        (new \ReflectionProperty(OsAdminSession::class, 'preferences'))->setValue($session, $prefs);
+        $prefs = $this->createWithDependencies(OsPreferences::class, ['settings' => $store]);
+        $session = $this->createWithDependencies(OsAdminSession::class, ['preferences' => $prefs]);
 
         (new \ReflectionMethod(OsAdminSession::class, 'seedUserName'))->invoke($session, $user);
 
