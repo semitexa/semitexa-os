@@ -668,31 +668,25 @@ final class SkillLoopRunner
         ?string $reason,
         ?float $confidence,
     ): IntentOutcome {
-        $applied = $this->uiSkillQuery($entry, $arguments);
-        $entryUrl = $this->appendQuery($entry->entry, $applied);
+        $applied = UiSkillDialog::query($entry, $arguments);
+        $entryUrl = UiSkillDialog::entryUrl($entry->entry, $applied);
 
-        foreach ($this->dialogs->list() as $dialog) {
-            // Same skill AND same entry. Two different pages of the same editor
-            // are two dialogs, not a duplicate — the guard exists to stop a
-            // second window onto the SAME thing, and once a UI skill can carry
-            // arguments, the skill name alone stopped saying which thing.
-            if (($dialog['skill'] ?? null) === $entry->name && ($dialog['entry'] ?? null) === $entryUrl) {
-                return new IntentOutcome(
-                    intent: $intent,
-                    decision: IntentDecision::DialogExists,
-                    skill: $entry->name,
-                    reason: $reason,
-                    message: $entry->name . ' is already open. Open another, or switch to the one in Focus?',
-                    confidence: $confidence,
-                    providerName: $this->provider()->name(),
-                    providerModel: $this->provider()->model(),
-                );
-            }
+        if (UiSkillDialog::isAlreadyOpen($this->dialogs->list(), $entry->name, $entryUrl)) {
+            return new IntentOutcome(
+                intent: $intent,
+                decision: IntentDecision::DialogExists,
+                skill: $entry->name,
+                reason: $reason,
+                message: $entry->name . ' is already open. Open another, or switch to the one in Focus?',
+                confidence: $confidence,
+                providerName: $this->provider()->name(),
+                providerModel: $this->provider()->model(),
+            );
         }
 
         $this->dialogs->open(
             skill: $entry->name,
-            title: self::dialogTitle($entry->name, $applied),
+            title: UiSkillDialog::title($entry->name, $applied),
             icon: $entry->icon,
             entry: $entryUrl,
         );
@@ -706,91 +700,14 @@ final class SkillLoopRunner
             confidence: $confidence,
             providerName: $this->provider()->name(),
             providerModel: $this->provider()->model(),
-            // What the dialog was actually opened with, not what was proposed:
-            // an argument the skill never declared is dropped, and the trail has
-            // to show the dropping rather than imply it was honoured.
+            // What it was opened WITH, not what was proposed — see UiSkillDialog.
             arguments: $applied,
             pipeline: [['skill' => $entry->name, 'arguments' => $applied]],
         );
     }
 
-    /**
-     * The planner's arguments, narrowed to the ones this skill actually declares.
-     *
-     * An allowlist, not a pass-through. The entry is a URL the OS opens in a
-     * window, so anything reaching it is being appended to that app's own query
-     * string; a planner is a language model and its proposed argument names are
-     * a suggestion, not a contract. Declaration order is the iteration order, so
-     * the same plan always produces the same URL.
-     *
-     * @param array<string, mixed> $arguments
-     * @return array<string, string>
-     */
-    private function uiSkillQuery(SkillEntry $entry, array $arguments): array
-    {
-        $applied = [];
-        foreach (array_keys($entry->inputs) as $name) {
-            if (!array_key_exists($name, $arguments)) {
-                continue;
-            }
-            $value = $arguments[$name];
-            if ($value === null || is_array($value) || is_object($value)) {
-                continue;
-            }
-            // A flag reaching a URL has to be readable on the other side; '1'/'0'
-            // survives a plain string comparison where 'true'/'' does not.
-            $applied[$name] = is_bool($value) ? ($value ? '1' : '0') : (string) $value;
-        }
 
-        return $applied;
-    }
 
-    /**
-     * What the window is called.
-     *
-     * Opening five pages from chat used to give five windows called 'Content',
-     * which is the app's name and not the place's — a person switching between
-     * them had nothing to switch BY. The shell path already names the window
-     * after the place (OpenDialogHandler resolves the ref through the graph);
-     * the chat path cannot, because at this point the argument is still what the
-     * person said rather than a resolved record. So it shows exactly that, next
-     * to the app it belongs to, instead of claiming a title it has not looked up.
-     *
-     * The first declared input is the label: declaration order is the contract
-     * {@see uiSkillQuery()} already relies on, and a skill lists what identifies
-     * a record first.
-     *
-     * @param array<string, string> $applied
-     */
-    private static function dialogTitle(string $skill, array $applied): string
-    {
-        $first = trim((string) (reset($applied) ?: ''));
-        if ($first === '') {
-            return $skill;
-        }
-
-        if (mb_strlen($first) > 40) {
-            $first = mb_substr($first, 0, 39) . '…';
-        }
-
-        return $skill . ' — ' . $first;
-    }
-
-    /**
-     * @param array<string, string> $query
-     */
-    private function appendQuery(?string $entry, array $query): ?string
-    {
-        // An argument-less UI skill — Notes, Calendar, Terminal — opens at exactly
-        // the URL it always did, untouched.
-        if ($entry === null || $query === []) {
-            return $entry;
-        }
-
-        return $entry
-            . (str_contains($entry, '?') ? '&' : '?')
-            . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
-    }
 
     /**
      * @param array<string, scalar|null> $arguments
