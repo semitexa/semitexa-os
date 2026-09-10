@@ -48,8 +48,15 @@ final class OsEditorRoleSurfaceTest extends TestCase
 
     private function contextFor(UserRole $role, object $payload): RequestPipelineContext
     {
-        $user = (new \ReflectionClass(PlatformUser::class))->newInstanceWithoutConstructor();
-        (new \ReflectionProperty(PlatformUser::class, 'role'))->setValue($user, $role);
+        // Built through the real constructor rather than reflected into shape:
+        // a half-initialised model breaks the moment the class gains a typed
+        // property, which is exactly what happened when it gained one.
+        $user = new PlatformUser(
+            id: 'u1',
+            email: 'editor@example.com',
+            passwordHash: 'x',
+            role: $role,
+        );
 
         $principal = (new \ReflectionClass(UserPrincipal::class))->newInstanceWithoutConstructor();
         (new \ReflectionProperty(UserPrincipal::class, 'user'))->setValue($principal, $user);

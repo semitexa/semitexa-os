@@ -23,11 +23,14 @@ final class OsGreetsByAccountNameTest extends TestCase
 {
     private function user(string $displayName, string $email): PlatformUser
     {
-        $user = (new \ReflectionClass(PlatformUser::class))->newInstanceWithoutConstructor();
-        (new \ReflectionProperty(PlatformUser::class, 'displayName'))->setValue($user, $displayName);
-        (new \ReflectionProperty(PlatformUser::class, 'email'))->setValue($user, $email);
-
-        return $user;
+        // Through the real constructor: a model reflected into shape breaks the
+        // moment the class gains a typed property, which it since did.
+        return new PlatformUser(
+            id: 'u1',
+            email: $email,
+            passwordHash: 'x',
+            displayName: $displayName,
+        );
     }
 
     /**

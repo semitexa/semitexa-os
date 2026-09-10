@@ -12,6 +12,8 @@ use Semitexa\Core\Pipeline\Exception\AuthenticationRequiredException;
 use Semitexa\Core\Pipeline\PipelineListenerInterface;
 use Semitexa\Core\Pipeline\RequestPipelineContext;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
+use Semitexa\Os\Application\Payload\Request\PasswordChangePayload;
+use Semitexa\Os\Application\Payload\Request\SettingsAppPayload;
 use Semitexa\Os\Domain\Contract\OsContentSurfaceInterface;
 use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Platform\User\Auth\UserPrincipal;
@@ -63,6 +65,20 @@ final class OsAdminGate implements PipelineListenerInterface
         // can use.
         if (!$principal instanceof UserPrincipal) {
             throw new AccessDeniedException('This account is not an operator of this console.');
+        }
+
+        // A password somebody else chose is a password the account's owner has
+        // not. Until they replace it, the console opens only the two surfaces
+        // that let them: the settings form and the route it posts to. Checked
+        // here rather than only at the login redirect, because a redirect is a
+        // suggestion — the address bar is not.
+        if ($principal->user->isPasswordIssuedByOperator()
+            && !$context->requestDto instanceof PasswordChangePayload
+            && !$context->requestDto instanceof SettingsAppPayload
+        ) {
+            throw new AccessDeniedException(
+                'Replace the password your operator issued before using the console.',
+            );
         }
 
         $role = $principal->user->getRole();

@@ -77,6 +77,13 @@ final class OsLoginSubmitHandler implements TypedHandlerInterface
 
         $intended = $this->admins->takeIntendedPath($this->session);
 
+        // Land where the one thing they can do is: sending them to wherever they
+        // were headed would show a console that refuses everything, which reads
+        // as broken rather than as waiting.
+        if ($attempt->user->isPasswordIssuedByOperator()) {
+            return $resource->setRedirect('/os/app/settings');
+        }
+
         return $resource->setRedirect(
             $payload->getNext() !== '' ? $next : $this->policy->safeReturnPath($intended),
         );
