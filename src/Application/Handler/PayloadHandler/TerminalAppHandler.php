@@ -12,6 +12,7 @@ use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Core\Session\SessionInterface;
 use Semitexa\Llm\Application\Service\TenantSkillScope;
 use Semitexa\Os\Application\Payload\Request\TerminalAppPayload;
+use Semitexa\Llm\Domain\Model\SkillManifest;
 use Semitexa\Os\Application\Service\OsSkillText;
 use Semitexa\Os\Application\Service\OsSkillScope;
 
@@ -37,10 +38,10 @@ final class TerminalAppHandler implements TypedHandlerInterface
     {
         $scope = $this->skillScope->forSession(isset($this->session) ? $this->session : null);
         $manifest = $scope === null
-            ? new \Semitexa\Llm\Domain\Model\SkillManifest('semitexa.ai-skills/v1', gmdate('c'), [])
+            ? SkillManifest::emptyFor(['console'])
             : $this->skills->manifestFor($scope, ['console']);
         $console = [];
-        foreach ($manifest->skills as $skill) {
+        foreach ($manifest->skills() as $skill) {
             // The manifest is already scoped to 'console'; isUi() still matters
             // because a skill may declare both and a UI skill has no command to
             // type at a terminal.

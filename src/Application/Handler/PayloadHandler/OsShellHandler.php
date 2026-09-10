@@ -13,6 +13,7 @@ use Semitexa\Core\Session\SessionInterface;
 use Semitexa\Llm\Application\Service\TenantSkillScope;
 use Semitexa\Os\Application\Payload\Request\OsShellPayload;
 use Semitexa\Os\Application\Resource\Response\OsShellResource;
+use Semitexa\Llm\Domain\Model\SkillManifest;
 use Semitexa\Os\Application\Service\OsSkillText;
 use Semitexa\Os\Application\Service\InputLayoutStore;
 use Semitexa\Os\Application\Service\OsAdminSession;
@@ -97,11 +98,11 @@ final class OsShellHandler implements TypedHandlerInterface
         // before planning, refused to run them.
         $scope = $this->skillScope->forSession($session);
         $manifest = $scope === null
-            ? new \Semitexa\Llm\Domain\Model\SkillManifest('semitexa.ai-skills/v1', gmdate('c'), [])
+            ? SkillManifest::emptyFor(SkillLoopRunner::OS_CHANNELS)
             : $this->skills->manifestFor($scope, SkillLoopRunner::OS_CHANNELS);
 
         $skills = [];
-        foreach ($manifest->skills as $skill) {
+        foreach ($manifest->skills() as $skill) {
             $skills[] = [
                 'name' => $skill->name,
                 'summary' => OsSkillText::summary($skill),

@@ -30,14 +30,14 @@ use Semitexa\Llm\Domain\Model\LlmResponse;
 use Semitexa\Llm\Domain\Model\PlannerResponse;
 use Semitexa\Llm\Domain\Model\SkillEntry;
 use Semitexa\Llm\Application\Service\TenantSkillScope;
-use Semitexa\Llm\Domain\Model\SkillManifest;
+use Semitexa\Llm\Domain\Model\ScopedSkillManifest;
 use Semitexa\Llm\Domain\Model\SkillScope;
 use Semitexa\Os\Domain\Enum\IntentDecision;
 use Semitexa\Os\Domain\Model\IntentOutcome;
 
 /**
  * Drives one user intent through the Semitexa OS Skill loop:
- * Intent -> Plan ({@see Planner} over the {@see SkillManifest}) -> Execute
+ * Intent -> Plan ({@see Planner} over the {@see ScopedSkillManifest}) -> Execute
  * ({@see SkillExecutor}) -> Observe ({@see IntentOutcome}).
  *
  * This is the generalisation of `semitexa-llm`'s console REPL
@@ -185,7 +185,7 @@ final class SkillLoopRunner
      * is gated ({@see IntentDecision::NeedsConfirmation}) and {@see self::executePipeline()}
      * is called only after approval; otherwise it runs immediately.
      */
-    private function handlePipeline(string $intent, PlannerResponse $response, SkillManifest $manifest, SkillScope $scope): IntentOutcome
+    private function handlePipeline(string $intent, PlannerResponse $response, ScopedSkillManifest $manifest, SkillScope $scope): IntentOutcome
     {
         $steps = $response->steps;
         if ($steps === []) {
@@ -364,7 +364,7 @@ final class SkillLoopRunner
      * real chain; the weak local model stays effectively single-shot — degraded,
      * but never worse than the pre-loop behavior.
      */
-    private function orchestrate(string $intent, SkillManifest $manifest, string $currentTurnId, SkillScope $scope): IntentOutcome
+    private function orchestrate(string $intent, ScopedSkillManifest $manifest, string $currentTurnId, SkillScope $scope): IntentOutcome
     {
         $maxSteps = $this->maxAgentSteps();
 
@@ -718,7 +718,7 @@ final class SkillLoopRunner
         array $arguments,
         ?string $riskLevel,
         ?float $confidence,
-        SkillManifest $manifest,
+        ScopedSkillManifest $manifest,
     ): IntentOutcome {
         $entry = $manifest->findSkill($skill);
         $result = $this->executor()->execute($skill, $arguments, $manifest, $this->channelFor($entry));
@@ -782,7 +782,7 @@ final class SkillLoopRunner
      * anything missing from it, so narrowing it here narrows execution too, not
      * just what the shell lists.
      */
-    private function manifest(SkillScope $scope): SkillManifest
+    private function manifest(SkillScope $scope): ScopedSkillManifest
     {
         return $this->scopes->manifestFor($scope, self::OS_CHANNELS);
     }
@@ -1024,7 +1024,7 @@ final class SkillLoopRunner
      *        focus. Empty for {@see warmPlanner()} — the warm-up primes the static
      *        system prefix, and history is separate messages that don't touch it.
      */
-    private function plannerRequest(string $userMessage, SkillManifest $manifest, array $history = []): LlmRequest
+    private function plannerRequest(string $userMessage, ScopedSkillManifest $manifest, array $history = []): LlmRequest
     {
         $persona = $this->plannerPersona();
 
@@ -1048,7 +1048,7 @@ final class SkillLoopRunner
      *
      * @param list<array{role: string, content: string}> $history
      */
-    private function plannerToolRequest(string $userMessage, SkillManifest $manifest, array $history): LlmRequest
+    private function plannerToolRequest(string $userMessage, ScopedSkillManifest $manifest, array $history): LlmRequest
     {
         $persona = $this->plannerPersona();
 
@@ -1093,7 +1093,7 @@ final class SkillLoopRunner
      *
      * @param list<array{role: string, content: string}> $working
      */
-    private function plan(string $userMessage, SkillManifest $manifest, array $working): PlannerResponse
+    private function plan(string $userMessage, ScopedSkillManifest $manifest, array $working): PlannerResponse
     {
         if ($this->provider() instanceof GeminiProvider) {
             $response = $this->completePlanner($this->plannerToolRequest($userMessage, $manifest, $working));
