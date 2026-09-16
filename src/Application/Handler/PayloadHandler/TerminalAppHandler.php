@@ -8,6 +8,7 @@ use Semitexa\Core\Attribute\AsPayloadHandler;
 use Semitexa\Core\Attribute\InjectAsMutable;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
+use Semitexa\Core\Http\CspNonce;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Core\Session\SessionInterface;
 use Semitexa\Llm\Application\Service\TenantSkillScope;
@@ -128,7 +129,7 @@ final class TerminalAppHandler implements TypedHandlerInterface
 HTML;
 
         return $resource
-            ->setContent(str_replace('%SKILLS%', $skillsJson, $html))
+            ->setContent(CspNonce::stamp(str_replace('%SKILLS%', $skillsJson, $html)))
             ->setHeader('Content-Type', 'text/html; charset=utf-8');
     }
 }

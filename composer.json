@@ -24,7 +24,6 @@
         "semitexa/platform-ui": "*",
         "semitexa/theme": "*",
         "semitexa/weave": "*",
-        "semitexa/cms": "*",
         "semitexa/update": "*"
     },
     "require-dev": {
