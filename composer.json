@@ -11,7 +11,7 @@
     ],
     "require": {
         "php": "^8.4",
-        "semitexa/core": "*",
+        "semitexa/core": ">=2026.09.17.1037 || dev-master",
         "semitexa/auth": "*",
         "semitexa/authorization": "*",
         "semitexa/platform-user": "*",
