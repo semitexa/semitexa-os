@@ -7,6 +7,7 @@ namespace Semitexa\Os\Application\Handler\PayloadHandler;
 use Semitexa\Core\Attribute\AsPayloadHandler;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
+use Semitexa\Core\Http\CspNonce;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Os\Application\Payload\Request\PromptsAppPayload;
 use Semitexa\Prompt\Application\Service\PromptOverrideStore;
@@ -35,7 +36,7 @@ final class PromptsAppHandler implements TypedHandlerInterface
         $html = str_replace('__PROMPTS_DATA__', (string) $data, $this->page());
 
         return $resource
-            ->setContent($html)
+            ->setContent(CspNonce::stamp($html))
             ->setHeader('Content-Type', 'text/html; charset=utf-8');
     }
 

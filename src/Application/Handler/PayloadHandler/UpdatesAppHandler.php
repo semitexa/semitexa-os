@@ -6,6 +6,7 @@ namespace Semitexa\Os\Application\Handler\PayloadHandler;
 
 use Semitexa\Core\Attribute\AsPayloadHandler;
 use Semitexa\Core\Contract\TypedHandlerInterface;
+use Semitexa\Core\Http\CspNonce;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Os\Application\Payload\Request\UpdatesAppPayload;
 use Semitexa\Os\Application\Service\UpdatesReport;
@@ -31,7 +32,7 @@ final class UpdatesAppHandler implements TypedHandlerInterface
 
         $html = $this->page($body);
 
-        $resource->setContent($html);
+        $resource->setContent(CspNonce::stamp($html));
         $resource->setHeader('Content-Type', 'text/html; charset=utf-8');
         return $resource;
     }

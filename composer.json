@@ -24,10 +24,10 @@
         "semitexa/platform-ui": "*",
         "semitexa/theme": "*",
         "semitexa/weave": "*",
-        "semitexa/cms": "*",
         "semitexa/update": "*"
     },
     "require-dev": {
+        "semitexa/cms": "*",
         "phpunit/phpunit": "^10.0",
         "semitexa/testing": "*"
     },
