@@ -30,7 +30,7 @@ use Semitexa\Ssr\Domain\Contract\SseFeedPayloadInterface;
 #[AsProtectedPayload(
     path: '/os/process/feed',
     name: 'os.process.feed',
-    methods: ['GET', 'POST'],
+    methods: ['GET'],
     responseWith: JsonResourceResponse::class,
     renderProfile: RenderProfile::Json,
     transport: TransportType::Sse,
