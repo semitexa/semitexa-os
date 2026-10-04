@@ -1581,18 +1581,18 @@
                 S.processes = Array.isArray(d.processes) ? d.processes : [];
             } catch (e) { S.processes = []; }
         }
-        // Phase 2: push, not poll. /os/process/feed re-runs on every os_process
-        // write (registry reports), delivered over the page's shared KISS SSE
-        // connection via ui-core's openFeedChannel. The 3.5s poll below stays
+        // Phase 2: push, not poll. The process feed (os.process.feed) re-runs on
+        // every os_process write and rides the page's KISS stream, subscribed
+        // through HUG by ui-core's openFeedChannel. The 3.5s poll below stays
         // armed but only fires while the feed is NOT live — first paint before
-        // the stream connects, no ui-core on the page, or permanent degrade.
+        // the first frame, no ui-core on the page, or no KISS session.
         let procChannel = null, procFeedLive = false;
         function startProcessFeed() {
-            if (procChannel || typeof window.EventSource === 'undefined') return;
+            if (procChannel) return;
             const core = window.SemitexaUi && window.SemitexaUi.core;
             if (!core || !core.openFeedChannel) return;
             procChannel = core.openFeedChannel({
-                url: '/os/process/feed',
+                feed: 'os.process.feed',
                 dataEvent: 'ui.collection.data',
                 errorEvent: 'ui.collection.error',
                 onData: (envelope) => {
@@ -1601,9 +1601,7 @@
                     if (S.screen === 'os' && S.mode === 'chill') render();
                 },
                 onError: () => {},
-                onConnecting: () => { procFeedLive = false; }, // dead stream → poll covers the gap
-                permanentPullDegrade: true,
-                onPermanentDegrade: () => { procFeedLive = false; procChannel = null; },
+                onPull: () => { procFeedLive = false; procChannel = null; },
             });
         }
         // Live skinning: the LLM skin generator writes a small `:root{}` override
