@@ -1175,9 +1175,11 @@
         // double-submit CSRF token the server put in a readable cookie. Without
         // it CsrfListener answers 403 and the shell looks broken for no visible
         // reason.
+        // The CSRF rule lives in Platform UI's client core (loaded before this
+        // script); the shell does not keep its own copy of it.
         function csrfToken() {
-            const m = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
-            return m ? decodeURIComponent(m[1]) : '';
+            const core = window.SemitexaUi && window.SemitexaUi.core;
+            return core && typeof core.readCsrfToken === 'function' ? core.readCsrfToken() : '';
         }
         // A session can lapse while the shell is open. 401 means the answer is
         // the sign-in page, and only a navigation can render it.
