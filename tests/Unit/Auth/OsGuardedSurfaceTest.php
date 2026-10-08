@@ -99,7 +99,8 @@ final class OsGuardedSurfaceTest extends TestCase
         $shell = file_get_contents(__DIR__ . '/../../../src/Application/Static/js/shell.js');
         self::assertIsString($shell);
 
-        self::assertStringContainsString('XSRF-TOKEN', $shell);
+        // verify:accept-test-change the shell no longer keeps its own copy of the cookie rule; it asks Platform UI's client core (readCsrfToken reads XSRF-TOKEN), so the literal moved there
+        self::assertStringContainsString('core.readCsrfToken()', $shell);
         self::assertStringContainsString("headers['X-CSRF-Token']", $shell);
         self::assertStringContainsString('res.status === 401', $shell);
     }
