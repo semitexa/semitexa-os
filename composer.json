@@ -1,6 +1,6 @@
 {
     "name": "semitexa/os",
-    "description": "Semitexa OS — intent-first environment shell: the Intent→Plan→Execute→Observe loop over Skills, generalised beyond the terminal",
+    "description": "Semitexa OS \u2014 intent-first environment shell: the Intent\u2192Plan\u2192Execute\u2192Observe loop over Skills, generalised beyond the terminal",
     "type": "semitexa-module",
     "license": "MIT",
     "authors": [
@@ -21,7 +21,7 @@
         "semitexa/ssr": "*",
         "semitexa/orm": "*",
         "semitexa/platform-settings": "*",
-        "semitexa/platform-ui": "*",
+        "semitexa/platform-ui": ">=2026.10.08.0620 || dev-master",
         "semitexa/theme": "*",
         "semitexa/weave": "*",
         "semitexa/update": "*"
@@ -44,12 +44,12 @@
     "extra": {
         "semitexa-module": {
             "name": "os",
-            "description": "Semitexa OS shell — intent-first Skill loop over the web channel",
+            "description": "Semitexa OS shell \u2014 intent-first Skill loop over the web channel",
             "template_alias": "project-layouts-Os"
         },
         "semitexa": {
             "floors": {
-                "semitexa/platform-ui": "next"
+                "semitexa/platform-ui": "2026.10.08.0620"
             }
         }
     },
