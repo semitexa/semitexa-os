@@ -46,6 +46,11 @@
             "name": "os",
             "description": "Semitexa OS shell — intent-first Skill loop over the web channel",
             "template_alias": "project-layouts-Os"
+        },
+        "semitexa": {
+            "floors": {
+                "semitexa/platform-ui": "next"
+            }
         }
     },
     "keywords": [
