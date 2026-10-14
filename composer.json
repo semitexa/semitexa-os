@@ -18,7 +18,7 @@
         "semitexa/llm": "*",
         "semitexa/prompt": ">=2026.09.16.0602 || dev-master",
         "semitexa/locale": "*",
-        "semitexa/ssr": "*",
+        "semitexa/ssr": ">=2026.10.14.0919 || dev-master",
         "semitexa/orm": "*",
         "semitexa/platform-settings": "*",
         "semitexa/platform-ui": ">=2026.10.08.0620 || dev-master",
@@ -50,7 +50,7 @@
         "semitexa": {
             "floors": {
                 "semitexa/platform-ui": "2026.10.08.0620",
-                "semitexa/ssr": "next"
+                "semitexa/ssr": "2026.10.14.0919"
             }
         }
     },
