@@ -43,20 +43,15 @@ final class NotesAppHandler implements TypedHandlerInterface
 <body>
   <div class="bar">📝 <b>Notes</b> · local to this device <span class="saved" id="saved">saved</span></div>
   <textarea id="n" placeholder="Write something…"></textarea>
-<script>
-  var t=document.getElementById('n'), s=document.getElementById('saved'), K='semitexa-os-notes', tm;
-  t.value=localStorage.getItem(K)||'';
-  t.addEventListener('input',function(){
-    localStorage.setItem(K,t.value);
-    s.classList.add('show'); clearTimeout(tm); tm=setTimeout(function(){s.classList.remove('show')},900);
-  });
-  t.focus();
-</script>
+<script src="__NOTES_APP_JS__"></script>
 </body></html>
 HTML;
 
         return $resource
-            ->setContent(CspNonce::stamp(str_replace('__THEME_SYNC_JS__', AssetManager::getUrl('js/app-theme-sync.js', 'os'), $html)))
+            ->setContent(CspNonce::stamp(strtr($html, [
+                '__THEME_SYNC_JS__' => AssetManager::getUrl('js/app-theme-sync.js', 'os'),
+                '__NOTES_APP_JS__' => AssetManager::getUrl('js/notes-app.js', 'os'),
+            ])))
             ->setHeader('Content-Type', 'text/html; charset=utf-8');
     }
 }

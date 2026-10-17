@@ -32,7 +32,10 @@ final class SettingsAppHandler implements TypedHandlerInterface
     {
         $prefs = $this->prefs->all();
         $enc = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
-        $js = static fn (string $v): string => (string) json_encode($v, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $namesJson = (string) json_encode(
+            ['assistant' => $prefs['assistant_name'], 'user' => $prefs['user_name']],
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG,
+        );
 
         $html = <<<'HTML'
 <!DOCTYPE html>
@@ -73,45 +76,23 @@ final class SettingsAppHandler implements TypedHandlerInterface
   </div>
   <div class="actions"><button id="save">Save</button><span class="hint" id="hint"></span></div>
   <div class="note">You can also just say it: “call yourself Jarvis”, or “my name is Alex”.</div>
-<script>
-  var A0=%ANAME_JS%, U0=%UNAME_JS%;
-  var an=document.getElementById('assistant'), un=document.getElementById('user'), save=document.getElementById('save'), hint=document.getElementById('hint');
-  function setHint(msg, cls){ hint.textContent=msg||''; hint.className='hint'+(cls?' '+cls:''); }
-  async function persist(){
-    var a=(an.value||'').trim(), u=(un.value||'').trim();
-    if(!a){ setHint('An assistant name is required.', 'err'); an.focus(); return; }
-    var body={};
-    if(a!==A0) body.assistantName=a;
-    if(u && u!==U0) body.userName=u;
-    if(Object.keys(body).length===0){ setHint('Nothing changed.', ''); return; }
-    save.disabled=true; setHint('Saving…', '');
-    try{
-      var r=await fetch('/os/preferences',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(body)});
-      var d=await r.json();
-      if(d.ok){
-        A0=d.assistant_name; U0=d.user_name; an.value=d.assistant_name; un.value=d.user_name;
-        setHint('Saved.', 'ok');
-        try{ window.parent.postMessage({type:'os:prefs-changed', assistantName:d.assistant_name, userName:d.user_name}, '*'); }catch(e){}
-      } else {
-        setHint(d.error||'Could not save.', 'err');
-      }
-    }catch(e){ setHint(e.message||'Could not save.', 'err'); }
-    save.disabled=false;
-  }
-  save.addEventListener('click', persist);
-  [an, un].forEach(function(el){ el.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); persist(); } }); });
-</script>
+<script type="application/json" id="settings-names">%NAMES_JSON%</script>
+<script src="__SETTINGS_APP_JS__"></script>
 </body></html>
 HTML;
 
-        $html = str_replace(
-            ['%ANAME_ATTR%', '%UNAME_ATTR%', '%ANAME_JS%', '%UNAME_JS%'],
-            [$enc($prefs['assistant_name']), $enc($prefs['user_name']), $js($prefs['assistant_name']), $js($prefs['user_name'])],
-            $html,
-        );
+        // strtr, one pass: the names are user input and must not be scanned
+        // for the placeholders that come after them.
+        $html = strtr($html, [
+            '%ANAME_ATTR%' => $enc($prefs['assistant_name']),
+            '%UNAME_ATTR%' => $enc($prefs['user_name']),
+            '%NAMES_JSON%' => $namesJson,
+            '__THEME_SYNC_JS__' => AssetManager::getUrl('js/app-theme-sync.js', 'os'),
+            '__SETTINGS_APP_JS__' => AssetManager::getUrl('js/settings-app.js', 'os'),
+        ]);
 
         return $resource
-            ->setContent(CspNonce::stamp(str_replace('__THEME_SYNC_JS__', AssetManager::getUrl('js/app-theme-sync.js', 'os'), $html)))
+            ->setContent(CspNonce::stamp($html))
             ->setHeader('Content-Type', 'text/html; charset=utf-8');
     }
 }
