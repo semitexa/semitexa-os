@@ -11,6 +11,7 @@ use Semitexa\Core\Http\CspNonce;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Os\Application\Payload\Request\SettingsAppPayload;
 use Semitexa\Os\Application\Service\OsPreferences;
+use Semitexa\Ssr\Application\Service\Asset\AssetManager;
 
 /**
  * Renders the Settings dialog body — the OS personalisation form (v0: the
@@ -57,27 +58,7 @@ final class SettingsAppHandler implements TypedHandlerInterface
     --accent:#37b7ff;--btn-text:#04121f;--line-rgb:148,163,184;--ok:#5eead4;--err:#ff9aab}
   :root[data-mode=light]{color-scheme:light;--bg:#f4f7fb;--well:#ffffff;--text:#243447;--strong:#16222e;--mute:#5b6c82;--text3:#3b4c61;--faint:#8593a8;
     --accent:#1e7fb8;--btn-text:#ffffff;--line-rgb:100,116,139;--ok:#0e8a72;--err:#b13a52}
-</style><script>
-/* Follow the OS theme: pref lives server-side; 'auto' resolves with the shell's
-   exact rule (prefers-color-scheme, else dark 19:00-07:00). Self-resolution
-   works in web iframes AND OS-mode native windows. */
-(function(){
-  function applyMode(mode){
-    var eff=(mode==='light'||mode==='dark')?mode:(function(){
-      try{ if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'; }catch(e){}
-      var h=new Date().getHours(); return (h>=19||h<7)?'dark':'light';
-    })();
-    var el=document.documentElement;
-    if(el.getAttribute('data-mode')!==eff){ el.setAttribute('data-mode',eff); el.style.colorScheme=eff; }
-  }
-  function syncMode(){
-    fetch('/os/preferences',{headers:{'Accept':'application/json'}})
-      .then(function(r){return r.json();}).then(function(d){ applyMode((d&&d.theme_mode)||'auto'); })
-      .catch(function(){});
-  }
-  syncMode(); window.addEventListener('focus', syncMode); setInterval(syncMode, 15000);
-})();
-</script>
+</style><script src="__THEME_SYNC_JS__"></script>
 </head>
 <body>
   <h2>Settings</h2>
@@ -130,7 +111,7 @@ HTML;
         );
 
         return $resource
-            ->setContent(CspNonce::stamp($html))
+            ->setContent(CspNonce::stamp(str_replace('__THEME_SYNC_JS__', AssetManager::getUrl('js/app-theme-sync.js', 'os'), $html)))
             ->setHeader('Content-Type', 'text/html; charset=utf-8');
     }
 }

@@ -16,6 +16,7 @@ use Semitexa\Os\Application\Payload\Request\TerminalAppPayload;
 use Semitexa\Llm\Domain\Model\SkillManifest;
 use Semitexa\Os\Application\Service\OsSkillText;
 use Semitexa\Os\Application\Service\OsSkillScope;
+use Semitexa\Ssr\Application\Service\Asset\AssetManager;
 
 /**
  * Renders the Terminal dialog body — a console-skill terminal. Lists the
@@ -77,27 +78,7 @@ final class TerminalAppHandler implements TypedHandlerInterface
     --accent:#37b7ff;--accent-rgb:55,183,255;--line-rgb:148,163,184;--cmd:#5eead4;--err:#ff9aab}
   :root[data-mode=light]{color-scheme:light;--bg:#f4f7fb;--bg2:#e9eff7;--text:#243447;--strong:#16222e;--mute:#5b6c82;--text3:#3b4c61;
     --accent:#1e7fb8;--accent-rgb:30,127,184;--line-rgb:100,116,139;--cmd:#0e8a72;--err:#b13a52}
-</style><script>
-/* Follow the OS theme: pref lives server-side; 'auto' resolves with the shell's
-   exact rule (prefers-color-scheme, else dark 19:00-07:00). Self-resolution
-   works in web iframes AND OS-mode native windows. */
-(function(){
-  function applyMode(mode){
-    var eff=(mode==='light'||mode==='dark')?mode:(function(){
-      try{ if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'; }catch(e){}
-      var h=new Date().getHours(); return (h>=19||h<7)?'dark':'light';
-    })();
-    var el=document.documentElement;
-    if(el.getAttribute('data-mode')!==eff){ el.setAttribute('data-mode',eff); el.style.colorScheme=eff; }
-  }
-  function syncMode(){
-    fetch('/os/preferences',{headers:{'Accept':'application/json'}})
-      .then(function(r){return r.json();}).then(function(d){ applyMode((d&&d.theme_mode)||'auto'); })
-      .catch(function(){});
-  }
-  syncMode(); window.addEventListener('focus', syncMode); setInterval(syncMode, 15000);
-})();
-</script>
+</style><script src="__THEME_SYNC_JS__"></script>
 </head>
 <body>
   <div class="hint"><b>console skills:</b> <span id="chips"></span></div>
@@ -129,7 +110,7 @@ final class TerminalAppHandler implements TypedHandlerInterface
 HTML;
 
         return $resource
-            ->setContent(CspNonce::stamp(str_replace('%SKILLS%', $skillsJson, $html)))
+            ->setContent(CspNonce::stamp(str_replace(['%SKILLS%', '__THEME_SYNC_JS__'], [$skillsJson, AssetManager::getUrl('js/app-theme-sync.js', 'os')], $html)))
             ->setHeader('Content-Type', 'text/html; charset=utf-8');
     }
 }

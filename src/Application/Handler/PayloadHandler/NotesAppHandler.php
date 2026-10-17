@@ -9,6 +9,7 @@ use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Http\CspNonce;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Os\Application\Payload\Request\NotesAppPayload;
+use Semitexa\Ssr\Application\Service\Asset\AssetManager;
 
 /**
  * Renders the Notes dialog body — a self-contained, interactive notes editor
@@ -37,27 +38,7 @@ final class NotesAppHandler implements TypedHandlerInterface
   textarea::placeholder{color:var(--dim)}
   :root{color-scheme:dark;--bg:#1e1e2e;--text:#dbe7ff;--strong:#eaf2ff;--mute:#8d9bb8;--dim:#5d6b86;--line-rgb:148,163,184;--ok:#5eead4}
   :root[data-mode=light]{color-scheme:light;--bg:#f6f8fc;--text:#243447;--strong:#16222e;--mute:#55677e;--dim:#8593a8;--line-rgb:100,116,139;--ok:#0e8a72}
-</style><script>
-/* Follow the OS theme: pref lives server-side; 'auto' resolves with the shell's
-   exact rule (prefers-color-scheme, else dark 19:00-07:00). Self-resolution
-   works in web iframes AND OS-mode native windows. */
-(function(){
-  function applyMode(mode){
-    var eff=(mode==='light'||mode==='dark')?mode:(function(){
-      try{ if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'; }catch(e){}
-      var h=new Date().getHours(); return (h>=19||h<7)?'dark':'light';
-    })();
-    var el=document.documentElement;
-    if(el.getAttribute('data-mode')!==eff){ el.setAttribute('data-mode',eff); el.style.colorScheme=eff; }
-  }
-  function syncMode(){
-    fetch('/os/preferences',{headers:{'Accept':'application/json'}})
-      .then(function(r){return r.json();}).then(function(d){ applyMode((d&&d.theme_mode)||'auto'); })
-      .catch(function(){});
-  }
-  syncMode(); window.addEventListener('focus', syncMode); setInterval(syncMode, 15000);
-})();
-</script>
+</style><script src="__THEME_SYNC_JS__"></script>
 </head>
 <body>
   <div class="bar">📝 <b>Notes</b> · local to this device <span class="saved" id="saved">saved</span></div>
@@ -75,7 +56,7 @@ final class NotesAppHandler implements TypedHandlerInterface
 HTML;
 
         return $resource
-            ->setContent(CspNonce::stamp($html))
+            ->setContent(CspNonce::stamp(str_replace('__THEME_SYNC_JS__', AssetManager::getUrl('js/app-theme-sync.js', 'os'), $html)))
             ->setHeader('Content-Type', 'text/html; charset=utf-8');
     }
 }
