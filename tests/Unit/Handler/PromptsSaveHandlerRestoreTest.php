@@ -6,6 +6,7 @@ namespace Semitexa\Os\Tests\Unit\Handler;
 
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use ReflectionProperty;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Core\Support\CoroutineLocal;
 use Semitexa\Orm\Domain\Model\ConnectionConfig;
@@ -24,8 +25,13 @@ final class PromptsSaveHandlerRestoreTest extends TestCase
 {
     private OrmManager $orm;
 
+    /** @var array<mixed> The CLI store as it was before the test. */
+    private array $cliStoreSnapshot = [];
+
     protected function setUp(): void
     {
+        $store = (new ReflectionProperty(CoroutineLocal::class, 'cliStore'))->getValue();
+        $this->cliStoreSnapshot = is_array($store) ? $store : [];
         CoroutineLocal::resetCliStore();
 
         $this->orm = new OrmManager(config: new ConnectionConfig(driver: 'sqlite', sqliteMemory: true));
@@ -51,6 +57,11 @@ final class PromptsSaveHandlerRestoreTest extends TestCase
                 created_at TEXT NOT NULL
             )',
         );
+    }
+
+    protected function tearDown(): void
+    {
+        (new ReflectionProperty(CoroutineLocal::class, 'cliStore'))->setValue(null, $this->cliStoreSnapshot);
     }
 
     #[Test]
