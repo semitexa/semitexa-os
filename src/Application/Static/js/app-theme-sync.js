@@ -1,5 +1,6 @@
-// Theme sync shared by the OS app pages (Notes, Settings, Calendar, Terminal):
-// one file instead of the same twenty lines pasted into each handler.
+// Theme sync shared by the OS app pages (Notes, Settings, Calendar, Terminal,
+// Tasks, Tic-tac-toe): one file instead of the same twenty lines pasted into
+// each handler.
 /* Follow the OS theme: pref lives server-side; 'auto' resolves with the shell's
    exact rule (prefers-color-scheme, else dark 19:00-07:00). Self-resolution
    works in web iframes AND OS-mode native windows. */
