@@ -77,11 +77,9 @@
     try{
       var d = await post({id:id, action:'restore', version:String(version)});
       if(d.ok){
-        // A restore appends a new version carrying the old text; reflect it as
-        // the current override by reading the newest history entry back.
-        var hr = await fetch('/os/prompts/history?id='+encodeURIComponent(id), {headers:{'Accept':'application/json'}});
-        var hd = await hr.json(); var top = (hd.versions||[])[0];
-        if(top) byId[id].override = top.system;
+        // The restore answers with the override now in effect — not the newest
+        // history entry, which lags behind when the version log fails.
+        if(typeof d.system === 'string') byId[id].override = d.system;
         select(id); flash('Restored v'+version); notify(id);
       } else flash(d.error||'Restore failed', true);
     }catch(e){ flash('Network error', true); }

@@ -8,11 +8,12 @@ use Semitexa\Core\Attribute\AsPayloadHandler;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
+use Semitexa\Core\Log\LoggerInterface;
 use Semitexa\Os\Application\Payload\Request\PromptsSavePayload;
 use Semitexa\Prompt\Application\Service\PromptOverrideStore;
 
 /**
- * Persists a prompt override for the current tenant (save/reset) from the
+ * Persists a prompt override for the current tenant (save/reset/restore) from the
  * Prompts editor, returning JSON. Tenant is resolved from request context by the
  * store, so the editor is per-tenant automatically.
  */
@@ -21,6 +22,9 @@ final class PromptsSaveHandler implements TypedHandlerInterface
 {
     #[InjectAsReadonly]
     protected PromptOverrideStore $overrides;
+
+    #[InjectAsReadonly]
+    protected LoggerInterface $logger;
 
     public function handle(PromptsSavePayload $payload, ResourceResponse $resource): ResourceResponse
     {
@@ -44,7 +48,15 @@ final class PromptsSaveHandler implements TypedHandlerInterface
                     return $this->json($resource, ['ok' => false, 'error' => 'Version not found.'], 404);
                 }
 
-                return $this->json($resource, ['ok' => true, 'id' => $id, 'overridden' => true, 'restored' => (int) $version], 200);
+                // Hand back the text now in effect: the version log is best-effort,
+                // so the newest history entry may still be the previous save.
+                return $this->json($resource, [
+                    'ok' => true,
+                    'id' => $id,
+                    'overridden' => true,
+                    'restored' => (int) $version,
+                    'system' => $this->overrides->override($id),
+                ], 200);
             }
 
             // Explicit allowlist: only an explicit "save" persists an override.
@@ -64,7 +76,7 @@ final class PromptsSaveHandler implements TypedHandlerInterface
             return $this->json($resource, ['ok' => true, 'id' => $id, 'overridden' => true], 200);
         } catch (\Throwable $e) {
             // Log server-side; never return the raw exception message to the client.
-            error_log('PromptsSaveHandler: could not save override "' . $id . '": ' . $e->getMessage());
+            $this->logger->error('PromptsSaveHandler: could not save override', ['prompt' => $id, 'error' => $e->getMessage()]);
 
             return $this->json($resource, ['ok' => false, 'error' => 'Could not save the override.'], 500);
         }
