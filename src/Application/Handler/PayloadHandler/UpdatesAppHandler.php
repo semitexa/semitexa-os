@@ -10,6 +10,7 @@ use Semitexa\Core\Http\CspNonce;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Os\Application\Payload\Request\UpdatesAppPayload;
 use Semitexa\Os\Application\Service\UpdatesReport;
+use Semitexa\Ssr\Application\Service\Asset\AssetManager;
 
 /**
  * Renders the Updates / "What's new" dialog body: installed release set,
@@ -141,24 +142,7 @@ final class UpdatesAppHandler implements TypedHandlerInterface
     --accent:#37b7ff;--line-rgb:148,163,184;--ok:#5eead4;--err:#ff9aab}
   :root[data-mode=light]{color-scheme:light;--bg:#f4f7fb;--well:#ffffff;--text:#243447;--strong:#16222e;--mute:#5b6c82;--text3:#3b4c61;--faint:#8593a8;
     --accent:#1e7fb8;--line-rgb:100,116,139;--ok:#0e8a72;--err:#b13a52}
-</style><script>
-(function(){
-  function applyMode(mode){
-    var eff=(mode==='light'||mode==='dark')?mode:(function(){
-      try{ if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'; }catch(e){}
-      var h=new Date().getHours(); return (h>=19||h<7)?'dark':'light';
-    })();
-    var el=document.documentElement;
-    if(el.getAttribute('data-mode')!==eff){ el.setAttribute('data-mode',eff); el.style.colorScheme=eff; }
-  }
-  function syncMode(){
-    fetch('/os/preferences',{headers:{'Accept':'application/json'}})
-      .then(function(r){return r.json();}).then(function(d){ applyMode((d&&d.theme_mode)||'auto'); })
-      .catch(function(){});
-  }
-  syncMode(); window.addEventListener('focus', syncMode); setInterval(syncMode, 15000);
-})();
-</script>
+</style><script src="__THEME_SYNC_JS__"></script>
 </head>
 <body>
   <h2>Updates</h2>
@@ -167,6 +151,11 @@ final class UpdatesAppHandler implements TypedHandlerInterface
 </body></html>
 HTML;
 
-        return str_replace('__BODY__', $body, $shell);
+        // strtr, one pass: the body is release-note content and must not be
+        // scanned for the asset placeholder.
+        return strtr($shell, [
+            '__BODY__' => $body,
+            '__THEME_SYNC_JS__' => AssetManager::getUrl('js/app-theme-sync.js', 'os'),
+        ]);
     }
 }

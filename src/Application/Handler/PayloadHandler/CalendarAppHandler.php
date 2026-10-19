@@ -58,27 +58,7 @@ final class CalendarAppHandler implements TypedHandlerInterface
     --ui-surface-sunken:rgba(100,116,139,.08); --ui-border-subtle:rgba(100,116,139,.28);
     --ui-accent-brand:#1e7fb8; --ui-state-danger:#c2314b;
   }
-</style><script>
-/* Follow the OS theme: pref lives server-side; 'auto' resolves with the shell's
-   exact rule (prefers-color-scheme, else dark 19:00-07:00). Self-resolution
-   works in web iframes AND OS-mode native windows. */
-(function(){
-  function applyMode(mode){
-    var eff=(mode==='light'||mode==='dark')?mode:(function(){
-      try{ if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'; }catch(e){}
-      var h=new Date().getHours(); return (h>=19||h<7)?'dark':'light';
-    })();
-    var el=document.documentElement;
-    if(el.getAttribute('data-mode')!==eff){ el.setAttribute('data-mode',eff); el.style.colorScheme=eff; }
-  }
-  function syncMode(){
-    fetch('/os/preferences',{headers:{'Accept':'application/json'}})
-      .then(function(r){return r.json();}).then(function(d){ applyMode((d&&d.theme_mode)||'auto'); })
-      .catch(function(){});
-  }
-  syncMode(); window.addEventListener('focus', syncMode); setInterval(syncMode, 15000);
-})();
-</script>
+</style><script src="__THEME_SYNC_JS__"></script>
 </head>
 <body>
   <div
@@ -108,6 +88,7 @@ HTML;
         ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
         $html = strtr($html, [
+            '__THEME_SYNC_JS__' => AssetManager::getUrl('js/app-theme-sync.js', 'os'),
             '__CALENDAR_CSS__' => AssetManager::getUrl('css/calendar.css', 'platform-ui'),
             '__IMPORT_MAP__' => $importMap,
             '__CALENDAR_RUNTIME_JS__' => AssetManager::getUrl('js/calendar-runtime.js', 'platform-ui'),
