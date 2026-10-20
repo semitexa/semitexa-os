@@ -77,11 +77,14 @@ final class PasswordChangeHandler implements TypedHandlerInterface
             return $this->json($resource, 422, ['errors' => ['newPassword' => [$e->getMessage()]]]);
         }
 
-        $this->users->update($user->withPasswordHash($hash));
+        $changed = $user->withPasswordHash($hash);
+        $this->users->update($changed);
 
-        // The session id is rotated: a password change is exactly the moment
-        // someone acts on a suspicion that an old session is not theirs alone.
-        $this->session->regenerate();
+        // A password change is exactly the moment someone acts on a suspicion
+        // that an old session is not theirs alone. The new password ends every
+        // other session (OsAdminSession::current()); this one signs in again
+        // with it, on a rotated id.
+        $this->admins->signIn($this->session, $changed);
 
         return $this->json($resource, 200, ['ok' => true]);
     }

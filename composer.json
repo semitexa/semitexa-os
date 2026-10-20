@@ -50,6 +50,7 @@
         "semitexa": {
             "floors": {
                 "semitexa/platform-ui": "2026.10.08.0620",
+                "semitexa/platform-user": "next",
                 "semitexa/ssr": "2026.10.14.0919"
             }
         }

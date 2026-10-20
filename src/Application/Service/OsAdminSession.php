@@ -45,9 +45,11 @@ final class OsAdminSession
 
         $user = $this->users->findById((string) $segment->getUserId());
 
-        if ($user === null || !$user->canAuthenticate()) {
-            // Revoked, deleted or locked since they signed in: drop the session
-            // rather than carry an identity the store no longer stands behind.
+        if ($user === null || !$user->canAuthenticate() || $user->getCredentialVersion() !== $segment->getCredentialVersion()) {
+            // Revoked, deleted or locked since they signed in, or given a new
+            // password since (changed or reset, possibly by someone who
+            // suspected this very session): drop the session rather than carry
+            // an identity the store no longer stands behind.
             $segment->signOut();
             $session->setPayload($segment);
 
@@ -81,7 +83,7 @@ final class OsAdminSession
         $session->regenerate();
 
         $segment = $session->getPayload(OsAdminSessionSegment::class);
-        $segment->signIn($user->getId());
+        $segment->signIn($user->getId(), null, $user->getCredentialVersion());
         $session->setPayload($segment);
 
         $this->seedUserName($user);
