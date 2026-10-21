@@ -25,6 +25,9 @@ use Semitexa\Llm\Domain\Enum\AiRiskLevel;
     channels: ['ui'],
     icon: 'list',
     entry: '/os/app/queues',
+    // The queues hold every tenant's jobs; the handler refuses a tenant admin
+    // too, this only keeps the icon out of their launcher.
+    operatorOnly: true,
 )]
 final class QueuesSkill
 {

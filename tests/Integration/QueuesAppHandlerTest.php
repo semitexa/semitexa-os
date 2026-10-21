@@ -9,6 +9,8 @@ use PHPUnit\Framework\TestCase;
 use Semitexa\Core\Container\ContainerFactory;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Core\Session\SessionInterface;
+use Semitexa\Llm\Application\Service\TenantSkillScope;
+use Semitexa\Llm\Domain\Model\SkillScope;
 use Semitexa\Core\Queue\DeadLetter;
 use Semitexa\Core\Queue\QueueInspection;
 use Semitexa\Core\Queue\QueueInspectorInterface;
@@ -23,6 +25,8 @@ use Semitexa\Os\Application\Payload\Session\OsAdminSessionSegment;
 use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
 use Semitexa\Os\Application\Service\OsSkillScope;
+use Semitexa\Os\Application\Service\QueuesSkill;
+use Semitexa\Os\Application\Service\SetChillAppSkill;
 use Semitexa\Platform\User\Domain\Contract\PlatformUserRepositoryInterface;
 use Semitexa\Platform\User\Domain\Enum\UserRole;
 use Semitexa\Platform\User\Domain\Model\PlatformUser;
@@ -133,6 +137,25 @@ final class QueuesAppHandlerTest extends TestCase
         self::assertSame(403, $status);
         self::assertStringNotContainsString(self::TRANSPORT, $html);
         self::assertStringNotContainsString('boom', $html);
+    }
+
+    #[Test]
+    public function the_skill_is_in_the_operator_s_launcher_and_no_tenant_admin_s(): void
+    {
+        $scope = new TenantSkillScope();
+
+        self::assertContains(QueuesSkill::class, $scope->classesFor(SkillScope::unrestricted()));
+        self::assertNotContains(QueuesSkill::class, $scope->classesFor(SkillScope::forTenant('museum')));
+    }
+
+    #[Test]
+    public function a_leisure_chip_cannot_be_pointed_at_it(): void
+    {
+        // set-chill-app resolves names against everyone's manifest: it told a
+        // tenant admin the app existed, and saved a chip that then refused.
+        $reply = (new SetChillAppSkill())->invoke(['activity' => 'music', 'app' => 'Queues']);
+
+        self::assertStringContainsString('I don\'t know an app called "Queues"', $reply);
     }
 
     #[Test]

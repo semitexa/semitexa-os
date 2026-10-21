@@ -6,11 +6,13 @@ namespace Semitexa\Os\Application\Service;
 
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Llm\Application\Service\SkillRegistry;
+use Semitexa\Llm\Application\Service\TenantSkillScope;
 use Semitexa\Llm\Attribute\AsAiSkill;
 use Semitexa\Llm\Domain\Contract\InvocableSkillInterface;
 use Semitexa\Llm\Domain\Enum\AiArgumentPolicy;
 use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
 use Semitexa\Llm\Domain\Enum\AiRiskLevel;
+use Semitexa\WebApps\Application\Service\WebAppStore;
 
 /**
  * Change (or forget) the app behind a Chill leisure chip by talking to the OS
@@ -40,6 +42,10 @@ final class SetChillAppSkill implements InvocableSkillInterface
     /** Tenant-aware via container injection (SkillLoopRunner's DI resolver). */
     #[InjectAsReadonly]
     protected OsPreferences $prefs;
+
+    /** semitexa/webapps, when installed (composer "suggest"): its sites open as dialogs too. */
+    #[InjectAsReadonly(optional: true)]
+    protected WebAppStore $webApps;
 
     public function invoke(array $arguments): string
     {
@@ -113,7 +119,10 @@ final class SetChillAppSkill implements InvocableSkillInterface
             return null;
         }
         foreach ($manifest->skills as $skill) {
-            if (!$skill->isUi()) {
+            // The manifest here is everyone's, not the caller's: an operator's
+            // app (Queues) behind a leisure chip would tell a tenant admin it
+            // exists, and then refuse to open.
+            if (!$skill->isUi() || ($skill->skillClass !== null && TenantSkillScope::isOperatorOnly($skill->skillClass))) {
                 continue;
             }
             $name = mb_strtolower($skill->name);
@@ -123,11 +132,11 @@ final class SetChillAppSkill implements InvocableSkillInterface
         }
 
         // Registered web apps open as dialogs too (skill id 'webapp:<id>') —
-        // "use YouTube for music" should land on the wrapped site. Soft dep:
-        // installs without semitexa-webapps just skip this leg.
-        if (class_exists(\Semitexa\WebApps\Application\Service\WebAppStore::class)) {
+        // "use YouTube for music" should land on the wrapped site. Installs
+        // without semitexa-webapps have no store injected and skip this leg.
+        if (isset($this->webApps)) {
             try {
-                foreach ((new \Semitexa\WebApps\Application\Service\WebAppStore())->all() as $app) {
+                foreach ($this->webApps->all() as $app) {
                     $name = mb_strtolower((string) ($app['name'] ?? ''));
                     $host = mb_strtolower((string) ($app['host'] ?? ''));
                     if ($name === '' || !isset($app['id'])) {
