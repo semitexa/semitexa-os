@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Semitexa\Os\Application\Payload\Request;
 
 use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Core\Attribute\RateLimit;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
+use Semitexa\Core\RateLimit\RateLimitKey;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Os\Domain\Contract\OsContentSurfaceInterface;
 
@@ -21,8 +23,10 @@ use Semitexa\Os\Domain\Contract\OsContentSurfaceInterface;
  * The CURRENT password is required and is not a formality. A session is a
  * bearer token: without this, anyone holding a borrowed one could lock the
  * owner out of their own account, and the owner's own password would be the
- * thing that stopped working.
+ * thing that stopped working. Limited per signed-in user, or that check was
+ * an unthrottled way to guess the password with a borrowed session.
  */
+#[RateLimit(5, 300, by: RateLimitKey::User)]
 #[AsProtectedPayload(
     path: '/os/password',
     methods: ['POST'],

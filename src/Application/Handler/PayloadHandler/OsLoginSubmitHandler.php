@@ -9,6 +9,7 @@ use Semitexa\Core\Attribute\InjectAsMutable;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Csrf\CsrfToken;
+use Semitexa\Core\RateLimit\RateLimiter;
 use Semitexa\Core\Session\SessionInterface;
 use Semitexa\Os\Application\Payload\Request\OsLoginSubmitPayload;
 use Semitexa\Os\Application\Resource\Response\OsLoginResource;
@@ -46,6 +47,17 @@ final class OsLoginSubmitHandler implements TypedHandlerInterface
     #[InjectAsReadonly]
     protected UserAuthenticator $authenticator;
 
+    /**
+     * Failed sign-ins per client address: the lockout counts guesses at one
+     * account, and nothing counted one client guessing across many. Mutable:
+     * it reads the request it counts (execution-scoped).
+     */
+    #[InjectAsMutable]
+    protected RateLimiter $limiter;
+
+    /** @var list<array{int, int}> failures allowed per client address: [count, seconds] */
+    private const FAILURE_LIMITS = [[10, 60], [50, 3600]];
+
 
     public function handle(OsLoginSubmitPayload $payload, OsLoginResource $resource): OsLoginResource
     {
@@ -63,7 +75,33 @@ final class OsLoginSubmitHandler implements TypedHandlerInterface
             return $this->form($resource, $email, $next, 'This form expired. Please try again.');
         }
 
+        // Counted after the CSRF check, so a page elsewhere cannot burn an
+        // office's budget; taken back when the sign-in succeeds, so only
+        // failures count.
+        $taken = [];
+        foreach (isset($this->limiter) ? self::FAILURE_LIMITS : [] as [$limit, $seconds]) {
+            $decision = $this->limiter->attempt('os-login-failures', $limit, $seconds);
+            if (!$decision->allowed) {
+                foreach ($taken as $earlier) {
+                    $this->limiter->release($earlier);
+                }
+
+                return $this->form($resource, $email, $next, sprintf(
+                    'Too many failed sign-ins from your network. Try again in %d minute%s.',
+                    $minutes = max(1, (int) ceil($decision->retryAfter / 60)),
+                    $minutes === 1 ? '' : 's',
+                ));
+            }
+            $taken[] = $decision;
+        }
+
         $attempt = $this->authenticator->attempt($email, $payload->getPassword());
+
+        if ($attempt->success) {
+            foreach ($taken as $decision) {
+                $this->limiter->release($decision);
+            }
+        }
 
         if (!$attempt->success || $attempt->user === null) {
             $message = $attempt->failure?->isSafeToDisclose() === true && $attempt->lockedUntil !== null
