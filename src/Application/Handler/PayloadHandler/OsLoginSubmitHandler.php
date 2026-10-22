@@ -10,12 +10,14 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Csrf\CsrfToken;
 use Semitexa\Core\RateLimit\RateLimiter;
+use Semitexa\Core\Tenant\TenantContextStoreInterface;
 use Semitexa\Core\Session\SessionInterface;
 use Semitexa\Os\Application\Payload\Request\OsLoginSubmitPayload;
 use Semitexa\Os\Application\Resource\Response\OsLoginResource;
 use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
 use Semitexa\Platform\User\Application\Service\UserAuthenticator;
+use Semitexa\Platform\User\Domain\Service\SiteAccess;
 
 /**
  * Checks one submitted pair and, if it holds up, opens the console.
@@ -54,6 +56,10 @@ final class OsLoginSubmitHandler implements TypedHandlerInterface
      */
     #[InjectAsMutable]
     protected RateLimiter $limiter;
+
+    /** The site the request is for; absent without tenancy. */
+    #[InjectAsReadonly(optional: true)]
+    protected TenantContextStoreInterface $tenants;
 
     /** @var list<array{int, int}> failures allowed per client address: [count, seconds] */
     private const FAILURE_LIMITS = [[10, 60], [50, 3600]];
@@ -109,6 +115,12 @@ final class OsLoginSubmitHandler implements TypedHandlerInterface
                 : self::REJECTED;
 
             return $this->form($resource, $email, $next, $message);
+        }
+
+        // Signed in at another site's address, the console then refused every
+        // call; say so here, and start no session.
+        if (!SiteAccess::allows($attempt->user, isset($this->tenants) ? $this->tenants->tryGet() : null)) {
+            return $this->form($resource, $email, $next, 'This account belongs to another site. Sign in at its own address.');
         }
 
         $this->admins->signIn($this->session, $attempt->user);

@@ -11,6 +11,7 @@ use Semitexa\Core\Pipeline\Exception\AccessDeniedException;
 use Semitexa\Core\Pipeline\Exception\AuthenticationRequiredException;
 use Semitexa\Core\Pipeline\PipelineListenerInterface;
 use Semitexa\Core\Pipeline\RequestPipelineContext;
+use Semitexa\Core\Tenant\TenantContextStoreInterface;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
 use Semitexa\Os\Application\Payload\Request\PasswordChangePayload;
 use Semitexa\Os\Application\Payload\Request\SettingsAppPayload;
@@ -18,6 +19,7 @@ use Semitexa\Os\Domain\Contract\OsContentSurfaceInterface;
 use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Platform\User\Auth\UserPrincipal;
 use Semitexa\Platform\User\Domain\Enum\UserRole;
+use Semitexa\Platform\User\Domain\Service\SiteAccess;
 
 /**
  * The second half of the console's gate.
@@ -42,6 +44,10 @@ final class OsAdminGate implements PipelineListenerInterface
 {
     #[InjectAsReadonly]
     protected OsAuthPolicy $policy;
+
+    /** The site the request is for; absent without tenancy. */
+    #[InjectAsReadonly(optional: true)]
+    protected TenantContextStoreInterface $tenants;
 
     public function handle(RequestPipelineContext $context): void
     {
@@ -79,6 +85,14 @@ final class OsAdminGate implements PipelineListenerInterface
             throw new AccessDeniedException(
                 'Replace the password your operator issued before using the console.',
             );
+        }
+
+        // The console's data follows the request's site, so a user bound to
+        // one site is admitted on that site only: site A's admin signed in at
+        // site B's host and read and wrote B's pages, chat and prompts, and on
+        // the root site the operator's own.
+        if (!SiteAccess::allows($principal->user, isset($this->tenants) ? $this->tenants->tryGet() : null)) {
+            throw new AccessDeniedException('This account belongs to another site.');
         }
 
         $role = $principal->user->getRole();
