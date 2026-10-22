@@ -192,7 +192,10 @@ final class OsShellHandler implements TypedHandlerInterface
         $role = $this->admins->currentPrincipal($session)?->user->getRole();
 
         return [
-            'webApps' => class_exists(self::WEB_APPS_PAYLOAD),
+            // A console surface beyond content: an editor's launcher asked
+            // for the list and got a refusal.
+            'webApps' => class_exists(self::WEB_APPS_PAYLOAD)
+                && (!isset($this->authPolicy) || !$this->authPolicy->isRequired() || $role === UserRole::Owner || $role === UserRole::Admin),
             // X-Ray is observability: loop internals, provider health, a live
             // trace. Useful to whoever runs the install and noise to whoever
             // uses it — a museum employee reading "Planner over the

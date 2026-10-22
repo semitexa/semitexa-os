@@ -134,6 +134,41 @@ final class OsSurfaceGateCoverageTest extends TestCase
     }
 
     /**
+     * Routes under /os, outside /os/app, that are deliberately NOT console
+     * surfaces: the door and the page that sends a visitor to it. The web-app
+     * routes (/os/webapps, /os/webapp/...) were public with no marker, and the
+     * /os/app rule above could not see them.
+     *
+     * @var array<string, string>
+     */
+    private const DOOR = [
+        \Semitexa\Os\Application\Payload\Request\OsShellPayload::class => 'the shell page redirects an anonymous visitor to the sign-in form',
+        \Semitexa\Os\Application\Payload\Request\OsLoginPayload::class => 'the sign-in form',
+        \Semitexa\Os\Application\Payload\Request\OsLoginSubmitPayload::class => 'its submit',
+        \Semitexa\Os\Application\Payload\Request\OsLogoutPayload::class => 'signing out',
+    ];
+
+    #[Test]
+    public function every_os_route_beyond_the_door_is_a_console_surface(): void
+    {
+        $ungated = [];
+        foreach ($this->routes as $route) {
+            $path = (string) ($route['path'] ?? '');
+            $class = (string) ($route['class'] ?? '');
+            // By class, not path: the door's paths come from the environment.
+            if (!($path === '/os' || str_starts_with($path, '/os/')) || self::isConsolePath($path) || array_key_exists($class, self::DOOR)) {
+                continue;
+            }
+            if ($class !== '' && class_exists($class) && !is_subclass_of($class, OsSurfacePayloadInterface::class)) {
+                $ungated[] = $path . '  [' . $class . ']';
+            }
+        }
+        sort($ungated);
+
+        self::assertSame([], $ungated, "These /os routes are not gated as console surfaces:\n  - " . implode("\n  - ", array_unique($ungated)));
+    }
+
+    /**
      * The gate is a second lock, not the only one: a surface must also require
      * authentication in the first place, or an anonymous request never reaches
      * the listener that would turn it away.

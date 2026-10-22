@@ -41,7 +41,9 @@ final class OsLoginFailureLimitTest extends TestCase
         }
         $refused = self::error($handler->handle(self::payload('user11@example.test', $token), new OsLoginResource()));
 
-        self::assertStringStartsWith('Too many failed sign-ins from your network. Try again in 1 minute', $refused);
+        // The window slides: how long until one more fits depends on where in
+        // the minute the failures fell, so one or two minutes, never zero.
+        self::assertMatchesRegularExpression('/^Too many failed sign-ins from your network\. Try again in [12] minutes?\.$/', $refused);
     }
 
     #[Test]
