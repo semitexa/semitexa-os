@@ -45,7 +45,9 @@ final class OsAdminSession
 
         $user = $this->users->findById((string) $segment->getUserId());
 
-        if ($user === null || !$user->canAuthenticate() || $user->getCredentialVersion() !== $segment->getCredentialVersion()) {
+        // Status, not the lockout: five failures on an address must not sign
+        // its owner out of a session they already hold.
+        if ($user === null || !$user->getStatus()->canAuthenticate() || $user->getCredentialVersion() !== $segment->getCredentialVersion()) {
             // Revoked, deleted or locked since they signed in, or given a new
             // password since (changed or reset, possibly by someone who
             // suspected this very session): drop the session rather than carry
