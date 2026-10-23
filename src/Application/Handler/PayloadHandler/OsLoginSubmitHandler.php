@@ -101,13 +101,8 @@ final class OsLoginSubmitHandler implements TypedHandlerInterface
             $taken[] = $decision;
         }
 
-        $attempt = $this->authenticator->attempt($email, $payload->getPassword());
-
-        if ($attempt->success) {
-            foreach ($taken as $decision) {
-                $this->limiter->release($decision);
-            }
-        }
+        $site = isset($this->tenants) ? $this->tenants->tryGet() : null;
+        $attempt = $this->authenticator->attemptAt($email, $payload->getPassword(), $site);
 
         if (!$attempt->success || $attempt->user === null) {
             $message = $attempt->failure?->isSafeToDisclose() === true && $attempt->lockedUntil !== null
@@ -117,10 +112,15 @@ final class OsLoginSubmitHandler implements TypedHandlerInterface
             return $this->form($resource, $email, $next, $message);
         }
 
-        // Signed in at another site's address, the console then refused every
-        // call; say so here, and start no session.
-        if (!SiteAccess::allows($attempt->user, isset($this->tenants) ? $this->tenants->tryGet() : null)) {
-            return $this->form($resource, $email, $next, 'This account belongs to another site. Sign in at its own address.');
+        // attemptAt() only checks accounts this site accepts; kept as the
+        // backstop. Its own answer ("belongs to another site") confirmed the
+        // password was right, so it answers as a wrong one, and counts.
+        if (!SiteAccess::allows($attempt->user, $site)) {
+            return $this->form($resource, $email, $next, self::REJECTED);
+        }
+
+        foreach ($taken as $decision) {
+            $this->limiter->release($decision);
         }
 
         $this->admins->signIn($this->session, $attempt->user);

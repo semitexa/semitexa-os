@@ -84,9 +84,13 @@ final class OsLoginFailureLimitTest extends TestCase
         return $handler;
     }
 
-    /** Signed in at another site's address, the console then refused every call: said at the door, no session. */
+    /**
+     * Another site's account at this site's address: no session, and the
+     * answer a wrong password gets. Its own answer confirmed the password was
+     * right; and as a success it was not counted, so guessing went unlimited.
+     */
     #[Test]
-    public function a_site_s_user_signing_in_at_another_site_is_told_so(): void
+    public function a_site_s_user_signing_in_at_another_site_gets_the_wrong_password_answer_and_counts(): void
     {
         $admin = new PlatformUser(id: 'u1', email: 'admin@museum.test', passwordHash: password_hash('the-password', PASSWORD_BCRYPT, ['cost' => 4]), tenantId: 'museum', role: \Semitexa\Platform\User\Domain\Enum\UserRole::Admin);
         $users = new class ($admin) implements PlatformUserRepositoryInterface {
@@ -116,9 +120,16 @@ final class OsLoginFailureLimitTest extends TestCase
         $payload = self::payload('admin@museum.test', self::formToken($session));
         $payload->setPassword('the-password');
 
-        $error = self::error($this->handler($session, $users, $clinic)->handle($payload, new OsLoginResource()));
+        $handler = $this->handler($session, $users, $clinic);
+        $error = self::error($handler->handle($payload, new OsLoginResource()));
 
-        self::assertStringContainsString('belongs to another site', $error);
+        self::assertSame('Wrong email or password.', $error);
+        self::assertStringNotContainsString('another site', $error);
+
+        for ($i = 1; $i < 10; $i++) {
+            $handler->handle($payload, new OsLoginResource());
+        }
+        self::assertStringContainsString('Too many failed sign-ins', self::error($handler->handle($payload, new OsLoginResource())));
     }
 
     /** What the sign-in page puts in its form. */
