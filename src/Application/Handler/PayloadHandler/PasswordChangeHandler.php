@@ -10,6 +10,7 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Core\Session\SessionInterface;
+use Semitexa\Orm\Exception\StaleAggregateException;
 use Semitexa\Os\Application\Payload\Request\PasswordChangePayload;
 use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Platform\User\Application\Service\PasswordHasher;
@@ -78,7 +79,13 @@ final class PasswordChangeHandler implements TypedHandlerInterface
         }
 
         $changed = $user->withPasswordHash($hash);
-        $this->users->update($changed);
+        try {
+            $this->users->update($changed);
+        } catch (StaleAggregateException) {
+            // A sign-in elsewhere wrote the account between the read and this
+            // write (row_version): nothing changed, and saying so beats a 500.
+            return $this->json($resource, 409, ['error' => 'Your account changed meanwhile. Try again.']);
+        }
 
         // A password change is exactly the moment someone acts on a suspicion
         // that an old session is not theirs alone. The new password ends every
