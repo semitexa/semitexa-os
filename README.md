@@ -22,6 +22,7 @@ Who opens what, once sign-in is on:
 - A site's admin opens the console on that site only, except the install's own apps: Terminal, Updates and Queues (and their skills) are an owner's. Prompts stay open to them: prompt overrides are kept per site.
 - A site's editor opens the chat, Notes, Calendar, Settings and the CMS on that site, and does not add or open web apps.
 - A user of another site is shown the sign-in form.
+- Every account changes its own password in Settings. One whose password an operator set (`user:password --must-change`) opens nothing else until it does.
 
 A desktop install (`SEMITEXA_WINDOW_MODE=os`) asks for no sign-in unless `SEMITEXA_OS_AUTH=1`: the person at the machine opens the console. A web install always asks; `SEMITEXA_OS_AUTH=0` is ignored there, with a warning in the log.
 
