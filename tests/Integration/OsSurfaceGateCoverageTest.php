@@ -9,6 +9,9 @@ use PHPUnit\Framework\TestCase;
 use Semitexa\Core\Application;
 use Semitexa\Core\Container\ContainerFactory;
 use Semitexa\Core\Discovery\AttributeDiscovery;
+use Semitexa\Core\Discovery\BootDiagnostics;
+use Semitexa\Core\Discovery\BootSeverity;
+use Semitexa\Core\Discovery\BootWarning;
 use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 
 /**
@@ -60,6 +63,26 @@ final class OsSurfaceGateCoverageTest extends TestCase
         $discovery->initialize();
 
         $this->routes = $discovery->getRoutes();
+        // A payload discovery could not read is left out of the routes with
+        // only a boot warning, and every check below passed without it.
+        $this->unread = array_values(array_map(
+            static fn (BootWarning $w): string => "{$w->component}: {$w->message}",
+            array_filter(
+                BootDiagnostics::current()->getWarnings(),
+                static fn (BootWarning $w): bool => $w->severity === BootSeverity::Skip
+                    && ($w->component === 'ClassDiscovery' || str_starts_with($w->message, 'Payload ')),
+            ),
+        ));
+    }
+
+    /** @var list<string> */
+    private array $unread = [];
+
+    /** The checks below see only the routes discovery could read. */
+    #[Test]
+    public function discovery_read_every_payload(): void
+    {
+        self::assertSame([], $this->unread, "Discovery skipped these, so the gate checks never saw their routes:\n  - " . implode("\n  - ", $this->unread));
     }
 
     /**

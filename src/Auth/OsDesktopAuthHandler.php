@@ -22,6 +22,8 @@ use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
  * this. Every protected route, not only the console's: its Calendar reads and
  * writes /platform/calendar/events* (platform-ui), which answered 401 there.
  * A public route still sees nobody, a service route needs a machine token.
+ * Only the machine's own browser: OsAuthPolicy asks a request from anywhere
+ * else to sign in, so this answers it with nobody.
  */
 #[AsAuthHandler(priority: 1000)]
 final class OsDesktopAuthHandler implements AuthHandlerInterface

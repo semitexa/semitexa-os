@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Tests\Unit\Auth;
 
+use Semitexa\Core\Lifecycle\CurrentRequestStore;
+use Semitexa\Core\Request;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Semitexa\Auth\Context\AuthContextStore;
@@ -133,6 +135,38 @@ final class OsOperatorSurfaceTest extends TestCase
         self::assertNull($this->authHandler('1')->handle(new class implements OsSurfacePayloadInterface {}));
     }
 
+    /**
+     * Sign-in off on a desktop install was off for every client: anyone who
+     * reached the port (the LAN, a published container port) was the person
+     * at the machine, with the console. Now only the machine's own browser.
+     */
+    #[Test]
+    public function with_sign_in_off_only_the_machine_s_own_browser_is_the_person_at_it(): void
+    {
+        $surface = new class implements OsSurfacePayloadInterface {};
+        $from = static fn (string $address): Request => new Request('GET', '/os/app/notes', [], [], [], ['remote_addr' => $address], []);
+        $before = CurrentRequestStore::get();
+        try {
+            CurrentRequestStore::set($from('192.168.1.20'));
+            self::assertNull($this->authHandler('0')->handle($surface), 'another machine on the LAN');
+            self::assertTrue(self::policy('0')->isRequired(), 'and it is asked to sign in');
+
+            CurrentRequestStore::set($from('127.0.0.1'));
+            self::assertInstanceOf(OsDesktopPrincipal::class, $this->authHandler('0')->handle($surface)?->user);
+            self::assertFalse(self::policy('0')->isRequired());
+
+            // The app in a container sees the host's browser come from the gateway.
+            CurrentRequestStore::set($from('172.18.0.1'));
+            self::assertNull($this->authHandler('0')->handle($surface), 'a gateway nobody named');
+            $handler = $this->authHandler('0');
+            $policy = (new \ReflectionProperty($handler, 'policy'))->getValue($handler);
+            (new \ReflectionProperty($policy, 'desktopClients'))->setValue($policy, '10.0.0.5, 172.18.0.0/16');
+            self::assertInstanceOf(OsDesktopPrincipal::class, $handler->handle($surface)?->user, 'named in SEMITEXA_OS_DESKTOP_CLIENTS');
+        } finally {
+            $before === null ? CurrentRequestStore::clear() : CurrentRequestStore::set($before);
+        }
+    }
+
     #[Test]
     public function a_skill_asks_the_gate_s_rule_before_opening_a_window(): void
     {
@@ -210,6 +244,43 @@ final class OsOperatorSurfaceTest extends TestCase
         $response = $handler->handle($payload, new ResourceResponse());
         self::assertSame(404, $response->getStatusCode());
         self::assertStringContainsString("Unknown console skill 'no-such-skill'", (string) $response->getContent());
+    }
+
+    /**
+     * The positive side: a console-only skill (contracts:list, from core's
+     * discovered commands) runs. Through its real manifest and the real
+     * SkillExecutor; only the console command is a stand-in, so nothing is
+     * listed or written. Asked on any other channel, it is unknown, which the
+     * "no-such-skill" check above could not tell apart.
+     */
+    #[Test]
+    public function the_terminal_runs_a_console_only_skill(): void
+    {
+        $console = new \Symfony\Component\Console\Application();
+        $console->setAutoExit(false);
+        $console->add(new class ('contracts:list') extends \Symfony\Component\Console\Command\Command {
+            protected function execute(\Symfony\Component\Console\Input\InputInterface $input, \Symfony\Component\Console\Output\OutputInterface $output): int
+            {
+                $output->write('listed');
+
+                return 0;
+            }
+        });
+        $runner = (new \ReflectionClass(\Semitexa\Os\Application\Service\SkillLoopRunner::class))->newInstanceWithoutConstructor();
+        (new \ReflectionProperty($runner, 'executor'))->setValue($runner, new \Semitexa\Llm\Application\Service\SkillExecutor($console));
+        $handler = new TerminalRunHandler();
+        (new \ReflectionProperty($handler, 'skills'))->setValue($handler, new TenantSkillScope());
+        (new \ReflectionProperty($handler, 'session'))->setValue($handler, self::session());
+        (new \ReflectionProperty($handler, 'runner'))->setValue($handler, $runner);
+        (new \ReflectionProperty($handler, 'skillScope'))->setValue($handler, $this->createWithDependencies(OsSkillScope::class, ['policy' => self::policy('0')]));
+        $payload = new TerminalRunPayload();
+        $payload->setSkill('contracts:list');
+
+        $response = $handler->handle($payload, new ResourceResponse());
+
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getContent());
+        self::assertSame(['skill' => 'contracts:list', 'output' => 'listed', 'error' => null, 'exit_code' => 0], json_decode((string) $response->getContent(), true));
+        self::assertNull((new TenantSkillScope())->manifestFor(SkillScope::unrestricted(), ['web'])->findSkill('contracts:list'), 'a console-only skill: on the web channel it is unknown');
     }
 
     /** An editor was offered Prompts by the shell, the planner and the dialog opener, and its window answered 403. */

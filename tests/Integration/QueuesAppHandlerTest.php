@@ -24,9 +24,11 @@ use Semitexa\Os\Application\Payload\Request\QueuesAppPayload;
 use Semitexa\Os\Application\Payload\Session\OsAdminSessionSegment;
 use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
+use Semitexa\Os\Application\Service\OsPreferences;
 use Semitexa\Os\Application\Service\OsSkillScope;
 use Semitexa\Os\Application\Service\QueuesSkill;
 use Semitexa\Os\Application\Service\SetChillAppSkill;
+use Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface;
 use Semitexa\Platform\User\Domain\Contract\PlatformUserRepositoryInterface;
 use Semitexa\Platform\User\Domain\Enum\UserRole;
 use Semitexa\Platform\User\Domain\Model\PlatformUser;
@@ -153,9 +155,18 @@ final class QueuesAppHandlerTest extends TestCase
     {
         // set-chill-app resolves names against everyone's manifest: it told a
         // tenant admin the app existed, and saved a chip that then refused.
-        $reply = (new SetChillAppSkill())->invoke(['activity' => 'music', 'app' => 'Queues']);
+        $saved = [];
+        $skill = new SetChillAppSkill();
+        (new \ReflectionProperty($skill, 'prefs'))->setValue($skill, $this->createWithDependencies(OsPreferences::class, ['settings' => self::settings($saved)]));
 
-        self::assertStringContainsString('I don\'t know an app called "Queues"', $reply);
+        $reply = $skill->invoke(['activity' => 'music', 'app' => 'Queues']);
+        // An app a tenant admin can open is found: the refusal above is the
+        // operator-only rule, not a manifest that failed to build.
+        $control = $skill->invoke(['activity' => 'music', 'app' => 'Notes']);
+
+        self::assertSame('I don\'t know an app called "Queues". Press the chip and tell me what you\'d like — your next pick sticks.', $reply);
+        self::assertSame('Done — the music chip now opens Notes.', $control);
+        self::assertSame(['music' => 'Notes'], json_decode((string) ($saved['chill_apps'] ?? '[]'), true), 'only the control was saved');
     }
 
     #[Test]
@@ -229,6 +240,26 @@ final class QueuesAppHandlerTest extends TestCase
             'policy' => new OsAuthPolicy(),
             'admins' => $this->createWithDependencies(OsAdminSession::class, ['users' => $users]),
         ]);
+    }
+
+    /** @param array<string, mixed> $saved what was written, by key */
+    private static function settings(array &$saved): SettingsStoreInterface
+    {
+        return new class ($saved) implements SettingsStoreInterface {
+            /** @param array<string, mixed> $saved */
+            public function __construct(private array &$saved) {}
+            public function get(string $moduleKey, string $key): mixed { return $this->saved[$key] ?? null; }
+            public function set(string $moduleKey, string $key, mixed $value): void { $this->saved[$key] = $value; }
+            public function getForUser(string $moduleKey, string $key, string $userId): mixed { return null; }
+            public function setForUser(string $moduleKey, string $key, mixed $value, string $userId): void {}
+            public function claim(string $moduleKey, string $key, mixed $expected, mixed $next): bool { return false; }
+            public function getAll(string $moduleKey): array { return $this->saved; }
+            public function getAllForUser(string $moduleKey, string $userId): array { return []; }
+            public function remove(string $moduleKey, string $key): void { unset($this->saved[$key]); }
+            public function removeForUser(string $moduleKey, string $key, string $userId): void {}
+            public function has(string $moduleKey, string $key): bool { return isset($this->saved[$key]); }
+            public function hasForUser(string $moduleKey, string $key, string $userId): bool { return false; }
+        };
     }
 }
 

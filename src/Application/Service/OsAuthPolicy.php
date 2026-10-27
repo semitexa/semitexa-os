@@ -6,6 +6,9 @@ namespace Semitexa\Os\Application\Service;
 
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\Config;
+use Semitexa\Core\Http\ClientIp;
+use Semitexa\Core\Http\TrustedProxies;
+use Semitexa\Core\Lifecycle\CurrentRequestStore;
 use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\Os\Domain\Enum\WindowMode;
 
@@ -24,6 +27,14 @@ use Semitexa\Os\Domain\Enum\WindowMode;
  * private network from a public one, and with it off the console opens to
  * whoever reaches it: the terminal, the queues, every skill. A web install
  * with '0' asks anyway and logs why, once per process.
+ *
+ * Off on a desktop install means off for the machine's own browser only: a
+ * request from anywhere else (the LAN, through a published port) is asked to
+ * sign in like on the web. Off for every client, the desktop handed whoever
+ * could reach the port the person at the machine, and with it the console.
+ * The app in a container sees the host's browser arrive from the container
+ * network's gateway, not loopback: SEMITEXA_OS_DESKTOP_CLIENTS names it
+ * (IPs or CIDR blocks, comma-separated).
  */
 #[AsService]
 final class OsAuthPolicy
@@ -48,8 +59,14 @@ final class OsAuthPolicy
     #[Config(env: 'SEMITEXA_OS_LOGOUT_PATH', default: '/os/login/out')]
     protected string $logoutPath;
 
+    #[Config(env: 'SEMITEXA_OS_DESKTOP_CLIENTS', default: '')]
+    protected string $desktopClients;
+
     /** Once per process: every request asks. */
     private static bool $warnedWebOptOut = false;
+
+    /** Once per process: the condition is the deployment's, not a request's. */
+    private static bool $warnedRemoteDesktopClient = false;
 
     public function isRequired(): bool
     {
@@ -61,7 +78,46 @@ final class OsAuthPolicy
             StaticLoggerBridge::warning('os', "SEMITEXA_OS_AUTH='{$flag}' is ignored on a web install: the console still asks for a sign-in. Only SEMITEXA_WINDOW_MODE=os (the person's own machine) runs it without one.");
         }
 
-        return self::requiredFor($mode, $flag);
+        if (self::requiredFor($mode, $flag)) {
+            return true;
+        }
+
+        // No request (a command, a worker): nobody else is asking.
+        $request = CurrentRequestStore::get();
+        if ($request === null) {
+            return false;
+        }
+        $client = ClientIp::of($request);
+        if ($this->isDesktopClient($client)) {
+            return false;
+        }
+        if (!self::$warnedRemoteDesktopClient) {
+            self::$warnedRemoteDesktopClient = true;
+            StaticLoggerBridge::warning('os', 'A request from another machine reached a desktop install with sign-in off; it is asked to sign in. If it is this machine\'s own browser (the app in a container sees it arrive from the gateway), list that address in SEMITEXA_OS_DESKTOP_CLIENTS.', [
+                'client' => $client,
+            ]);
+        }
+
+        return true;
+    }
+
+    /** Loopback, or an address SEMITEXA_OS_DESKTOP_CLIENTS names. */
+    private function isDesktopClient(string $address): bool
+    {
+        $address = strtolower(trim($address));
+        if (str_starts_with($address, '::ffff:')) {
+            $address = substr($address, 7);
+        }
+        if ($address === '::1' || TrustedProxies::matches($address, '127.0.0.0/8')) {
+            return true;
+        }
+        foreach (explode(',', $this->desktopClients ?? '') as $entry) {
+            if (trim($entry) !== '' && TrustedProxies::matches($address, trim($entry))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

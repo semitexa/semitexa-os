@@ -27,6 +27,10 @@ final class ClaimDesktopCalendarTest extends TestCase
     /** @var array<string, string|false> */
     private array $env = [];
 
+    /** What the auth context held before the test: put back after it, not wiped. */
+    private ?\Semitexa\Core\Auth\AuthenticatableInterface $userBefore = null;
+    private ?\Semitexa\Core\Auth\AuthResult $resultBefore = null;
+
     protected function setUp(): void
     {
         $this->orm = new OrmManager();
@@ -34,6 +38,8 @@ final class ClaimDesktopCalendarTest extends TestCase
         foreach (['SEMITEXA_WINDOW_MODE', 'SEMITEXA_OS_AUTH'] as $name) {
             $this->env[$name] = getenv($name);
         }
+        $this->userBefore = AuthContextStore::getUser();
+        $this->resultBefore = AuthContextStore::getResult();
     }
 
     protected function tearDown(): void
@@ -42,6 +48,12 @@ final class ClaimDesktopCalendarTest extends TestCase
             putenv($value === false ? $name : "{$name}={$value}");
         }
         AuthContextStore::clear();
+        if ($this->userBefore !== null) {
+            AuthContextStore::setUser($this->userBefore);
+        }
+        if ($this->resultBefore !== null) {
+            AuthContextStore::setResult($this->resultBefore);
+        }
         $this->orm->shutdown();
     }
 

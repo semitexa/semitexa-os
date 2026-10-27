@@ -16,7 +16,9 @@ use Semitexa\Core\Session\SessionHandlerInterface;
 use Semitexa\Os\Application\Handler\PayloadHandler\OsLoginSubmitHandler;
 use Semitexa\Os\Application\Payload\Request\OsLoginSubmitPayload;
 use Semitexa\Os\Application\Resource\Response\OsLoginResource;
+use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
+use Semitexa\Os\Application\Service\OsPreferences;
 use Semitexa\Platform\User\Application\Service\PasswordHasher;
 use Semitexa\Platform\User\Application\Service\UserAuthenticator;
 use Semitexa\Platform\User\Domain\Contract\PlatformUserRepositoryInterface;
@@ -130,6 +132,63 @@ final class OsLoginFailureLimitTest extends TestCase
             $handler->handle($payload, new OsLoginResource());
         }
         self::assertStringContainsString('Too many failed sign-ins', self::error($handler->handle($payload, new OsLoginResource())));
+    }
+
+    /**
+     * Only failures count: a successful sign-in gives back what it took, or
+     * an office signing in all morning from one address would be refused.
+     */
+    #[Test]
+    public function successful_sign_ins_from_one_address_are_never_limited(): void
+    {
+        $admin = new PlatformUser(id: 'u1', email: 'admin@museum.test', passwordHash: password_hash('the-password', PASSWORD_BCRYPT, ['cost' => 4]), tenantId: 'museum', role: \Semitexa\Platform\User\Domain\Enum\UserRole::Admin);
+        $users = new class ($admin) implements PlatformUserRepositoryInterface {
+            public function __construct(private PlatformUser $user) {}
+            public function findById(string $id): ?PlatformUser { return $this->user; }
+            public function findByEmail(string $email, ?string $tenantId = null): ?PlatformUser { return $email === $this->user->getEmail() ? $this->user : null; }
+            public function findAll(?string $tenantId = null, bool $includeDisabled = false): array { return [$this->user]; }
+            public function save(PlatformUser $user): void {}
+            public function update(PlatformUser $user): void {}
+            public function delete(string $id): void {}
+        };
+        $session = new Session(str_repeat('d', 32), $this->sessions(), 'semitexa_session');
+        $handler = $this->handler($session, $users);
+        $prefs = new OsPreferences();
+        (new \ReflectionProperty($prefs, 'settings'))->setValue($prefs, self::settings());
+        $admins = new OsAdminSession();
+        (new \ReflectionProperty($admins, 'users'))->setValue($admins, $users);
+        (new \ReflectionProperty($admins, 'preferences'))->setValue($admins, $prefs);
+        (new \ReflectionProperty($handler, 'admins'))->setValue($handler, $admins);
+
+        $landed = [];
+        foreach (range(1, 15) as $ignored) {
+            $payload = self::payload('admin@museum.test', self::formToken($session));
+            $payload->setPassword('the-password');
+            $resource = $handler->handle($payload, new OsLoginResource());
+            $landed[] = [$resource->getRedirectUrl(), self::error($resource)];
+        }
+
+        self::assertSame(array_fill(0, 15, ['/os', '']), $landed, 'fifteen sign-ins in a minute, past the ten-failure limit');
+        self::assertSame('Wrong email or password.', self::error($handler->handle(self::payload('admin@museum.test', self::formToken($session)), new OsLoginResource())), 'and the failure budget is untouched');
+    }
+
+    private static function settings(): \Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface
+    {
+        return new class implements \Semitexa\Platform\Settings\Domain\Contract\SettingsStoreInterface {
+            /** @var array<string, mixed> */
+            private array $values = [];
+            public function get(string $moduleKey, string $key): mixed { return $this->values[$key] ?? null; }
+            public function set(string $moduleKey, string $key, mixed $value): void { $this->values[$key] = $value; }
+            public function getForUser(string $moduleKey, string $key, string $userId): mixed { return null; }
+            public function setForUser(string $moduleKey, string $key, mixed $value, string $userId): void {}
+            public function claim(string $moduleKey, string $key, mixed $expected, mixed $next): bool { return false; }
+            public function getAll(string $moduleKey): array { return $this->values; }
+            public function getAllForUser(string $moduleKey, string $userId): array { return []; }
+            public function remove(string $moduleKey, string $key): void { unset($this->values[$key]); }
+            public function removeForUser(string $moduleKey, string $key, string $userId): void {}
+            public function has(string $moduleKey, string $key): bool { return isset($this->values[$key]); }
+            public function hasForUser(string $moduleKey, string $key, string $userId): bool { return false; }
+        };
     }
 
     /** What the sign-in page puts in its form. */

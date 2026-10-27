@@ -49,7 +49,10 @@ final class SettingsPasswordFormTest extends TestCase
     #[Test]
     public function nobody_signed_in_has_no_password_to_change(): void
     {
-        self::assertStringNotContainsString('password-form', $this->render(null));
+        $html = $this->render(null);
+
+        self::assertStringContainsString('<script type="application/json" id="settings-names">', $html, 'the page itself rendered');
+        self::assertStringNotContainsString('password-form', $html);
     }
 
     private function render(?PlatformUser $user): string
