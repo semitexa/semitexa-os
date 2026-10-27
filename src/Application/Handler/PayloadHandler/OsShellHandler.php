@@ -19,6 +19,7 @@ use Semitexa\Os\Application\Service\OsSkillText;
 use Semitexa\Os\Application\Service\InputLayoutStore;
 use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
+use Semitexa\Os\Application\Service\OsConsoleAccess;
 use Semitexa\Os\Application\Service\OsPreferences;
 use Semitexa\Os\Application\Service\OsSkillScope;
 use Semitexa\Os\Application\Service\ProviderHealthCache;
@@ -67,6 +68,10 @@ final class OsShellHandler implements TypedHandlerInterface
     #[InjectAsReadonly]
     protected TenantSkillScope $skills;
 
+    /** Leaves out a window this person's role is refused. */
+    #[InjectAsReadonly]
+    protected OsConsoleAccess $access;
+
     /**
      * The window-hosting mode this install is *permitted* to use. The shell
      * still probes at runtime before it promotes anything (see the shell's
@@ -110,7 +115,7 @@ final class OsShellHandler implements TypedHandlerInterface
         $scope = $this->skillScope->forSession($session);
         $manifest = $scope === null
             ? SkillManifest::emptyFor(SkillLoopRunner::OS_CHANNELS)
-            : $this->skills->manifestFor($scope, SkillLoopRunner::OS_CHANNELS);
+            : $this->access->narrow($this->skills->manifestFor($scope, SkillLoopRunner::OS_CHANNELS));
 
         $skills = [];
         foreach ($manifest->skills() as $skill) {

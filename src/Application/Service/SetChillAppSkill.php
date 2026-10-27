@@ -47,6 +47,10 @@ final class SetChillAppSkill implements InvocableSkillInterface
     #[InjectAsReadonly(optional: true)]
     protected WebAppStore $webApps;
 
+    /** A chip for a window the person is refused opened nothing but a 403. */
+    #[InjectAsReadonly]
+    protected OsConsoleAccess $access;
+
     public function invoke(array $arguments): string
     {
         $activity = $this->normaliseActivity((string) ($arguments['activity'] ?? ''));
@@ -125,6 +129,9 @@ final class SetChillAppSkill implements InvocableSkillInterface
             if (!$skill->isUi() || ($skill->skillClass !== null && TenantSkillScope::isOperatorOnly($skill->skillClass))) {
                 continue;
             }
+            if (isset($this->access) && is_string($skill->entry) && !$this->access->opensEntry($skill->entry)) {
+                continue;
+            }
             $name = mb_strtolower($skill->name);
             if ($name === $needle || str_contains($name, $needle) || str_contains($needle, $name)) {
                 return ['skill' => $skill->name, 'label' => $skill->name];
@@ -136,11 +143,17 @@ final class SetChillAppSkill implements InvocableSkillInterface
         // without semitexa-webapps have no store injected and skip this leg.
         if (isset($this->webApps)) {
             try {
+                $appsOpen = null;
                 foreach ($this->webApps->all() as $app) {
                     $name = mb_strtolower((string) ($app['name'] ?? ''));
                     $host = mb_strtolower((string) ($app['host'] ?? ''));
                     if ($name === '' || !isset($app['id'])) {
                         continue;
+                    }
+                    // One route serves every web app: asked once.
+                    $appsOpen ??= !isset($this->access) || $this->access->opensEntry('/os/webapp/' . rawurlencode((string) $app['id']));
+                    if (!$appsOpen) {
+                        break;
                     }
                     if (str_contains($name, $needle) || str_contains($needle, $name) || str_contains($host, $needle)) {
                         return ['skill' => 'webapp:' . $app['id'], 'label' => (string) $app['name']];

@@ -30,12 +30,21 @@ use Semitexa\Os\Application\Payload\Request\UpdatesAppPayload;
 use Semitexa\Os\Application\Payload\Session\OsAdminSessionSegment;
 use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
+use Semitexa\Os\Application\Service\OsCalendarOwner;
 use Semitexa\Os\Application\Service\OsConsoleAccess;
+use Semitexa\Core\Discovery\AttributeDiscovery;
+use Semitexa\Llm\Domain\Enum\AiArgumentPolicy;
+use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
+use Semitexa\Llm\Domain\Enum\AiExecutionKind;
+use Semitexa\Llm\Domain\Enum\AiRiskLevel;
+use Semitexa\Llm\Domain\Model\SkillEntry;
+use Semitexa\Llm\Domain\Model\SkillManifest;
 use Semitexa\Os\Application\Service\OsSkillScope;
 use Semitexa\Os\Application\Service\OsUpdatesSkill;
 use Semitexa\Os\Application\Service\TerminalSkill;
 use Semitexa\Os\Application\Service\UpdatesSkill;
 use Semitexa\Os\Auth\OsAdminAuthHandler;
+use Semitexa\Os\Auth\OsDesktopAuthHandler;
 use Semitexa\Os\Auth\OsDesktopPrincipal;
 use Semitexa\Os\Domain\Contract\OsContentSurfaceInterface;
 use Semitexa\Os\Domain\Contract\OsOperatorSurfaceInterface;
@@ -167,7 +176,7 @@ final class OsOperatorSurfaceTest extends TestCase
         $user = self::user(UserRole::Admin, 'museum');
 
         foreach (['clinic' => false, 'museum' => true] as $site => $ours) {
-            $auth = $this->authHandler('1');
+            $auth = $this->adminAuthHandler();
             (new \ReflectionProperty($auth, 'admins'))->setValue($auth, $this->admins($user, self::site($site)));
             $auth->setSession(self::session());
             $result = $auth->handle(new \stdClass());
@@ -203,17 +212,128 @@ final class OsOperatorSurfaceTest extends TestCase
         self::assertStringContainsString("Unknown console skill 'no-such-skill'", (string) $response->getContent());
     }
 
+    /** An editor was offered Prompts by the shell, the planner and the dialog opener, and its window answered 403. */
+    #[Test]
+    public function a_window_the_role_is_refused_is_left_out_of_the_manifest(): void
+    {
+        $routes = new class extends AttributeDiscovery {
+            public function __construct() {}
+
+            public function findRoute(string $path, string $method = 'GET'): ?array
+            {
+                return match ($path) {
+                    '/os/app/prompts' => ['class' => PromptsAppPayload::class],
+                    '/os/app/notes' => ['class' => \Semitexa\Os\Application\Payload\Request\NotesAppPayload::class],
+                    default => null,
+                };
+            }
+        };
+        $access = $this->createWithDependencies(OsConsoleAccess::class, ['policy' => self::policy('1'), 'routes' => $routes]);
+        $manifest = (new SkillManifest('semitexa.ai-skills/v1', 'now', [
+            self::uiSkill('Prompts', '/os/app/prompts'),
+            self::uiSkill('Notes', '/os/app/notes?x=1'),
+            self::uiSkill('Elsewhere', '/somewhere'),
+        ]))->forChannels(['ui']);
+
+        AuthContextStore::setUser(new UserPrincipal(self::user(UserRole::Editor, 'museum')));
+        self::assertSame(['Notes', 'Elsewhere'], array_map(static fn (SkillEntry $s): string => $s->name, $access->narrow($manifest)->skills()));
+        self::assertFalse($access->opensEntry('/os/app/prompts'));
+
+        AuthContextStore::setUser(new UserPrincipal(self::user(UserRole::Admin, 'museum')));
+        self::assertCount(3, $access->narrow($manifest)->skills());
+    }
+
+    /** The console's Calendar reads /platform/calendar/events*, which answered 401 on a desktop install. */
+    #[Test]
+    public function on_a_desktop_install_every_protected_route_sees_the_person_and_a_public_one_nobody(): void
+    {
+        $handler = $this->authHandler('0');
+
+        self::assertInstanceOf(OsDesktopPrincipal::class, $handler->handle(new \Semitexa\PlatformUi\Application\Payload\Request\CalendarEventsFeedPayload())?->user);
+        self::assertNull($handler->handle(new OsLoginPayload()), 'the sign-in page is public');
+    }
+
+    /** An event made in chat went to the shared calendar, which the app never shows a signed-in person. */
+    #[Test]
+    public function the_calendar_skills_use_the_person_s_own_calendar(): void
+    {
+        self::assertNull(OsCalendarOwner::current(), 'a command: the shared calendar');
+        AuthContextStore::setUser(new UserPrincipal(self::user(UserRole::Editor, 'museum')));
+        self::assertSame('u1', OsCalendarOwner::current());
+        AuthContextStore::setUser(new OsDesktopPrincipal());
+        self::assertSame('os-desktop', OsCalendarOwner::current());
+    }
+
+    private static function uiSkill(string $name, string $entry): SkillEntry
+    {
+        return new SkillEntry(
+            name: $name, sourceCommand: null, summary: $name, useWhen: $name, avoidWhen: '',
+            riskLevel: AiRiskLevel::Low, confirmation: AiConfirmationMode::Never, supportsDryRun: false,
+            argumentPolicy: AiArgumentPolicy::None, inputs: [], channels: ['ui'], executionKind: AiExecutionKind::DirectCommand,
+            entry: $entry,
+        );
+    }
+
+    #[Test]
+    public function the_dialog_opener_refuses_a_window_the_role_is_refused(): void
+    {
+        $editor = self::user(UserRole::Editor, 'museum');
+        AuthContextStore::setUser(new UserPrincipal($editor));
+        $routes = new class extends AttributeDiscovery {
+            public function __construct() {}
+
+            public function findRoute(string $path, string $method = 'GET'): ?array
+            {
+                return $path === '/os/app/prompts' ? ['class' => PromptsAppPayload::class] : null;
+            }
+        };
+        $handler = new \Semitexa\Os\Application\Handler\PayloadHandler\OpenDialogHandler();
+        foreach ([
+            'session' => self::session(),
+            'skillScope' => $this->createWithDependencies(OsSkillScope::class, ['policy' => self::policy('1'), 'admins' => $this->admins($editor, null)]),
+            'skills' => new TenantSkillScope(),
+            'access' => $this->createWithDependencies(OsConsoleAccess::class, ['policy' => self::policy('1'), 'routes' => $routes]),
+        ] as $property => $value) {
+            (new \ReflectionProperty($handler, $property))->setValue($handler, $value);
+        }
+        $payload = new \Semitexa\Os\Application\Payload\Request\OpenDialogPayload();
+        $payload->setSkill('Prompts');
+
+        $response = $handler->handle($payload, new ResourceResponse());
+
+        self::assertSame(403, $response->getStatusCode(), (string) $response->getContent());
+        self::assertStringContainsString('not open to your account', (string) $response->getContent());
+    }
+
+    /** The desktop person was presented ahead of a real sign-in on every protected route. */
+    #[Test]
+    public function the_desktop_person_comes_last_after_anyone_who_signed_in(): void
+    {
+        $priority = static fn (string $class): int => (new \ReflectionClass($class))->getAttributes(\Semitexa\Auth\Attribute\AsAuthHandler::class)[0]->newInstance()->priority;
+
+        foreach ([OsAdminAuthHandler::class, \Semitexa\Auth\Application\Service\SessionAuthHandler::class, \Semitexa\Api\Auth\MachineAuthHandler::class] as $earlier) {
+            if (class_exists($earlier)) {
+                self::assertLessThan($priority(OsDesktopAuthHandler::class), $priority($earlier), $earlier);
+            }
+        }
+    }
+
     private function gate(): OsAdminGate
     {
         return $this->createWithDependencies(OsAdminGate::class, ['policy' => self::policy('1')]);
     }
 
-    private function authHandler(string $flag): OsAdminAuthHandler
+    private function authHandler(string $flag): OsDesktopAuthHandler
     {
-        $handler = new OsAdminAuthHandler();
+        $handler = new OsDesktopAuthHandler();
         (new \ReflectionProperty($handler, 'policy'))->setValue($handler, self::policy($flag));
 
         return $handler;
+    }
+
+    private function adminAuthHandler(): OsAdminAuthHandler
+    {
+        return new OsAdminAuthHandler();
     }
 
     private static function policy(string $flag): OsAuthPolicy

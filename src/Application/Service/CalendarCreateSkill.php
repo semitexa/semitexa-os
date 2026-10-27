@@ -73,7 +73,7 @@ final class CalendarCreateSkill implements InvocableSkillInterface
         (new CalendarEventDbRepository())->insert(new CalendarEvent(
             id: Uuid7::generate(),
             tenantId: null,
-            userId: null,
+            userId: OsCalendarOwner::current(),
             title: $title,
             startsAt: $start->setTimezone($utc),
             endsAt: $end->setTimezone($utc),

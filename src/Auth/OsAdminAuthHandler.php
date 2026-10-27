@@ -10,8 +10,6 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Auth\AuthResult;
 use Semitexa\Core\Session\SessionInterface;
 use Semitexa\Os\Application\Service\OsAdminSession;
-use Semitexa\Os\Application\Service\OsAuthPolicy;
-use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Platform\User\Auth\UserPrincipal;
 
 /**
@@ -26,18 +24,14 @@ use Semitexa\Platform\User\Auth\UserPrincipal;
  * its customer accounts — and an admin console that accepted whoever that
  * provider returns would let a signed-in customer through its gate.
  *
- * On a desktop install with sign-in off, the console's own routes are
- * presented the person at the machine ({@see OsDesktopPrincipal}); every other
- * route sees who it saw.
+ * On a desktop install with sign-in off, a protected route nobody signed in
+ * to is presented the person at the machine ({@see OsDesktopAuthHandler}).
  */
 #[AsAuthHandler(priority: -10)]
 final class OsAdminAuthHandler implements AuthHandlerInterface
 {
     #[InjectAsReadonly]
     protected OsAdminSession $admins;
-
-    #[InjectAsReadonly]
-    protected OsAuthPolicy $policy;
 
     /** Called by AuthBootstrapper::resolveHandler() with the request's session. */
     protected SessionInterface $session;
@@ -49,10 +43,6 @@ final class OsAdminAuthHandler implements AuthHandlerInterface
 
     public function handle(object $payload): ?AuthResult
     {
-        if ($payload instanceof OsSurfacePayloadInterface && isset($this->policy) && !$this->policy->isRequired()) {
-            return AuthResult::successAsUser(new OsDesktopPrincipal());
-        }
-
         if (!isset($this->admins) || !isset($this->session)) {
             return null;
         }

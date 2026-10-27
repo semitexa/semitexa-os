@@ -8,7 +8,7 @@ use Semitexa\Core\Auth\AuthenticatableInterface;
 
 /**
  * The person at a machine whose console asks for no sign-in (an `os` install,
- * the default there): presented for the console's own routes only.
+ * the default there): presented to its protected routes.
  *
  * Those routes are `#[AsProtectedPayload]`, and with nobody signed in every
  * one of them answered 401 — the shell opened and nothing behind it did. The

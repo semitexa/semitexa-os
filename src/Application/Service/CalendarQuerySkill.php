@@ -43,7 +43,7 @@ final class CalendarQuerySkill implements InvocableSkillInterface
         [$from, $to, $label] = $this->resolveWindow($when, $tz);
 
         $utc = new \DateTimeZone('UTC');
-        $events = (new CalendarEventDbRepository())->findInRange($from->setTimezone($utc), $to->setTimezone($utc), null);
+        $events = (new CalendarEventDbRepository())->findInRange($from->setTimezone($utc), $to->setTimezone($utc), OsCalendarOwner::current());
 
         if ($events === []) {
             return 'Nothing on your calendar ' . $label . '.';

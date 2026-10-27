@@ -14,6 +14,7 @@ use Semitexa\Llm\Application\Service\TenantSkillScope;
 use Semitexa\Llm\Domain\Model\SkillManifest;
 use Semitexa\Os\Application\Payload\Request\OpenDialogPayload;
 use Semitexa\Os\Application\Service\OpenDialogStore;
+use Semitexa\Os\Application\Service\OsConsoleAccess;
 use Semitexa\Os\Application\Service\OsSkillScope;
 use Semitexa\Weave\Domain\Contract\GraphStoreInterface;
 
@@ -40,6 +41,9 @@ final class OpenDialogHandler implements TypedHandlerInterface
     #[InjectAsReadonly]
     protected TenantSkillScope $skills;
 
+    #[InjectAsReadonly]
+    protected OsConsoleAccess $access;
+
     public function handle(OpenDialogPayload $payload, ResourceResponse $resource): ResourceResponse
     {
         $skill = $payload->getSkill();
@@ -57,6 +61,15 @@ final class OpenDialogHandler implements TypedHandlerInterface
                         ? "Unknown skill '{$skill}'."
                         : "Skill '{$skill}' is not a UI-skill (no dialog to open).",
                 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE))
+                ->setHeader('Content-Type', 'application/json');
+        }
+
+        // Its window would refuse this person (an editor and Prompts): say so
+        // here rather than open a window that answers 403.
+        if (isset($this->access) && !$this->access->opensEntry((string) $entry->entry)) {
+            return $resource
+                ->setStatusCode(403)
+                ->setContent((string) json_encode(['error' => "{$entry->name} is not open to your account."], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE))
                 ->setHeader('Content-Type', 'application/json');
         }
 
