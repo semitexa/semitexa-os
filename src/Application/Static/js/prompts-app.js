@@ -3,6 +3,9 @@
 (function(){
   var DATA = JSON.parse(document.getElementById('prompts-data').textContent).prompts || [];
   var byId = {}; DATA.forEach(function(p){ byId[p.id] = p; });
+  // The double-submit CSRF token (the readable XSRF-TOKEN cookie), echoed as
+  // X-CSRF-Token: without it a signed-in POST was answered 403.
+  function csrfToken(){var m=document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);return m?decodeURIComponent(m[1]):'';}
   var sel = null;
   var listEl = document.getElementById('list');
   var mainEl = document.getElementById('main');
@@ -93,7 +96,7 @@
 
   async function post(body){
     var r = await fetch('/os/prompts/save', {method:'POST',
-      headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(body)});
+      headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-Token':csrfToken()}, body: JSON.stringify(body)});
     return r.json();
   }
 

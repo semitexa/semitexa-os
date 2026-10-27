@@ -2,6 +2,9 @@
 // #settings-names, a JSON data block the handler fills.
 var NAMES=JSON.parse(document.getElementById('settings-names').textContent);
 var A0=NAMES.assistant, U0=NAMES.user;
+// The double-submit CSRF token (the readable XSRF-TOKEN cookie), echoed as
+// X-CSRF-Token: without it a signed-in POST was answered 403.
+function csrfToken(){var m=document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);return m?decodeURIComponent(m[1]):'';}
 var an=document.getElementById('assistant'), un=document.getElementById('user'), save=document.getElementById('save'), hint=document.getElementById('hint');
 function setHint(msg, cls){ hint.textContent=msg||''; hint.className='hint'+(cls?' '+cls:''); }
 async function persist(){
@@ -13,7 +16,7 @@ async function persist(){
   if(Object.keys(body).length===0){ setHint('Nothing changed.', ''); return; }
   save.disabled=true; setHint('Saving…', '');
   try{
-    var r=await fetch('/os/preferences',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(body)});
+    var r=await fetch('/os/preferences',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-Token':csrfToken()},body:JSON.stringify(body)});
     var d=await r.json();
     if(d.ok){
       A0=d.assistant_name; U0=d.user_name; an.value=d.assistant_name; un.value=d.user_name;
