@@ -26,6 +26,8 @@ Who opens what, once sign-in is on:
 
 A desktop install (`SEMITEXA_WINDOW_MODE=os`) asks for no sign-in unless `SEMITEXA_OS_AUTH=1`: the person at the machine opens the console and every route that asks for a sign-in. A web install always asks; `SEMITEXA_OS_AUTH=0` is ignored there, with a warning in the log.
 
+Calendar events the assistant made before 2026-10-27 have no owner, and Calendar shows a person only their own. On a desktop install with sign-in off, `bin/semitexa update` hands them to the person at the machine (data patch `semitexa/os:claim-desktop-calendar`); anywhere else nothing tells whose they were, and they stay unowned.
+
 ## What it provides
 
 - The shell at `/os` and sign-in at `/os/login` (sign-out `/os/login/out`); the paths are configurable with `SEMITEXA_OS_SHELL_PATH`, `SEMITEXA_OS_LOGIN_PATH` and `SEMITEXA_OS_LOGOUT_PATH`.

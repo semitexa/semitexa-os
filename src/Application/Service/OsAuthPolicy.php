@@ -54,18 +54,28 @@ final class OsAuthPolicy
     public function isRequired(): bool
     {
         $flag = strtolower(trim($this->authFlag ?? ''));
-        $web = ($this->windowMode ?? WindowMode::Web) === WindowMode::Web;
+        $mode = $this->windowMode ?? WindowMode::Web;
 
-        if ($flag !== '' && in_array($flag, ['1', 'true', 'yes', 'on', 'required'], true)) {
-            return true;
-        }
-
-        if ($flag !== '' && $web && !self::$warnedWebOptOut) {
+        if ($flag !== '' && !self::isOn($flag) && $mode === WindowMode::Web && !self::$warnedWebOptOut) {
             self::$warnedWebOptOut = true;
             StaticLoggerBridge::warning('os', "SEMITEXA_OS_AUTH='{$flag}' is ignored on a web install: the console still asks for a sign-in. Only SEMITEXA_WINDOW_MODE=os (the person's own machine) runs it without one.");
         }
 
-        return $web;
+        return self::requiredFor($mode, $flag);
+    }
+
+    /**
+     * The rule itself, for code built without the container (a data patch):
+     * a web install always asks; a desktop one when SEMITEXA_OS_AUTH is on.
+     */
+    public static function requiredFor(WindowMode $mode, string $flag): bool
+    {
+        return $mode === WindowMode::Web || self::isOn(strtolower(trim($flag)));
+    }
+
+    private static function isOn(string $flag): bool
+    {
+        return in_array($flag, ['1', 'true', 'yes', 'on', 'required'], true);
     }
 
     public function shellPath(): string

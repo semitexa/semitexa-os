@@ -11,7 +11,8 @@ use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
 use Semitexa\Llm\Domain\Enum\AiRiskLevel;
 use Semitexa\Orm\Application\Service\Uuid7;
 use Semitexa\PlatformUi\Domain\Model\CalendarEvent;
-use Semitexa\PlatformUi\Application\Db\MySQL\Repository\CalendarEventDbRepository;
+use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\PlatformUi\Domain\Contract\CalendarEventRepositoryInterface;
 
 /**
  * Create a calendar event by talking to the OS ("schedule a meeting tomorrow at
@@ -42,6 +43,14 @@ use Semitexa\PlatformUi\Application\Db\MySQL\Repository\CalendarEventDbRepositor
 )]
 final class CalendarCreateSkill implements InvocableSkillInterface
 {
+    /**
+     * The container's, which reads the site the request is for: built with
+     * `new`, it had no tenant context and every site's events went to the
+     * default site's calendar.
+     */
+    #[InjectAsReadonly]
+    protected CalendarEventRepositoryInterface $events;
+
     public function invoke(array $arguments): string
     {
         $title = trim((string) ($arguments['title'] ?? ''));
@@ -70,7 +79,7 @@ final class CalendarCreateSkill implements InvocableSkillInterface
 
         $utc = new \DateTimeZone('UTC');
         $now = new \DateTimeImmutable('now', $utc);
-        (new CalendarEventDbRepository())->insert(new CalendarEvent(
+        $this->events->insert(new CalendarEvent(
             id: Uuid7::generate(),
             tenantId: null,
             userId: OsCalendarOwner::current(),
