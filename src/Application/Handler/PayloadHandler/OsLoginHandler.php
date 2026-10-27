@@ -37,7 +37,9 @@ final class OsLoginHandler implements TypedHandlerInterface
     {
         $next = $this->policy->safeReturnPath($payload->getNext());
 
-        if (!$this->policy->isRequired() || $this->admins->isSignedIn($this->sessionOrNull())) {
+        // Signed in for this site only: another site's user was sent back to
+        // the shell, which sent them here, and could not sign in as this one.
+        if (!$this->policy->isRequired() || $this->admins->currentHere($this->sessionOrNull()) !== null) {
             return $resource->setRedirect($next);
         }
 

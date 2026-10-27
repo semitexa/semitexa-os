@@ -10,6 +10,9 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Auth\AuthResult;
 use Semitexa\Core\Session\SessionInterface;
 use Semitexa\Os\Application\Service\OsAdminSession;
+use Semitexa\Os\Application\Service\OsAuthPolicy;
+use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
+use Semitexa\Platform\User\Auth\UserPrincipal;
 
 /**
  * Presents the signed-in OS admin to the auth pipeline.
@@ -22,12 +25,19 @@ use Semitexa\Os\Application\Service\OsAdminSession;
  * to whichever module the host project bound it to — on a public site, plausibly
  * its customer accounts — and an admin console that accepted whoever that
  * provider returns would let a signed-in customer through its gate.
+ *
+ * On a desktop install with sign-in off, the console's own routes are
+ * presented the person at the machine ({@see OsDesktopPrincipal}); every other
+ * route sees who it saw.
  */
 #[AsAuthHandler(priority: -10)]
 final class OsAdminAuthHandler implements AuthHandlerInterface
 {
     #[InjectAsReadonly]
     protected OsAdminSession $admins;
+
+    #[InjectAsReadonly]
+    protected OsAuthPolicy $policy;
 
     /** Called by AuthBootstrapper::resolveHandler() with the request's session. */
     protected SessionInterface $session;
@@ -39,12 +49,19 @@ final class OsAdminAuthHandler implements AuthHandlerInterface
 
     public function handle(object $payload): ?AuthResult
     {
+        if ($payload instanceof OsSurfacePayloadInterface && isset($this->policy) && !$this->policy->isRequired()) {
+            return AuthResult::successAsUser(new OsDesktopPrincipal());
+        }
+
         if (!isset($this->admins) || !isset($this->session)) {
             return null;
         }
 
-        $principal = $this->admins->currentPrincipal($this->session);
+        // A user of this site only: with a session cookie shared across sites
+        // (one host, or a parent-domain cookie), site A's admin was presented
+        // to site B's protected routes.
+        $user = $this->admins->currentHere($this->session);
 
-        return $principal === null ? null : AuthResult::successAsUser($principal);
+        return $user === null ? null : AuthResult::successAsUser(new UserPrincipal($user));
     }
 }

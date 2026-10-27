@@ -7,10 +7,12 @@ namespace Semitexa\Os\Application\Service;
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Session\SessionInterface;
+use Semitexa\Core\Tenant\TenantContextStoreInterface;
 use Semitexa\Os\Application\Payload\Session\OsAdminSessionSegment;
 use Semitexa\Platform\User\Auth\UserPrincipal;
 use Semitexa\Platform\User\Domain\Contract\PlatformUserRepositoryInterface;
 use Semitexa\Platform\User\Domain\Model\PlatformUser;
+use Semitexa\Platform\User\Domain\Service\SiteAccess;
 
 /**
  * The console's own session: who is signed in, and the two acts that change it.
@@ -30,6 +32,10 @@ final class OsAdminSession
 
     #[InjectAsReadonly]
     protected PlatformUserRepositoryInterface $users;
+
+    /** The site the request is for; absent without tenancy. */
+    #[InjectAsReadonly(optional: true)]
+    protected TenantContextStoreInterface $tenants;
 
     /** The signed-in admin, or null when nobody is. */
     public function current(?SessionInterface $session): ?PlatformUser
@@ -59,6 +65,19 @@ final class OsAdminSession
         }
 
         return $user;
+    }
+
+    /**
+     * The signed-in admin if they may act on the site this request is for
+     * ({@see SiteAccess}), or null. Another site's user signed in on this host
+     * got the shell, its skill list and the sign-in page's "already signed in"
+     * redirect here, while every route behind them refused.
+     */
+    public function currentHere(?SessionInterface $session): ?PlatformUser
+    {
+        $user = $this->current($session);
+
+        return $user !== null && SiteAccess::allows($user, isset($this->tenants) ? $this->tenants->tryGet() : null) ? $user : null;
     }
 
     public function currentPrincipal(?SessionInterface $session): ?UserPrincipal

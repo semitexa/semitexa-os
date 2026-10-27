@@ -6,6 +6,7 @@ namespace Semitexa\Os\Application\Service;
 
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\Config;
+use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\Os\Domain\Enum\WindowMode;
 
 /**
@@ -17,9 +18,12 @@ use Semitexa\Os\Domain\Enum\WindowMode;
  * `os` install owns its machine and its screen, and asking that operator to log
  * into their own desktop is ceremony.
  *
- * SEMITEXA_OS_AUTH overrides either way ('1'/'0'), which is how a web install
- * behind a private network opts out, and how a desktop install under test opts
- * in.
+ * SEMITEXA_OS_AUTH='1' turns it on for a desktop install (one under test).
+ * '0' turns it off only there: a web install always asks. It was how a web
+ * install "behind a private network" opted out, but nothing here can tell a
+ * private network from a public one, and with it off the console opens to
+ * whoever reaches it: the terminal, the queues, every skill. A web install
+ * with '0' asks anyway and logs why, once per process.
  */
 #[AsService]
 final class OsAuthPolicy
@@ -44,15 +48,24 @@ final class OsAuthPolicy
     #[Config(env: 'SEMITEXA_OS_LOGOUT_PATH', default: '/os/login/out')]
     protected string $logoutPath;
 
+    /** Once per process: every request asks. */
+    private static bool $warnedWebOptOut = false;
+
     public function isRequired(): bool
     {
         $flag = strtolower(trim($this->authFlag ?? ''));
+        $web = ($this->windowMode ?? WindowMode::Web) === WindowMode::Web;
 
-        if ($flag !== '') {
-            return in_array($flag, ['1', 'true', 'yes', 'on', 'required'], true);
+        if ($flag !== '' && in_array($flag, ['1', 'true', 'yes', 'on', 'required'], true)) {
+            return true;
         }
 
-        return ($this->windowMode ?? WindowMode::Web) === WindowMode::Web;
+        if ($flag !== '' && $web && !self::$warnedWebOptOut) {
+            self::$warnedWebOptOut = true;
+            StaticLoggerBridge::warning('os', "SEMITEXA_OS_AUTH='{$flag}' is ignored on a web install: the console still asks for a sign-in. Only SEMITEXA_WINDOW_MODE=os (the person's own machine) runs it without one.");
+        }
+
+        return $web;
     }
 
     public function shellPath(): string

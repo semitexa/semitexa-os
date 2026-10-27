@@ -24,6 +24,7 @@ use Semitexa\Os\Application\Service\OsSkillScope;
 use Semitexa\Os\Application\Service\ProviderHealthCache;
 use Semitexa\Os\Application\Service\SkillLoopRunner;
 use Semitexa\Os\Domain\Enum\WindowMode;
+use Semitexa\Os\Pipeline\OsAdminGate;
 
 /**
  * Renders the OS shell with boot context: the discovered skills and the LLM
@@ -88,7 +89,9 @@ final class OsShellHandler implements TypedHandlerInterface
         // earned yet.
         $session = isset($this->session) ? $this->session : null;
 
-        if ($this->authPolicy->isRequired() && !$this->admins->isSignedIn($session)) {
+        // A user of another site counts as nobody: the shell rendered for
+        // them, with a manifest and a launcher every route behind refused.
+        if ($this->authPolicy->isRequired() && $this->admins->currentHere($session) === null) {
             if ($session !== null) {
                 $this->admins->rememberIntendedPath($session, $this->authPolicy->shellPath());
             }
@@ -189,13 +192,13 @@ final class OsShellHandler implements TypedHandlerInterface
 
     private function features(?SessionInterface $session): array
     {
-        $role = $this->admins->currentPrincipal($session)?->user->getRole();
+        $role = $this->admins->currentHere($session)?->getRole();
 
         return [
             // A console surface beyond content: an editor's launcher asked
             // for the list and got a refusal.
             'webApps' => class_exists(self::WEB_APPS_PAYLOAD)
-                && (!isset($this->authPolicy) || !$this->authPolicy->isRequired() || $role === UserRole::Owner || $role === UserRole::Admin),
+                && (!isset($this->authPolicy) || !$this->authPolicy->isRequired() || ($role !== null && OsAdminGate::roleOpens($role, self::WEB_APPS_PAYLOAD))),
             // X-Ray is observability: loop internals, provider health, a live
             // trace. Useful to whoever runs the install and noise to whoever
             // uses it — a museum employee reading "Planner over the

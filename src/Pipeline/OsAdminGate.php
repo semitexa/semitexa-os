@@ -16,6 +16,7 @@ use Semitexa\Os\Application\Service\OsAuthPolicy;
 use Semitexa\Os\Application\Payload\Request\PasswordChangePayload;
 use Semitexa\Os\Application\Payload\Request\SettingsAppPayload;
 use Semitexa\Os\Domain\Contract\OsContentSurfaceInterface;
+use Semitexa\Os\Domain\Contract\OsOperatorSurfaceInterface;
 use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Platform\User\Auth\UserPrincipal;
 use Semitexa\Platform\User\Domain\Enum\UserRole;
@@ -35,9 +36,10 @@ use Semitexa\Platform\User\Domain\Service\SiteAccess;
  * principal, and before CsrfListener (priority 10), so a request that has no
  * business here is turned away before anything else spends time on it.
  *
- * Owner and Admin open the whole console. An Editor opens the surfaces marked
- * {@see OsContentSurfaceInterface} and nothing else — which is what makes the
- * role usable at all without making it a second Admin.
+ * An Owner opens the whole console, and alone the surfaces marked
+ * {@see OsOperatorSurfaceInterface}. An Admin opens the rest. An Editor opens
+ * the surfaces marked {@see OsContentSurfaceInterface} and nothing else —
+ * which is what makes the role usable at all without making it a second Admin.
  */
 #[AsPipelineListener(phase: AuthCheck::class, priority: 5)]
 final class OsAdminGate implements PipelineListenerInterface
@@ -95,21 +97,39 @@ final class OsAdminGate implements PipelineListenerInterface
             throw new AccessDeniedException('This account belongs to another site.');
         }
 
-        $role = $principal->user->getRole();
+        if (self::roleOpens($principal->user->getRole(), $context->requestDto)) {
+            return;
+        }
+
+        throw new AccessDeniedException($context->requestDto instanceof OsOperatorSurfaceInterface
+            ? 'Only an owner of this install opens this.'
+            : 'This account is not an operator of this console.');
+    }
+
+    /**
+     * Whether a role opens a console surface (an instance or its class): the
+     * one rule the gate, the shell's launcher and a skill that opens a window
+     * ask ({@see \Semitexa\Os\Application\Service\OsConsoleAccess}).
+     *
+     * @param object|class-string $surface
+     */
+    public static function roleOpens(UserRole $role, object|string $surface): bool
+    {
+        // The terminal, the update journal and the queues are the install's,
+        // not a site's: a site's admin is not their operator.
+        if (is_a($surface, OsOperatorSurfaceInterface::class, true)) {
+            return $role === UserRole::Owner;
+        }
 
         if ($role === UserRole::Owner || $role === UserRole::Admin) {
-            return;
+            return true;
         }
 
-        // An editor's rights are content rights, so they reach the surfaces of
-        // that job and nothing else. The alternative — admitting the role to
-        // everything OsSurfacePayloadInterface covers — would hand a client's
-        // editor the terminal, the assistant's prompts, the process registry and
-        // the update surface along with their pages.
-        if ($role === UserRole::Editor && $context->requestDto instanceof OsContentSurfaceInterface) {
-            return;
-        }
-
-        throw new AccessDeniedException('This account is not an operator of this console.');
+        // An editor (the role left) has content rights, so they reach the
+        // surfaces of that job and nothing else. The alternative — admitting
+        // the role to everything OsSurfacePayloadInterface covers — would hand
+        // a client's editor the terminal, the assistant's prompts, the process
+        // registry and the update surface along with their pages.
+        return is_a($surface, OsContentSurfaceInterface::class, true);
     }
 }

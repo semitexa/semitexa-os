@@ -39,10 +39,16 @@ final class OsAuthPolicyTest extends TestCase
         yield 'empty means follow the window mode' => ['', false];
     }
 
+    /**
+     * Nothing can tell a private network from a public one, and with sign-in
+     * off the console opens to whoever reaches it: the terminal, the queues,
+     * every skill.
+     */
     #[Test]
-    public function an_off_switch_exists_for_a_web_install_behind_a_private_network(): void
+    public function a_web_install_cannot_switch_the_sign_in_off(): void
     {
-        self::assertFalse(self::policy(WindowMode::Web, '0')->isRequired());
+        self::assertTrue(self::policy(WindowMode::Web, '0')->isRequired());
+        self::assertTrue(self::policy(WindowMode::Web, 'off')->isRequired());
     }
 
     #[Test]

@@ -76,7 +76,7 @@ final class OsEditorRoleSurfaceTest extends TestCase
         return new class implements OsContentSurfaceInterface {};
     }
 
-    private function operatorSurface(): object
+    private function consoleSurface(): object
     {
         return new class implements OsSurfacePayloadInterface {};
     }
@@ -99,25 +99,25 @@ final class OsEditorRoleSurfaceTest extends TestCase
     }
 
     #[Test]
-    public function an_editor_is_refused_an_operator_surface(): void
+    public function an_editor_is_refused_a_console_surface_beyond_content(): void
     {
         // The terminal, the prompts, the process registry, the updates surface.
         $this->expectException(AccessDeniedException::class);
-        $this->gate()->handle($this->contextFor(UserRole::Editor, $this->operatorSurface()));
+        $this->gate()->handle($this->contextFor(UserRole::Editor, $this->consoleSurface()));
     }
 
     #[Test]
     public function an_admin_opens_both(): void
     {
         $this->assertAdmitted(UserRole::Admin, $this->contentSurface(), 'a content surface');
-        $this->assertAdmitted(UserRole::Admin, $this->operatorSurface(), 'an operator surface');
+        $this->assertAdmitted(UserRole::Admin, $this->consoleSurface(), 'a console surface');
     }
 
     #[Test]
     public function an_owner_opens_both(): void
     {
         $this->assertAdmitted(UserRole::Owner, $this->contentSurface(), 'a content surface');
-        $this->assertAdmitted(UserRole::Owner, $this->operatorSurface(), 'an operator surface');
+        $this->assertAdmitted(UserRole::Owner, $this->consoleSurface(), 'a console surface');
     }
 
     /**
