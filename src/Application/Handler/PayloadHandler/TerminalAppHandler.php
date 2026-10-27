@@ -21,8 +21,8 @@ use Semitexa\Ssr\Application\Service\Asset\AssetManager;
 /**
  * Renders the Terminal dialog body — a console-skill terminal. Lists the
  * `console`-channel skills (the ones kept out of the main intent-first UI) and
- * runs them via POST /os/skill, streaming output into a log. Standalone HTML
- * (the Focus zone embeds it as an iframe).
+ * runs them via POST /os/terminal/run (TerminalRunHandler), printing the
+ * output into a log. Standalone HTML (the Focus zone embeds it as an iframe).
  */
 #[AsPayloadHandler(payload: TerminalAppPayload::class, resource: ResourceResponse::class)]
 final class TerminalAppHandler implements TypedHandlerInterface

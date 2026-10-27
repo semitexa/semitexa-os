@@ -14,7 +14,7 @@ async function run(name){
   if(!SKILLS.some(function(s){return s.name===name})){ line('<span class="err">unknown console skill: '+esc(name)+'</span>'); return; }
   line('<span class="muted">running…</span>');
   try{
-    var r=await fetch('/os/skill',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-Token':csrfToken()},body:JSON.stringify({intent:'(terminal) '+name,skill:name,arguments:{}})});
+    var r=await fetch('/os/terminal/run',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-Token':csrfToken()},body:JSON.stringify({skill:name})});
     var d=await r.json();
     var o=(d.output||'').replace(/\s+$/,'');
     line(o?esc(o):'<span class="muted">(no output)</span>');

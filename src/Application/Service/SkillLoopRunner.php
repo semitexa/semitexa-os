@@ -1236,7 +1236,7 @@ final class SkillLoopRunner
         return 'web';
     }
 
-    private function executor(): SkillExecutor
+    public function executor(): SkillExecutor
     {
         if ($this->executor === null) {
             $this->consoleApp ??= new ConsoleApplication();

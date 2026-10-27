@@ -18,11 +18,14 @@ use Semitexa\Core\Tenant\TenantContextStoreInterface;
 use Semitexa\Llm\Application\Service\TenantSkillScope;
 use Semitexa\Llm\Domain\Model\SkillScope;
 use Semitexa\Os\Application\Handler\PayloadHandler\OsLoginHandler;
+use Semitexa\Os\Application\Handler\PayloadHandler\TerminalRunHandler;
+use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Os\Application\Payload\Request\OsLoginPayload;
 use Semitexa\Os\Application\Payload\Request\PromptsAppPayload;
 use Semitexa\Os\Application\Resource\Response\OsLoginResource;
 use Semitexa\Os\Application\Payload\Request\QueuesAppPayload;
 use Semitexa\Os\Application\Payload\Request\TerminalAppPayload;
+use Semitexa\Os\Application\Payload\Request\TerminalRunPayload;
 use Semitexa\Os\Application\Payload\Request\UpdatesAppPayload;
 use Semitexa\Os\Application\Payload\Session\OsAdminSessionSegment;
 use Semitexa\Os\Application\Service\OsAdminSession;
@@ -84,7 +87,7 @@ final class OsOperatorSurfaceTest extends TestCase
     #[Test]
     public function the_install_s_surfaces_are_operator_surfaces_and_a_site_s_prompts_are_not(): void
     {
-        foreach ([TerminalAppPayload::class, UpdatesAppPayload::class, QueuesAppPayload::class] as $class) {
+        foreach ([TerminalAppPayload::class, TerminalRunPayload::class, UpdatesAppPayload::class, QueuesAppPayload::class] as $class) {
             self::assertTrue(is_a($class, OsOperatorSurfaceInterface::class, true), $class);
         }
         // Prompt overrides are kept per site: a site's admin edits their own.
@@ -179,6 +182,25 @@ final class OsOperatorSurfaceTest extends TestCase
             // sent there too, and back.
             self::assertSame($ours ? '/os' : null, $page->getRedirectUrl(), "sign-in page on {$site}");
         }
+    }
+
+    /** The Terminal posted to /os/skill, which knows only web and ui skills: every command was "Unknown skill". */
+    #[Test]
+    public function the_terminal_runs_from_its_own_console_manifest(): void
+    {
+        $handler = new TerminalRunHandler();
+        (new \ReflectionProperty($handler, 'skills'))->setValue($handler, new TenantSkillScope());
+        (new \ReflectionProperty($handler, 'session'))->setValue($handler, self::session());
+        $payload = new TerminalRunPayload();
+        $payload->setSkill('no-such-skill');
+
+        (new \ReflectionProperty($handler, 'skillScope'))->setValue($handler, $this->createWithDependencies(OsSkillScope::class, ['policy' => self::policy('1')]));
+        self::assertSame(401, $handler->handle($payload, new ResourceResponse())->getStatusCode(), 'nobody signed in');
+
+        (new \ReflectionProperty($handler, 'skillScope'))->setValue($handler, $this->createWithDependencies(OsSkillScope::class, ['policy' => self::policy('0')]));
+        $response = $handler->handle($payload, new ResourceResponse());
+        self::assertSame(404, $response->getStatusCode());
+        self::assertStringContainsString("Unknown console skill 'no-such-skill'", (string) $response->getContent());
     }
 
     private function gate(): OsAdminGate
