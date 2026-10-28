@@ -160,6 +160,9 @@ final class QueuesAppHandlerTest extends TestCase
         (new \ReflectionProperty($skill, 'prefs'))->setValue($skill, $this->createWithDependencies(OsPreferences::class, ['settings' => self::settings($saved)]));
 
         $reply = $skill->invoke(['activity' => 'music', 'app' => 'Queues']);
+        // Checked now: the control below writes the same key and would
+        // overwrite a chip the refusal had saved anyway.
+        self::assertSame([], $saved, 'the refusal saved nothing');
         // An app a tenant admin can open is found: the refusal above is the
         // operator-only rule, not a manifest that failed to build.
         $control = $skill->invoke(['activity' => 'music', 'app' => 'Notes']);
