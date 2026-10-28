@@ -19,11 +19,13 @@ use Semitexa\Os\Application\Service\OsSkillText;
 use Semitexa\Os\Application\Service\InputLayoutStore;
 use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
+use Semitexa\Os\Application\Service\OsConsoleAccess;
 use Semitexa\Os\Application\Service\OsPreferences;
 use Semitexa\Os\Application\Service\OsSkillScope;
 use Semitexa\Os\Application\Service\ProviderHealthCache;
 use Semitexa\Os\Application\Service\SkillLoopRunner;
 use Semitexa\Os\Domain\Enum\WindowMode;
+use Semitexa\Os\Pipeline\OsAdminGate;
 
 /**
  * Renders the OS shell with boot context: the discovered skills and the LLM
@@ -66,6 +68,10 @@ final class OsShellHandler implements TypedHandlerInterface
     #[InjectAsReadonly]
     protected TenantSkillScope $skills;
 
+    /** Leaves out a window this person's role is refused. */
+    #[InjectAsReadonly]
+    protected OsConsoleAccess $access;
+
     /**
      * The window-hosting mode this install is *permitted* to use. The shell
      * still probes at runtime before it promotes anything (see the shell's
@@ -88,7 +94,9 @@ final class OsShellHandler implements TypedHandlerInterface
         // earned yet.
         $session = isset($this->session) ? $this->session : null;
 
-        if ($this->authPolicy->isRequired() && !$this->admins->isSignedIn($session)) {
+        // A user of another site counts as nobody: the shell rendered for
+        // them, with a manifest and a launcher every route behind refused.
+        if ($this->authPolicy->isRequired() && $this->admins->currentHere($session) === null) {
             if ($session !== null) {
                 $this->admins->rememberIntendedPath($session, $this->authPolicy->shellPath());
             }
@@ -107,7 +115,7 @@ final class OsShellHandler implements TypedHandlerInterface
         $scope = $this->skillScope->forSession($session);
         $manifest = $scope === null
             ? SkillManifest::emptyFor(SkillLoopRunner::OS_CHANNELS)
-            : $this->skills->manifestFor($scope, SkillLoopRunner::OS_CHANNELS);
+            : $this->access->narrow($this->skills->manifestFor($scope, SkillLoopRunner::OS_CHANNELS));
 
         $skills = [];
         foreach ($manifest->skills() as $skill) {
@@ -189,10 +197,13 @@ final class OsShellHandler implements TypedHandlerInterface
 
     private function features(?SessionInterface $session): array
     {
-        $role = $this->admins->currentPrincipal($session)?->user->getRole();
+        $role = $this->admins->currentHere($session)?->getRole();
 
         return [
-            'webApps' => class_exists(self::WEB_APPS_PAYLOAD),
+            // A console surface beyond content: an editor's launcher asked
+            // for the list and got a refusal.
+            'webApps' => class_exists(self::WEB_APPS_PAYLOAD)
+                && (!isset($this->authPolicy) || !$this->authPolicy->isRequired() || ($role !== null && OsAdminGate::roleOpens($role, self::WEB_APPS_PAYLOAD))),
             // X-Ray is observability: loop internals, provider health, a live
             // trace. Useful to whoever runs the install and noise to whoever
             // uses it — a museum employee reading "Planner over the

@@ -23,6 +23,8 @@ use Semitexa\Llm\Domain\Enum\AiRiskLevel;
     confirmation: AiConfirmationMode::Never,
     argumentPolicy: AiArgumentPolicy::None,
     channels: ['web'],
+    // What the Updates app shows, and as much the install's.
+    operatorOnly: true,
 )]
 final class OsUpdatesSkill implements InvocableSkillInterface
 {

@@ -26,6 +26,9 @@
         "semitexa/weave": "*",
         "semitexa/update": "*"
     },
+    "suggest": {
+        "semitexa/webapps": "Registered web apps (YouTube and the like) open as OS dialogs, and a Chill chip can be pointed at one. Not a require: semitexa/webapps requires this package."
+    },
     "require-dev": {
         "semitexa/cms": "*",
         "phpunit/phpunit": "^10.0",
@@ -49,7 +52,11 @@
         },
         "semitexa": {
             "floors": {
+                "semitexa/orm": "next",
                 "semitexa/platform-ui": "2026.10.08.0620",
+                "semitexa/platform-user": "next",
+                "semitexa/core": "next",
+                "semitexa/llm": "next",
                 "semitexa/ssr": "2026.10.14.0919"
             }
         }

@@ -26,6 +26,8 @@ use Semitexa\Llm\Domain\Enum\AiRiskLevel;
     channels: ['ui'],
     icon: 'refresh-cw',
     entry: '/os/app/updates',
+    // The install's versions and update runs, not a site's.
+    operatorOnly: true,
 )]
 final class UpdatesSkill
 {

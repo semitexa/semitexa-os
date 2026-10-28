@@ -243,7 +243,7 @@ final class ConversationStore
         // Tenant-filtered bulk DELETE — a raw unscoped DELETE would wipe EVERY
         // tenant's transcript. `os_conversation_turn` is not live-scope-bound
         // (no #[WatchScopes]), so no invalidation is skipped by going direct.
-        $this->orm()->getAdapter()->execute(
+        $this->orm()->getQueryAdapter()->execute(
             'DELETE FROM `os_conversation_turn` WHERE `tenant_id` = :tenant_id',
             ['tenant_id' => $this->currentTenantId()],
         );

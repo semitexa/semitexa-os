@@ -14,6 +14,11 @@ use Semitexa\Ssr\Application\Service\Seo\Sitemap\NotInSitemap;
  * Public for the same reason as the form itself. The password is carried in a
  * form POST rather than JSON so the browser's own password manager recognises
  * the flow and can offer to store it.
+ *
+ * Failed sign-ins are limited per client address in the handler
+ * (OsLoginSubmitHandler), not here: a limit on the route counted successes
+ * and requests without a valid CSRF token too, so an office signing in at
+ * nine, or any page an employee visited, could lock everyone out.
  */
 #[NotInSitemap]
 #[AsPublicPayload(

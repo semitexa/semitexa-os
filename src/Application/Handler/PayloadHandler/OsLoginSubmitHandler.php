@@ -9,12 +9,15 @@ use Semitexa\Core\Attribute\InjectAsMutable;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Csrf\CsrfToken;
+use Semitexa\Core\RateLimit\RateLimiter;
+use Semitexa\Core\Tenant\TenantContextStoreInterface;
 use Semitexa\Core\Session\SessionInterface;
 use Semitexa\Os\Application\Payload\Request\OsLoginSubmitPayload;
 use Semitexa\Os\Application\Resource\Response\OsLoginResource;
 use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
 use Semitexa\Platform\User\Application\Service\UserAuthenticator;
+use Semitexa\Platform\User\Domain\Service\SiteAccess;
 
 /**
  * Checks one submitted pair and, if it holds up, opens the console.
@@ -46,6 +49,21 @@ final class OsLoginSubmitHandler implements TypedHandlerInterface
     #[InjectAsReadonly]
     protected UserAuthenticator $authenticator;
 
+    /**
+     * Failed sign-ins per client address: the lockout counts guesses at one
+     * account, and nothing counted one client guessing across many. Mutable:
+     * it reads the request it counts (execution-scoped).
+     */
+    #[InjectAsMutable]
+    protected RateLimiter $limiter;
+
+    /** The site the request is for; absent without tenancy. */
+    #[InjectAsReadonly(optional: true)]
+    protected TenantContextStoreInterface $tenants;
+
+    /** @var list<array{int, int}> failures allowed per client address: [count, seconds] */
+    private const FAILURE_LIMITS = [[10, 60], [50, 3600]];
+
 
     public function handle(OsLoginSubmitPayload $payload, OsLoginResource $resource): OsLoginResource
     {
@@ -63,7 +81,28 @@ final class OsLoginSubmitHandler implements TypedHandlerInterface
             return $this->form($resource, $email, $next, 'This form expired. Please try again.');
         }
 
-        $attempt = $this->authenticator->attempt($email, $payload->getPassword());
+        // Counted after the CSRF check, so a page elsewhere cannot burn an
+        // office's budget; taken back when the sign-in succeeds, so only
+        // failures count.
+        $taken = [];
+        foreach (isset($this->limiter) ? self::FAILURE_LIMITS : [] as [$limit, $seconds]) {
+            $decision = $this->limiter->attempt('os-login-failures', $limit, $seconds);
+            if (!$decision->allowed) {
+                foreach ($taken as $earlier) {
+                    $this->limiter->release($earlier);
+                }
+
+                return $this->form($resource, $email, $next, sprintf(
+                    'Too many failed sign-ins from your network. Try again in %d minute%s.',
+                    $minutes = max(1, (int) ceil($decision->retryAfter / 60)),
+                    $minutes === 1 ? '' : 's',
+                ));
+            }
+            $taken[] = $decision;
+        }
+
+        $site = isset($this->tenants) ? $this->tenants->tryGet() : null;
+        $attempt = $this->authenticator->attemptAt($email, $payload->getPassword(), $site);
 
         if (!$attempt->success || $attempt->user === null) {
             $message = $attempt->failure?->isSafeToDisclose() === true && $attempt->lockedUntil !== null
@@ -71,6 +110,17 @@ final class OsLoginSubmitHandler implements TypedHandlerInterface
                 : self::REJECTED;
 
             return $this->form($resource, $email, $next, $message);
+        }
+
+        // attemptAt() only checks accounts this site accepts; kept as the
+        // backstop. Its own answer ("belongs to another site") confirmed the
+        // password was right, so it answers as a wrong one, and counts.
+        if (!SiteAccess::allows($attempt->user, $site)) {
+            return $this->form($resource, $email, $next, self::REJECTED);
+        }
+
+        foreach ($taken as $decision) {
+            $this->limiter->release($decision);
         }
 
         $this->admins->signIn($this->session, $attempt->user);

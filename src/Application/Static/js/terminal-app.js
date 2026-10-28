@@ -1,6 +1,9 @@
 // Terminal app: run console skills by name. The skill list arrives in
 // #terminal-skills, a JSON data block the handler fills.
 var SKILLS = JSON.parse(document.getElementById('terminal-skills').textContent);
+// The double-submit CSRF token (the readable XSRF-TOKEN cookie), echoed as
+// X-CSRF-Token: without it a signed-in POST was answered 403.
+function csrfToken(){var m=document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);return m?decodeURIComponent(m[1]):'';}
 var out=document.getElementById('out'), cmd=document.getElementById('cmd'), chips=document.getElementById('chips');
 function esc(s){return String(s==null?'':s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})}
 SKILLS.forEach(function(s){var b=document.createElement('span');b.className='chip';b.textContent=s.name;b.title=s.summary||'';b.onclick=function(){cmd.value=s.name;cmd.focus()};chips.appendChild(b)});
@@ -11,7 +14,7 @@ async function run(name){
   if(!SKILLS.some(function(s){return s.name===name})){ line('<span class="err">unknown console skill: '+esc(name)+'</span>'); return; }
   line('<span class="muted">running…</span>');
   try{
-    var r=await fetch('/os/skill',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({intent:'(terminal) '+name,skill:name,arguments:{}})});
+    var r=await fetch('/os/terminal/run',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-Token':csrfToken()},body:JSON.stringify({skill:name})});
     var d=await r.json();
     var o=(d.output||'').replace(/\s+$/,'');
     line(o?esc(o):'<span class="muted">(no output)</span>');

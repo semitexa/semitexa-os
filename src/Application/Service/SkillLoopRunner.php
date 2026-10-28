@@ -75,6 +75,9 @@ final class SkillLoopRunner
     #[InjectAsReadonly]
     protected TenantSkillScope $scopes;
 
+    #[InjectAsReadonly]
+    protected OsConsoleAccess $access;
+
     /** Registry of open dialog windows (Focus zone) for UI-skills. */
     #[InjectAsReadonly]
     protected OpenDialogStore $dialogs;
@@ -790,7 +793,7 @@ final class SkillLoopRunner
      */
     private function manifest(SkillScope $scope): ScopedSkillManifest
     {
-        return $this->scopes->manifestFor($scope, self::OS_CHANNELS);
+        return isset($this->access) && !$scope->unrestricted ? $this->access->narrow($this->scopes->manifestFor($scope, self::OS_CHANNELS)) : $this->scopes->manifestFor($scope, self::OS_CHANNELS);
     }
 
     /**
@@ -1236,7 +1239,7 @@ final class SkillLoopRunner
         return 'web';
     }
 
-    private function executor(): SkillExecutor
+    public function executor(): SkillExecutor
     {
         if ($this->executor === null) {
             $this->consoleApp ??= new ConsoleApplication();

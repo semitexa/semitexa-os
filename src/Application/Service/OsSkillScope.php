@@ -37,7 +37,9 @@ final class OsSkillScope
             return SkillScope::unrestricted();
         }
 
-        $admin = isset($this->admins) ? $this->admins->current($session) : null;
+        // Of this site: another site's admin read their own site's skills
+        // here, and an owner's scope is the only one valid on every site.
+        $admin = isset($this->admins) ? $this->admins->currentHere($session) : null;
 
         if ($admin === null) {
             return null;

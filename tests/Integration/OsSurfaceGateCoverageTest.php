@@ -9,6 +9,9 @@ use PHPUnit\Framework\TestCase;
 use Semitexa\Core\Application;
 use Semitexa\Core\Container\ContainerFactory;
 use Semitexa\Core\Discovery\AttributeDiscovery;
+use Semitexa\Core\Discovery\BootDiagnostics;
+use Semitexa\Core\Discovery\BootSeverity;
+use Semitexa\Core\Discovery\BootWarning;
 use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 
 /**
@@ -60,6 +63,26 @@ final class OsSurfaceGateCoverageTest extends TestCase
         $discovery->initialize();
 
         $this->routes = $discovery->getRoutes();
+        // A payload discovery could not read is left out of the routes with
+        // only a boot warning, and every check below passed without it.
+        $this->unread = array_values(array_map(
+            static fn (BootWarning $w): string => "{$w->component}: {$w->message}",
+            array_filter(
+                BootDiagnostics::current()->getWarnings(),
+                static fn (BootWarning $w): bool => $w->severity === BootSeverity::Skip
+                    && ($w->component === 'ClassDiscovery' || str_starts_with($w->message, 'Payload ')),
+            ),
+        ));
+    }
+
+    /** @var list<string> */
+    private array $unread = [];
+
+    /** The checks below see only the routes discovery could read. */
+    #[Test]
+    public function discovery_read_every_payload(): void
+    {
+        self::assertSame([], $this->unread, "Discovery skipped these, so the gate checks never saw their routes:\n  - " . implode("\n  - ", $this->unread));
     }
 
     /**
@@ -131,6 +154,41 @@ final class OsSurfaceGateCoverageTest extends TestCase
             . "PUBLIC_BY_DESIGN with the reason it is open:\n  - "
             . implode("\n  - ", $ungated),
         );
+    }
+
+    /**
+     * Routes under /os, outside /os/app, that are deliberately NOT console
+     * surfaces: the door and the page that sends a visitor to it. The web-app
+     * routes (/os/webapps, /os/webapp/...) were public with no marker, and the
+     * /os/app rule above could not see them.
+     *
+     * @var array<string, string>
+     */
+    private const DOOR = [
+        \Semitexa\Os\Application\Payload\Request\OsShellPayload::class => 'the shell page redirects an anonymous visitor to the sign-in form',
+        \Semitexa\Os\Application\Payload\Request\OsLoginPayload::class => 'the sign-in form',
+        \Semitexa\Os\Application\Payload\Request\OsLoginSubmitPayload::class => 'its submit',
+        \Semitexa\Os\Application\Payload\Request\OsLogoutPayload::class => 'signing out',
+    ];
+
+    #[Test]
+    public function every_os_route_beyond_the_door_is_a_console_surface(): void
+    {
+        $ungated = [];
+        foreach ($this->routes as $route) {
+            $path = (string) ($route['path'] ?? '');
+            $class = (string) ($route['class'] ?? '');
+            // By class, not path: the door's paths come from the environment.
+            if (!($path === '/os' || str_starts_with($path, '/os/')) || self::isConsolePath($path) || array_key_exists($class, self::DOOR)) {
+                continue;
+            }
+            if ($class !== '' && class_exists($class) && !is_subclass_of($class, OsSurfacePayloadInterface::class)) {
+                $ungated[] = $path . '  [' . $class . ']';
+            }
+        }
+        sort($ungated);
+
+        self::assertSame([], $ungated, "These /os routes are not gated as console surfaces:\n  - " . implode("\n  - ", array_unique($ungated)));
     }
 
     /**

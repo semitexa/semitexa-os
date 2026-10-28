@@ -25,6 +25,9 @@ use Semitexa\Llm\Domain\Enum\AiRiskLevel;
     channels: ['ui'],
     icon: 'terminal',
     entry: '/os/app/terminal',
+    // The install's console skills; the gate refuses a site's admin too
+    // (OsOperatorSurfaceInterface), this keeps the icon out of their launcher.
+    operatorOnly: true,
 )]
 final class TerminalSkill
 {

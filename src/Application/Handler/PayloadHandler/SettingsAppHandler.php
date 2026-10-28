@@ -5,17 +5,21 @@ declare(strict_types=1);
 namespace Semitexa\Os\Application\Handler\PayloadHandler;
 
 use Semitexa\Core\Attribute\AsPayloadHandler;
+use Semitexa\Core\Attribute\InjectAsMutable;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Http\CspNonce;
 use Semitexa\Core\Http\Response\ResourceResponse;
+use Semitexa\Core\Session\SessionInterface;
 use Semitexa\Os\Application\Payload\Request\SettingsAppPayload;
+use Semitexa\Os\Application\Service\OsAdminSession;
 use Semitexa\Os\Application\Service\OsPreferences;
 use Semitexa\Ssr\Application\Service\Asset\AssetManager;
 
 /**
- * Renders the Settings dialog body — the OS personalisation form (v0: the
- * assistant's name and the user's own name). Standalone HTML embedded as an
+ * Renders the Settings dialog body — the OS personalisation form (the
+ * assistant's name and the user's own name) and, for a signed-in account, its
+ * password. Standalone HTML embedded as an
  * iframe by the Focus zone (web mode) or opened as its own native window (OS
  * mode). On save it POSTs to /os/preferences — the source of truth — and, in
  * web mode, postMessages the parent shell for an instant update. In OS mode the
@@ -28,6 +32,12 @@ final class SettingsAppHandler implements TypedHandlerInterface
     #[InjectAsReadonly]
     protected OsPreferences $prefs;
 
+    #[InjectAsReadonly]
+    protected OsAdminSession $admins;
+
+    #[InjectAsMutable]
+    protected SessionInterface $session;
+
     public function handle(SettingsAppPayload $payload, ResourceResponse $resource): ResourceResponse
     {
         $prefs = $this->prefs->all();
@@ -36,6 +46,17 @@ final class SettingsAppHandler implements TypedHandlerInterface
             ['assistant' => $prefs['assistant_name'], 'user' => $prefs['user_name']],
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG,
         );
+
+        // A signed-in account changes its own password here (POST /os/password).
+        // The route had no form: a user whose password an operator issued was
+        // sent here after signing in, and nothing else in the console opens
+        // for them until they replace it.
+        $user = isset($this->admins) ? $this->admins->currentHere(isset($this->session) ? $this->session : null) : null;
+        $mustChange = $user !== null && $user->isPasswordIssuedByOperator();
+        $passwordSection = $user === null ? '' : str_replace('%MUST_CHANGE%', $mustChange ? '1' : '0', self::PASSWORD_SECTION);
+        $notice = $mustChange
+            ? '<div class="notice">Your password was set by your operator. Choose your own to use the console.</div>'
+            : '';
 
         $html = <<<'HTML'
 <!DOCTYPE html>
@@ -57,6 +78,8 @@ final class SettingsAppHandler implements TypedHandlerInterface
   .hint{font-size:12px;min-height:16px}
   .ok{color:var(--ok)} .err{color:var(--err)}
   .note{margin-top:20px;font-size:11px;color:var(--faint);line-height:1.5}
+  .notice{margin-bottom:20px;padding:11px 13px;border-radius:9px;border:1px solid var(--accent);color:var(--strong);font-size:13px}
+  h3{margin:28px 0 14px;font-size:14px;font-weight:600;color:var(--strong)}
   :root{color-scheme:dark;--bg:#0c1020;--well:#0a0d18;--text:#cdd9ee;--strong:#eaf2ff;--mute:#6f7d99;--text3:#a8b4cc;--faint:#5b6782;
     --accent:#37b7ff;--btn-text:#04121f;--line-rgb:148,163,184;--ok:#5eead4;--err:#ff9aab}
   :root[data-mode=light]{color-scheme:light;--bg:#f4f7fb;--well:#ffffff;--text:#243447;--strong:#16222e;--mute:#5b6c82;--text3:#3b4c61;--faint:#8593a8;
@@ -66,6 +89,7 @@ final class SettingsAppHandler implements TypedHandlerInterface
 <body>
   <h2>Settings</h2>
   <div class="sub">Personalise your OS.</div>
+  %NOTICE%
   <div class="field">
     <label for="assistant">Assistant name</label>
     <input id="assistant" value="%ANAME_ATTR%" maxlength="24" autocomplete="off" spellcheck="false" placeholder="Solomiia">
@@ -76,6 +100,7 @@ final class SettingsAppHandler implements TypedHandlerInterface
   </div>
   <div class="actions"><button id="save">Save</button><span class="hint" id="hint"></span></div>
   <div class="note">You can also just say it: “call yourself Jarvis”, or “my name is Alex”.</div>
+  %PASSWORD_SECTION%
 <script type="application/json" id="settings-names">%NAMES_JSON%</script>
 <script src="__SETTINGS_APP_JS__"></script>
 </body></html>
@@ -87,6 +112,8 @@ HTML;
             '%ANAME_ATTR%' => $enc($prefs['assistant_name']),
             '%UNAME_ATTR%' => $enc($prefs['user_name']),
             '%NAMES_JSON%' => $namesJson,
+            '%NOTICE%' => $notice,
+            '%PASSWORD_SECTION%' => $passwordSection,
             '__THEME_SYNC_JS__' => AssetManager::getUrl('js/app-theme-sync.js', 'os'),
             '__SETTINGS_APP_JS__' => AssetManager::getUrl('js/settings-app.js', 'os'),
         ]);
@@ -95,4 +122,23 @@ HTML;
             ->setContent(CspNonce::stamp($html))
             ->setHeader('Content-Type', 'text/html; charset=utf-8');
     }
+
+    private const PASSWORD_SECTION = <<<'HTML'
+<h3>Password</h3>
+  <form id="password-form" data-must-change="%MUST_CHANGE%">
+    <div class="field">
+      <label for="current-password">Current password</label>
+      <input id="current-password" type="password" autocomplete="current-password" required>
+    </div>
+    <div class="field">
+      <label for="new-password">New password</label>
+      <input id="new-password" type="password" autocomplete="new-password" required>
+    </div>
+    <div class="field">
+      <label for="repeat-password">New password again</label>
+      <input id="repeat-password" type="password" autocomplete="new-password" required>
+    </div>
+    <div class="actions"><button id="change-password" type="submit">Change password</button><span class="hint" id="password-hint"></span></div>
+  </form>
+HTML;
 }

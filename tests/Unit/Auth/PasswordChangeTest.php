@@ -59,7 +59,13 @@ final class PasswordChangeTest extends TestCase
 
         $users = new class ($current, $this->saved) implements PlatformUserRepositoryInterface {
             public function __construct(private ?PlatformUser $current, private ?PlatformUser &$saved) {}
-            public function update(PlatformUser $user): void { $this->saved = $user; }
+            public function update(PlatformUser $user): void
+            {
+                if (PasswordChangeTest::$staleWrite) {
+                    throw new \Semitexa\Orm\Exception\StaleAggregateException('row_version moved');
+                }
+                $this->saved = $user;
+            }
             public function save(PlatformUser $user): void { $this->saved = $user; }
             public function findById(string $id): ?PlatformUser { return $this->current; }
             public function findByEmail(string $email, ?string $tenantId = null): ?PlatformUser { return $this->current; }
@@ -122,6 +128,25 @@ final class PasswordChangeTest extends TestCase
             'body' => (array) json_decode((string) $resource->getContent(), true),
             'rotated' => $session->regenerated,
         ];
+    }
+
+    /** Set by a test: the next update() finds the row written meanwhile. */
+    public static bool $staleWrite = false;
+
+    /** A sign-in on another device wrote the account between the read and the write: it answered 500. */
+    #[Test]
+    public function a_write_that_lost_the_race_asks_to_try_again(): void
+    {
+        self::$staleWrite = true;
+        try {
+            $out = $this->change($this->user('correct-horse-battery'), 'correct-horse-battery', 'a-new-long-password');
+        } finally {
+            self::$staleWrite = false;
+        }
+
+        $this->assertSame(409, $out['status']);
+        $this->assertStringContainsString('Try again', (string) ($out['body']['error'] ?? ''));
+        $this->assertFalse($out['rotated'], 'nothing changed, so the session stays');
     }
 
     #[Test]

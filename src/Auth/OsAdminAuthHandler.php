@@ -10,6 +10,7 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Auth\AuthResult;
 use Semitexa\Core\Session\SessionInterface;
 use Semitexa\Os\Application\Service\OsAdminSession;
+use Semitexa\Platform\User\Auth\UserPrincipal;
 
 /**
  * Presents the signed-in OS admin to the auth pipeline.
@@ -22,6 +23,9 @@ use Semitexa\Os\Application\Service\OsAdminSession;
  * to whichever module the host project bound it to — on a public site, plausibly
  * its customer accounts — and an admin console that accepted whoever that
  * provider returns would let a signed-in customer through its gate.
+ *
+ * On a desktop install with sign-in off, a protected route nobody signed in
+ * to is presented the person at the machine ({@see OsDesktopAuthHandler}).
  */
 #[AsAuthHandler(priority: -10)]
 final class OsAdminAuthHandler implements AuthHandlerInterface
@@ -43,8 +47,11 @@ final class OsAdminAuthHandler implements AuthHandlerInterface
             return null;
         }
 
-        $principal = $this->admins->currentPrincipal($this->session);
+        // A user of this site only: with a session cookie shared across sites
+        // (one host, or a parent-domain cookie), site A's admin was presented
+        // to site B's protected routes.
+        $user = $this->admins->currentHere($this->session);
 
-        return $principal === null ? null : AuthResult::successAsUser($principal);
+        return $user === null ? null : AuthResult::successAsUser(new UserPrincipal($user));
     }
 }

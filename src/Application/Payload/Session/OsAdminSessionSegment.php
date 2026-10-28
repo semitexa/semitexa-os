@@ -28,6 +28,8 @@ final class OsAdminSessionSegment
 {
     private ?string $userId = null;
     private ?int $signedInAt = null;
+    /** PlatformUser::getCredentialVersion() at sign-in; 0 for a session older than the field. */
+    private int $credentialVersion = 0;
     /** Where the visitor was heading before the form interrupted them. */
     private ?string $intendedPath = null;
 
@@ -39,6 +41,11 @@ final class OsAdminSessionSegment
     public function getSignedInAt(): ?int
     {
         return $this->signedInAt;
+    }
+
+    public function getCredentialVersion(): int
+    {
+        return $this->credentialVersion;
     }
 
     public function isSignedIn(): bool
@@ -59,7 +66,13 @@ final class OsAdminSessionSegment
         $this->signedInAt = $signedInAt;
     }
 
-    public function signIn(string $userId, ?int $at = null): void
+    /** @see the class note — required for rehydration, not for callers. */
+    public function setCredentialVersion(?int $credentialVersion): void
+    {
+        $this->credentialVersion = $credentialVersion ?? 0;
+    }
+
+    public function signIn(string $userId, ?int $at = null, int $credentialVersion = 0): void
     {
         $userId = trim($userId);
         if ($userId === '') {
@@ -68,6 +81,7 @@ final class OsAdminSessionSegment
 
         $this->userId = $userId;
         $this->signedInAt = $at ?? time();
+        $this->credentialVersion = $credentialVersion;
         $this->intendedPath = null;
     }
 
@@ -75,6 +89,7 @@ final class OsAdminSessionSegment
     {
         $this->userId = null;
         $this->signedInAt = null;
+        $this->credentialVersion = 0;
         $this->intendedPath = null;
     }
 

@@ -9,7 +9,8 @@ use Semitexa\Llm\Domain\Contract\InvocableSkillInterface;
 use Semitexa\Llm\Domain\Enum\AiArgumentPolicy;
 use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
 use Semitexa\Llm\Domain\Enum\AiRiskLevel;
-use Semitexa\PlatformUi\Application\Db\MySQL\Repository\CalendarEventDbRepository;
+use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\PlatformUi\Domain\Contract\CalendarEventRepositoryInterface;
 
 /**
  * Gives the OS planner calendar awareness: reads events from the platform
@@ -33,6 +34,14 @@ use Semitexa\PlatformUi\Application\Db\MySQL\Repository\CalendarEventDbRepositor
 )]
 final class CalendarQuerySkill implements InvocableSkillInterface
 {
+    /**
+     * The container's, which reads the site the request is for: built with
+     * `new`, it had no tenant context and every site's events went to the
+     * default site's calendar.
+     */
+    #[InjectAsReadonly]
+    protected CalendarEventRepositoryInterface $events;
+
     public function invoke(array $arguments): string
     {
         $when = strtolower(trim((string) ($arguments['when'] ?? '')));
@@ -43,7 +52,7 @@ final class CalendarQuerySkill implements InvocableSkillInterface
         [$from, $to, $label] = $this->resolveWindow($when, $tz);
 
         $utc = new \DateTimeZone('UTC');
-        $events = (new CalendarEventDbRepository())->findInRange($from->setTimezone($utc), $to->setTimezone($utc), null);
+        $events = $this->events->findInRange($from->setTimezone($utc), $to->setTimezone($utc), OsCalendarOwner::current());
 
         if ($events === []) {
             return 'Nothing on your calendar ' . $label . '.';

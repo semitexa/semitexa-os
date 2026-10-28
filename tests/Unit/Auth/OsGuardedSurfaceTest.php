@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use Semitexa\Authorization\Attribute\AsProtectedPayload;
 use Semitexa\Core\Attribute\AsPublicPayload;
 use Semitexa\Os\Domain\Contract\OsContentSurfaceInterface;
+use Semitexa\Os\Domain\Contract\OsOperatorSurfaceInterface;
 use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 
 /**
@@ -49,12 +50,14 @@ final class OsGuardedSurfaceTest extends TestCase
                 $public[] = $file;
             }
 
-            // Either marker counts: OsContentSurfaceInterface extends the other,
-            // so a payload carrying it is just as visible to OsAdminGate — it
-            // has additionally said which audience it belongs to. Checking only
-            // the base name would read every content surface as unmarked.
+            // Any marker counts: OsContentSurfaceInterface and
+            // OsOperatorSurfaceInterface extend the base one, so a payload
+            // carrying either is just as visible to OsAdminGate — it has
+            // additionally said which audience it belongs to. Checking only the
+            // base name would read every such surface as unmarked.
             $marked = str_contains($source, self::shortName(OsSurfacePayloadInterface::class))
-                || str_contains($source, self::shortName(OsContentSurfaceInterface::class));
+                || str_contains($source, self::shortName(OsContentSurfaceInterface::class))
+                || str_contains($source, self::shortName(OsOperatorSurfaceInterface::class));
 
             if (!$marked) {
                 $unmarked[] = $file;
@@ -73,6 +76,7 @@ final class OsGuardedSurfaceTest extends TestCase
         // fall out of OsAdminGate's reach and answer any signed-in site
         // customer — the exact hole this suite exists to keep closed.
         self::assertTrue(is_a(OsContentSurfaceInterface::class, OsSurfacePayloadInterface::class, true));
+        self::assertTrue(is_a(OsOperatorSurfaceInterface::class, OsSurfacePayloadInterface::class, true));
     }
 
     #[Test]
