@@ -11,15 +11,15 @@
     ],
     "require": {
         "php": "^8.4",
-        "semitexa/core": ">=2026.09.17.1037 || dev-master",
+        "semitexa/core": ">=2026.10.29.1052 || dev-master",
         "semitexa/auth": "*",
         "semitexa/authorization": "*",
-        "semitexa/platform-user": "*",
-        "semitexa/llm": "*",
+        "semitexa/platform-user": ">=2026.10.29.1052 || dev-master",
+        "semitexa/llm": ">=2026.10.29.1052 || dev-master",
         "semitexa/prompt": ">=2026.09.16.0602 || dev-master",
         "semitexa/locale": "*",
         "semitexa/ssr": ">=2026.10.14.0919 || dev-master",
-        "semitexa/orm": "*",
+        "semitexa/orm": ">=2026.10.29.1052 || dev-master",
         "semitexa/platform-settings": "*",
         "semitexa/platform-ui": ">=2026.10.08.0620 || dev-master",
         "semitexa/theme": "*",
@@ -52,11 +52,11 @@
         },
         "semitexa": {
             "floors": {
-                "semitexa/orm": "next",
+                "semitexa/orm": "2026.10.29.1052",
                 "semitexa/platform-ui": "2026.10.08.0620",
-                "semitexa/platform-user": "next",
-                "semitexa/core": "next",
-                "semitexa/llm": "next",
+                "semitexa/platform-user": "2026.10.29.1052",
+                "semitexa/core": "2026.10.29.1052",
+                "semitexa/llm": "2026.10.29.1052",
                 "semitexa/ssr": "2026.10.14.0919"
             }
         }
