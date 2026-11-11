@@ -32,14 +32,23 @@ use Semitexa\Os\Application\Service\ProcessRegistry;
  */
 final class BestEffortWritesJoinTransactionTest extends TestCase
 {
+    /** @var array<string, mixed> the CLI store as the test found it, put back after (review) */
+    private array $savedCliStore = [];
+
     protected function setUp(): void
     {
+        $this->savedCliStore = self::cliStore()->getValue();
         CoroutineLocal::resetCliStore();
     }
 
     protected function tearDown(): void
     {
-        CoroutineLocal::resetCliStore();
+        self::cliStore()->setValue(null, $this->savedCliStore);
+    }
+
+    private static function cliStore(): \ReflectionProperty
+    {
+        return new \ReflectionProperty(CoroutineLocal::class, 'cliStore');
     }
 
     #[Test]
@@ -70,11 +79,12 @@ final class BestEffortWritesJoinTransactionTest extends TestCase
         $this->requireMysql();
         $tenant = 'tx-probe-' . bin2hex(random_bytes(6));
         $rows = null;
+        $inside = null;
         $failure = null;
         $hooks = \Swoole\Runtime::getHookFlags();
         \Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
         try {
-            \Swoole\Coroutine\run(function () use ($tenant, &$rows, &$failure): void {
+            \Swoole\Coroutine\run(function () use ($tenant, &$rows, &$inside, &$failure): void {
                 $orm = new OrmManager();
                 try {
                     $store = (new \ReflectionClass(ConversationSummaryStore::class))->newInstanceWithoutConstructor();
@@ -82,8 +92,13 @@ final class BestEffortWritesJoinTransactionTest extends TestCase
                     $store->withTenantContextStore(self::storeFor($tenant));
                     $probe = new \RuntimeException('deliberate rollback');
                     try {
-                        $orm->getTransactionManager()->run(static function () use ($store, $probe): void {
+                        $orm->getTransactionManager()->run(static function () use ($orm, $store, $probe, $tenant, &$inside): void {
                             $store->save('summary', 'intent', 'turn-1');
+                            // The write happened, in this transaction: a no-op save() would pass the rollback check alone (review).
+                            $inside = $orm->getQueryAdapter()->execute(
+                                'SELECT summary_text FROM `os_conversation_summary` WHERE tenant_id = :t',
+                                ['t' => $tenant],
+                            )->rows[0]['summary_text'] ?? null;
                             throw $probe;
                         });
                     } catch (\RuntimeException $e) {
@@ -117,6 +132,7 @@ final class BestEffortWritesJoinTransactionTest extends TestCase
         if ($failure !== null) {
             throw $failure;
         }
+        self::assertSame('summary', $inside, 'the summary was written inside the transaction');
         self::assertSame(0, $rows, 'the summary rolled back with the transaction');
     }
 
