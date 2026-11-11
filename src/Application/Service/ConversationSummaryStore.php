@@ -10,6 +10,8 @@ use Semitexa\Core\Log\FallbackErrorLogger;
 use Semitexa\Core\Tenant\TenantContextAccess;
 use Semitexa\Core\Tenant\TenantContextStoreInterface;
 use Semitexa\Orm\Application\Service\OrmBackedStore;
+use Semitexa\Orm\Exception\ConnectionLostException;
+use Semitexa\Orm\Exception\DeadlockException;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
@@ -96,7 +98,7 @@ final class ConversationSummaryStore
     public function save(string $summary, string $activeIntent, string $coveredThroughId): void
     {
         try {
-            $this->orm()->getAdapter()->execute(
+            $this->orm()->getQueryAdapter()->execute(
                 'INSERT INTO `os_conversation_summary`'
                 . ' (`tenant_id`, `summary_text`, `active_intent`, `covered_through_id`, `updated_at`)'
                 . ' VALUES (:tenant_id, :summary_text, :active_intent, :covered_through_id, :updated_at)'
@@ -114,6 +116,7 @@ final class ConversationSummaryStore
                 ],
             );
         } catch (\Throwable $e) {
+            $this->rethrowIfTheTransactionIsGone($e);
             FallbackErrorLogger::log('Conversation summary write dropped', [
                 'exception' => $e::class,
                 'message' => $e->getMessage(),
@@ -132,11 +135,12 @@ final class ConversationSummaryStore
     public function clear(): void
     {
         try {
-            $this->orm()->getAdapter()->execute(
+            $this->orm()->getQueryAdapter()->execute(
                 'DELETE FROM `os_conversation_summary` WHERE `tenant_id` = :tenant_id',
                 ['tenant_id' => $this->currentTenantId()],
             );
         } catch (\Throwable $e) {
+            $this->rethrowIfTheTransactionIsGone($e);
             FallbackErrorLogger::log('Conversation summary clear failed', [
                 'exception' => $e::class,
                 'message' => $e->getMessage(),
@@ -159,5 +163,20 @@ final class ConversationSummaryStore
     private function repository(): DomainRepository
     {
         return $this->domainRepository(ConversationSummaryResource::class, ConversationSummary::class);
+    }
+
+    /**
+     * A best-effort write still may not hide that it ended the caller's
+     * transaction: on a deadlock or a lost connection the server has already
+     * rolled it back, and swallowed, the rest of the unit would run outside it
+     * (tk-getadapter-writes-escape-transactions). Outside a transaction the
+     * write stays best-effort.
+     */
+    private function rethrowIfTheTransactionIsGone(\Throwable $e): void
+    {
+        // Not a lock wait or a query timeout: MySQL rolls back only that statement there.
+        if (($e instanceof DeadlockException || $e instanceof ConnectionLostException) && $this->orm()->getTransactionManager()->isActive()) {
+            throw $e;
+        }
     }
 }

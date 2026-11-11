@@ -9,6 +9,8 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Tenant\TenantContextAccess;
 use Semitexa\Core\Tenant\TenantContextStoreInterface;
 use Semitexa\Orm\Application\Service\OrmBackedStore;
+use Semitexa\Orm\Exception\ConnectionLostException;
+use Semitexa\Orm\Exception\DeadlockException;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Direction;
 use Semitexa\Orm\Repository\DomainRepository;
@@ -236,7 +238,7 @@ final class ProcessRegistry
             $cutoff = (new \DateTimeImmutable())
                 ->modify('-' . self::RETENTION_SECONDS . ' seconds')
                 ->format('Y-m-d H:i:s');
-            $this->orm()->getAdapter()->execute(
+            $this->orm()->getQueryAdapter()->execute(
                 'DELETE FROM `os_process`
                   WHERE tenant_id = :tenant_id
                     AND status IN (:done, :failed)
@@ -248,8 +250,24 @@ final class ProcessRegistry
                     'cutoff' => $cutoff,
                 ],
             );
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            $this->rethrowIfTheTransactionIsGone($e);
             // best-effort housekeeping
+        }
+    }
+
+    /**
+     * A best-effort write still may not hide that it ended the caller's
+     * transaction: on a deadlock or a lost connection the server has already
+     * rolled it back, and swallowed, the rest of the unit would run outside it
+     * (tk-getadapter-writes-escape-transactions). Outside a transaction the
+     * write stays best-effort.
+     */
+    private function rethrowIfTheTransactionIsGone(\Throwable $e): void
+    {
+        // Not a lock wait or a query timeout: MySQL rolls back only that statement there.
+        if (($e instanceof DeadlockException || $e instanceof ConnectionLostException) && $this->orm()->getTransactionManager()->isActive()) {
+            throw $e;
         }
     }
 
