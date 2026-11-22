@@ -86,6 +86,10 @@ final class WeaveNodeAddHandlerParentTest extends TestCase
             $missingMessage = $e->getMessage();
         }
 
+        // The reference message must say something, or the comparison below
+        // would pass on two empty strings (review semitexa-os#33).
+        self::assertStringContainsString('no-such-node', $missingMessage, 'A missing parent is refused, and its message names it.');
+
         try {
             $this->add($store, 'Orphan', $foreign);
             self::fail('A parent in another tenant must be refused.');
