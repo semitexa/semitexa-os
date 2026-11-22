@@ -57,7 +57,8 @@
                 "semitexa/platform-user": "2026.10.29.1052",
                 "semitexa/core": "2026.10.29.1052",
                 "semitexa/llm": "2026.10.29.1052",
-                "semitexa/ssr": "2026.10.14.0919"
+                "semitexa/ssr": "2026.10.14.0919",
+                "semitexa/weave": "next"
             }
         }
     },
