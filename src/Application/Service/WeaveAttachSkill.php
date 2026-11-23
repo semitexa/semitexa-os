@@ -9,6 +9,8 @@ use Semitexa\Llm\Domain\Contract\InvocableSkillInterface;
 use Semitexa\Llm\Domain\Enum\AiArgumentPolicy;
 use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
 use Semitexa\Llm\Domain\Enum\AiRiskLevel;
+use Semitexa\Os\Application\Payload\Request\WeaveAttachPayload;
+use Semitexa\Os\Domain\Contract\OsSurfaceSkillInterface;
 
 /**
  * Intent-route for attaching a real folder to the Weave: "прив'яжи папку
@@ -33,8 +35,14 @@ use Semitexa\Llm\Domain\Enum\AiRiskLevel;
     ],
     channels: ['web'],
 )]
-final class WeaveAttachSkill implements InvocableSkillInterface
+final class WeaveAttachSkill implements InvocableSkillInterface, OsSurfaceSkillInterface
 {
+    /** The shell finishes this skill there; a role refused it is not offered the skill. */
+    public static function surface(): string
+    {
+        return WeaveAttachPayload::class;
+    }
+
     public function invoke(array $arguments): string
     {
         $folder = trim((string) ($arguments['folder'] ?? ''));

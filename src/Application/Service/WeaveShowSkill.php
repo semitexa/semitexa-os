@@ -9,6 +9,8 @@ use Semitexa\Llm\Domain\Contract\InvocableSkillInterface;
 use Semitexa\Llm\Domain\Enum\AiArgumentPolicy;
 use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
 use Semitexa\Llm\Domain\Enum\AiRiskLevel;
+use Semitexa\Os\Application\Payload\Request\WeaveGraphPayload;
+use Semitexa\Os\Domain\Contract\OsSurfaceSkillInterface;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Weave\Domain\Contract\GraphStoreInterface;
 
@@ -33,8 +35,14 @@ use Semitexa\Weave\Domain\Contract\GraphStoreInterface;
     ],
     channels: ['web'],
 )]
-final class WeaveShowSkill implements InvocableSkillInterface
+final class WeaveShowSkill implements InvocableSkillInterface, OsSurfaceSkillInterface
 {
+    /** The shell finishes this skill there; a role refused it is not offered the skill. */
+    public static function surface(): string
+    {
+        return WeaveGraphPayload::class;
+    }
+
     /** Tenant-aware via container injection (SkillLoopRunner's DI resolver). */
     #[InjectAsReadonly]
     protected GraphStoreInterface $graph;

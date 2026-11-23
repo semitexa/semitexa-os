@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Semitexa\Os\Application\Service;
 
+use Semitexa\Auth\Context\AuthContextStore;
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Session\SessionInterface;
 use Semitexa\Llm\Domain\Model\SkillScope;
+use Semitexa\Platform\User\Auth\UserPrincipal;
+use Semitexa\Platform\User\Domain\Model\PlatformUser;
 
 /**
  * Turns "who is signed in" into "which skills exist for them".
@@ -39,8 +42,27 @@ final class OsSkillScope
 
         // Of this site: another site's admin read their own site's skills
         // here, and an owner's scope is the only one valid on every site.
-        $admin = isset($this->admins) ? $this->admins->currentHere($session) : null;
+        return $this->of(isset($this->admins) ? $this->admins->currentHere($session) : null);
+    }
 
+    /**
+     * The same answer for code that runs inside the request and holds no
+     * session: a skill. The person is the one the request was authenticated
+     * as, which the console's auth handler read from the same row.
+     */
+    public function forCurrentRequest(): ?SkillScope
+    {
+        if (!isset($this->policy) || !$this->policy->isRequired()) {
+            return SkillScope::unrestricted();
+        }
+
+        $principal = AuthContextStore::getUser();
+
+        return $this->of($principal instanceof UserPrincipal ? $principal->user : null);
+    }
+
+    private function of(?PlatformUser $admin): ?SkillScope
+    {
         if ($admin === null) {
             return null;
         }
