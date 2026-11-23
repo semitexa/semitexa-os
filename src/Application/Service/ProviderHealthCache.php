@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\Os\Application\Service;
 
 use Semitexa\Core\Attribute\AsService;
+use Semitexa\Core\Attribute\WorkerState;
 use Semitexa\Llm\Domain\Contract\LlmProviderInterface;
 
 /**
@@ -41,6 +42,7 @@ final class ProviderHealthCache
     private const TTL_SECONDS = 30.0;
 
     /** @var array<string, array{0: bool, 1: float}> keyed by provider, model and endpoint */
+    #[WorkerState('Health answers keyed by provider name, model and endpoint, reused for 30 s (an expired entry stays until its key is asked again and overwritten); safe only while provider configuration (the API key included) is worker-wide: a per-tenant key would make this a cross-tenant answer.')]
     private array $answers = [];
 
     public function isHealthy(LlmProviderInterface $provider, ?float $now = null): bool
