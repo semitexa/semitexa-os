@@ -11,6 +11,7 @@ use Semitexa\Core\Discovery\AttributeDiscovery;
 use Semitexa\Llm\Domain\Model\ScopedSkillManifest;
 use Semitexa\Llm\Domain\Model\SkillEntry;
 use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
+use Semitexa\Os\Domain\Contract\OsSurfaceSkillInterface;
 use Semitexa\Os\Pipeline\OsAdminGate;
 use Semitexa\Platform\User\Auth\UserPrincipal;
 
@@ -61,9 +62,11 @@ final class OsConsoleAccess
     }
 
     /**
-     * $manifest without the windows this person would be refused: an editor
-     * was offered Prompts, by the shell, the planner and the dialog opener,
-     * and the window then answered 403.
+     * $manifest without what this person would be refused: an editor was
+     * offered Prompts, by the shell, the planner and the dialog opener, and
+     * the window then answered 403. A chat skill that ends in a refused
+     * surface ({@see OsSurfaceSkillInterface}) goes the same way; one that
+     * declares none stays.
      */
     public function narrow(ScopedSkillManifest $manifest): ScopedSkillManifest
     {
@@ -71,6 +74,18 @@ final class OsConsoleAccess
             return $manifest;
         }
 
-        return $manifest->without(fn (SkillEntry $skill): bool => $skill->isUi() && is_string($skill->entry) && $skill->entry !== '' && !$this->opensEntry($skill->entry));
+        return $manifest->without(fn (SkillEntry $skill): bool => $this->refusesWindow($skill) || $this->refusesSurface($skill));
+    }
+
+    private function refusesWindow(SkillEntry $skill): bool
+    {
+        return $skill->isUi() && is_string($skill->entry) && $skill->entry !== '' && !$this->opensEntry($skill->entry);
+    }
+
+    private function refusesSurface(SkillEntry $skill): bool
+    {
+        $class = $skill->skillClass;
+
+        return is_string($class) && is_a($class, OsSurfaceSkillInterface::class, true) && !$this->opens($class::surface());
     }
 }

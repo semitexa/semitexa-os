@@ -6,10 +6,31 @@ namespace Semitexa\Os\Tests\Unit\Auth;
 
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Semitexa\Auth\Context\AuthContextStore;
 use Semitexa\Core\Pipeline\Exception\AccessDeniedException;
+use Semitexa\Core\Auth\AuthenticatableInterface;
 use Semitexa\Core\Auth\AuthResult;
 use Semitexa\Core\Pipeline\RequestPipelineContext;
+use Semitexa\Llm\Application\Service\SkillRegistry;
+use Semitexa\Llm\Application\Service\TenantSkillScope;
+use Semitexa\Llm\Domain\Enum\AiArgumentPolicy;
+use Semitexa\Llm\Domain\Enum\AiConfirmationMode;
+use Semitexa\Llm\Domain\Enum\AiExecutionKind;
+use Semitexa\Llm\Domain\Enum\AiRiskLevel;
+use Semitexa\Os\Domain\Enum\IntentDecision;
+use Semitexa\Llm\Domain\Model\ScopedSkillManifest;
+use Semitexa\Llm\Domain\Model\SkillEntry;
+use Semitexa\Llm\Domain\Model\SkillManifest;
+use Semitexa\Llm\Domain\Model\SkillScope;
+use Semitexa\Os\Application\Payload\Request\WeaveAttachPayload;
+use Semitexa\Os\Application\Payload\Request\WeaveGraphPayload;
 use Semitexa\Os\Application\Service\OsAuthPolicy;
+use Semitexa\Os\Application\Service\OsConsoleAccess;
+use Semitexa\Os\Application\Service\OsSkillScope;
+use Semitexa\Os\Application\Service\OsStatusSkill;
+use Semitexa\Os\Application\Service\SkillLoopRunner;
+use Semitexa\Os\Application\Service\WeaveAttachSkill;
+use Semitexa\Os\Application\Service\WeaveShowSkill;
 use Semitexa\Os\Domain\Contract\OsContentSurfaceInterface;
 use Semitexa\Os\Domain\Contract\OsSurfacePayloadInterface;
 use Semitexa\Os\Pipeline\OsAdminGate;
@@ -34,6 +55,29 @@ use Semitexa\Testing\Traits\BuildsContainerManagedObjects;
 final class OsEditorRoleSurfaceTest extends TestCase
 {
     use BuildsContainerManagedObjects;
+
+    /** Who the process held before the test: the store is global to it, and a test here signs people in. */
+    private ?AuthenticatableInterface $userBefore = null;
+
+    private ?AuthResult $resultBefore = null;
+
+    protected function setUp(): void
+    {
+        $this->userBefore = AuthContextStore::getUser();
+        $this->resultBefore = AuthContextStore::getResult();
+    }
+
+    /** Runs after a failed assertion too, and puts back exactly what was there. */
+    protected function tearDown(): void
+    {
+        AuthContextStore::clear();
+        if ($this->userBefore !== null) {
+            AuthContextStore::setUser($this->userBefore);
+        }
+        if ($this->resultBefore !== null) {
+            AuthContextStore::setResult($this->resultBefore);
+        }
+    }
 
     private function gate(): OsAdminGate
     {
@@ -173,5 +217,159 @@ final class OsEditorRoleSurfaceTest extends TestCase
                 $class . ' is out of reach for the person the role exists for',
             );
         }
+    }
+
+    /**
+     * The chat is a content surface, and it ran what the windows refuse: an
+     * editor asked to see something "in my world" and the skill ran, then the
+     * Workspace it ends in answered 403.
+     */
+    #[Test]
+    public function an_editor_s_chat_loses_the_skills_that_end_in_a_surface_they_are_refused(): void
+    {
+        self::assertSame(WeaveGraphPayload::class, WeaveShowSkill::surface());
+        self::assertSame(WeaveAttachPayload::class, WeaveAttachSkill::surface());
+
+        $manifest = $this->siteManifest();
+        $offered = self::names($manifest);
+        foreach (['show-in-world', 'attach-folder', 'recall', 'remember', 'create-task'] as $skill) {
+            self::assertContains($skill, $offered, $skill . ' is not in a site\'s manifest, so nothing below proves anything');
+        }
+
+        $this->signIn(UserRole::Editor);
+        $left = self::names($this->access()->narrow($manifest));
+
+        self::assertNotContains('show-in-world', $left);
+        self::assertNotContains('attach-folder', $left);
+        // The console is one shared workspace: memory and tasks are common to
+        // everyone admitted, so a skill that ends in the chat stays.
+        foreach (['recall', 'remember', 'create-task'] as $skill) {
+            self::assertContains($skill, $left, $skill);
+        }
+        self::assertSame(array_values(array_diff($offered, ['show-in-world', 'attach-folder'])), $left, 'nothing else goes');
+    }
+
+    #[Test]
+    public function an_admin_s_chat_keeps_every_skill(): void
+    {
+        $manifest = $this->siteManifest();
+        foreach (['show-in-world', 'attach-folder'] as $skill) {
+            self::assertContains($skill, self::names($manifest), $skill . ' is not in a site\'s manifest, so an unchanged one proves nothing');
+        }
+
+        $this->signIn(UserRole::Admin);
+
+        self::assertSame(self::names($manifest), self::names($this->access()->narrow($manifest)));
+    }
+
+    /**
+     * POST /os/approve-skill and /os/pipeline name a skill themselves: no
+     * planner stands between an editor and one it was never offered.
+     */
+    #[Test]
+    public function an_editor_s_direct_approve_of_such_a_skill_is_refused(): void
+    {
+        $runner = $this->createWithDependencies(SkillLoopRunner::class, [
+            'scopes' => new TenantSkillScope(),
+            'access' => $this->access(),
+        ]);
+        $this->signIn(UserRole::Editor);
+
+        $approved = $runner->approveAndExecute('show Anna', 'show-in-world', ['query' => 'Anna'], SkillScope::forTenant('museum'));
+        self::assertSame(IntentDecision::Error, $approved->decision);
+        self::assertSame("Unknown skill 'show-in-world' — rejected.", $approved->error);
+
+        $chained = $runner->executePipeline('attach it', [['skill' => 'attach-folder', 'arguments' => ['folder' => 'x']]], SkillScope::forTenant('museum'), false);
+        self::assertSame(IntentDecision::Error, $chained->decision);
+        self::assertSame("Unknown skill 'attach-folder' in pipeline — rejected.", $chained->error);
+    }
+
+    /** os:status counted the whole install's registry: other sites' skills and the operator's. */
+    #[Test]
+    public function the_status_skill_counts_the_caller_s_own_skills(): void
+    {
+        $policy = $this->createWithDependencies(OsAuthPolicy::class, ['authFlag' => '1']);
+        // A skill is no service: the runner builds it and fills these.
+        $status = new OsStatusSkill();
+        foreach ([
+            'scope' => $this->createWithDependencies(OsSkillScope::class, ['policy' => $policy]),
+            'scopes' => new TenantSkillScope(),
+            'access' => $this->access(),
+        ] as $property => $service) {
+            (new \ReflectionProperty($status, $property))->setValue($status, $service);
+        }
+        $own = (new TenantSkillScope())->manifestFor(SkillScope::forTenant('museum'), SkillLoopRunner::OS_CHANNELS);
+        $install = count((new SkillRegistry())->buildManifest()->skills);
+        self::assertGreaterThan(count($own->skills()), $install, 'the install has skills a site does not, or the counts cannot differ');
+
+        $this->signIn(UserRole::Admin);
+        self::assertSame(count($own->skills()), self::registered($status->invoke([])));
+
+        $this->signIn(UserRole::Editor);
+        self::assertSame(count($own->skills()) - 2, self::registered($status->invoke([])), 'less the two skills an editor is refused');
+
+        AuthContextStore::clear();
+        self::assertSame(0, self::registered($status->invoke([])), 'nobody signed in');
+    }
+
+    private static function registered(string $report): int
+    {
+        self::assertSame(1, preg_match('/^Skills registered : (\d+)$/m', $report, $m), $report);
+
+        return (int) $m[1];
+    }
+
+    private function access(): OsConsoleAccess
+    {
+        return $this->createWithDependencies(OsConsoleAccess::class, [
+            'policy' => $this->createWithDependencies(OsAuthPolicy::class, ['authFlag' => '1']),
+        ]);
+    }
+
+    private function signIn(UserRole $role): void
+    {
+        AuthContextStore::setUser(new UserPrincipal(new PlatformUser(
+            id: 'u1',
+            email: 'editor@example.com',
+            passwordHash: 'x',
+            tenantId: 'museum',
+            role: $role,
+        )));
+    }
+
+    /**
+     * What a site's person is offered in the chat: the real manifest of the
+     * packages installed, and create-task, which semitexa/tasks ships and
+     * this package does not require: a module's skill that declares nothing.
+     */
+    private function siteManifest(): ScopedSkillManifest
+    {
+        $skills = (new TenantSkillScope())->manifestFor(SkillScope::forTenant('museum'), SkillLoopRunner::OS_CHANNELS)->skills();
+
+        if (!in_array('create-task', array_map(static fn (SkillEntry $s): string => $s->name, $skills), true)) {
+            $skills[] = new SkillEntry(
+                name: 'create-task',
+                sourceCommand: null,
+                summary: 'Create a task.',
+                useWhen: '',
+                avoidWhen: '',
+                riskLevel: AiRiskLevel::Low,
+                confirmation: AiConfirmationMode::Never,
+                supportsDryRun: false,
+                argumentPolicy: AiArgumentPolicy::None,
+                inputs: [],
+                channels: ['web'],
+                executionKind: AiExecutionKind::DirectCommand,
+                skillClass: (new class {})::class,
+            );
+        }
+
+        return (new SkillManifest('semitexa.ai-skills/v1', 'now', $skills))->forChannels(SkillLoopRunner::OS_CHANNELS);
+    }
+
+    /** @return list<string> */
+    private static function names(ScopedSkillManifest $manifest): array
+    {
+        return array_map(static fn (SkillEntry $s): string => $s->name, $manifest->skills());
     }
 }
