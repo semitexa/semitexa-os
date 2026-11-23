@@ -23,7 +23,7 @@
         "semitexa/platform-settings": "*",
         "semitexa/platform-ui": ">=2026.10.08.0620 || dev-master",
         "semitexa/theme": "*",
-        "semitexa/weave": "*",
+        "semitexa/weave": ">=2026.11.23.0659 || dev-master",
         "semitexa/update": "*"
     },
     "suggest": {
@@ -58,7 +58,7 @@
                 "semitexa/core": "2026.10.29.1052",
                 "semitexa/llm": "2026.10.29.1052",
                 "semitexa/ssr": "2026.10.14.0919",
-                "semitexa/weave": "next"
+                "semitexa/weave": "2026.11.23.0659"
             }
         }
     },
