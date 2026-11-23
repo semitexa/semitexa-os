@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Semitexa\Auth\Context\AuthContextStore;
 use Semitexa\Core\Pipeline\Exception\AccessDeniedException;
+use Semitexa\Core\Auth\AuthenticatableInterface;
 use Semitexa\Core\Auth\AuthResult;
 use Semitexa\Core\Pipeline\RequestPipelineContext;
 use Semitexa\Llm\Application\Service\SkillRegistry;
@@ -55,9 +56,27 @@ final class OsEditorRoleSurfaceTest extends TestCase
 {
     use BuildsContainerManagedObjects;
 
+    /** Who the process held before the test: the store is global to it, and a test here signs people in. */
+    private ?AuthenticatableInterface $userBefore = null;
+
+    private ?AuthResult $resultBefore = null;
+
+    protected function setUp(): void
+    {
+        $this->userBefore = AuthContextStore::getUser();
+        $this->resultBefore = AuthContextStore::getResult();
+    }
+
+    /** Runs after a failed assertion too, and puts back exactly what was there. */
     protected function tearDown(): void
     {
         AuthContextStore::clear();
+        if ($this->userBefore !== null) {
+            AuthContextStore::setUser($this->userBefore);
+        }
+        if ($this->resultBefore !== null) {
+            AuthContextStore::setResult($this->resultBefore);
+        }
     }
 
     private function gate(): OsAdminGate
@@ -234,6 +253,9 @@ final class OsEditorRoleSurfaceTest extends TestCase
     public function an_admin_s_chat_keeps_every_skill(): void
     {
         $manifest = $this->siteManifest();
+        foreach (['show-in-world', 'attach-folder'] as $skill) {
+            self::assertContains($skill, self::names($manifest), $skill . ' is not in a site\'s manifest, so an unchanged one proves nothing');
+        }
 
         $this->signIn(UserRole::Admin);
 
